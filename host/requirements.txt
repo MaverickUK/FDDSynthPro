@@ -1,0 +1,5 @@
+pytest>=8
+pyserial>=3.5
+# Greaseweazle's host tools (`gw`): the floppy controller that tests the
+# drive, and a third-party MFM decoder for the simulator tests. Not on PyPI.
+greaseweazle @ git+https://github.com/keirf/greaseweazle@v1.23

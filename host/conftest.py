@@ -1,0 +1,97 @@
+"""Shared fixtures for the rig tests.
+
+  drive    the drive's serial log (opened once per session, waits for READY)
+  gw       the host side: a Greaseweazle, driven through `gw`
+  run_dir  a timestamped folder under host/runs/ for this test's evidence;
+           on failure the drive log and the Greaseweazle transcript land there too
+"""
+from __future__ import annotations
+
+import sys
+from datetime import datetime
+
+import pytest
+
+from fddproto.drive_log import DriveLog
+from fddproto.greaseweazle import Greaseweazle
+from fddproto.paths import RUNS
+
+
+def pytest_addoption(parser):
+    parser.addoption("--save-reference", action="store_true",
+                     help="save this run's traces as the new references in host/reference/")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    setattr(item, f"report_{report.when}", report)
+    return report
+
+
+@pytest.fixture(scope="session")
+def session_stamp():
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+@pytest.fixture(scope="session")
+def drive(session_stamp):
+    RUNS.mkdir(parents=True, exist_ok=True)
+    log = DriveLog(raw_log_path=RUNS / f"{session_stamp}-serial.log")
+    log.open()
+    log.ready = log.command("h", "READY", timeout=5)  # "READY FDDSynthPro <version> slice<N>"
+    yield log
+    log.close()
+
+
+@pytest.fixture
+def firmware_slice(drive) -> int:
+    """Which build the board runs: 0 = listen only."""
+    return int(drive.ready.split()[-1].removeprefix("slice"))
+
+
+def require_build(firmware_slice: int, drive_build: bool):
+    """Skips unless the board runs the build the test needs."""
+    if drive_build and firmware_slice == 0:
+        pytest.skip("needs the drive build (not written yet)")
+    if not drive_build and firmware_slice != 0:
+        pytest.skip("needs the listen-only build: scripts/rig.sh ... (PIO_ENV=bb48)")
+
+
+@pytest.fixture
+def gw():
+    """A Greaseweazle, reset to its power-on state before and after the test."""
+    g = Greaseweazle()
+    g.reset()
+    yield g
+    g.reset()
+
+
+@pytest.fixture
+def ask(request):
+    """Shows a message to the person at the rig, even while pytest captures output."""
+    capman = request.config.pluginmanager.getplugin("capturemanager")
+
+    def show(message: str):
+        with capman.global_and_fixture_disabled():
+            print(f"\n>>> {message}", file=sys.stderr, flush=True)
+
+    return show
+
+
+@pytest.fixture
+def run_dir(request, session_stamp):
+    path = RUNS / f"{session_stamp}-{request.node.name}"
+    path.mkdir(parents=True, exist_ok=True)
+    drive_mark = None
+    if "drive" in request.fixturenames:
+        drive_mark = request.getfixturevalue("drive").mark()
+    yield path
+    report = getattr(request.node, "report_call", None)
+    if report is not None and report.failed:
+        if drive_mark is not None:
+            lines = request.getfixturevalue("drive").lines_since(drive_mark)
+            (path / "drive.log").write_text("\n".join(lines) + "\n")
+        if "gw" in request.fixturenames:
+            (path / "gw.log").write_text(request.getfixturevalue("gw").transcript())
+        (path / "failure.txt").write_text(report.longreprtext)

@@ -1,0 +1,9 @@
+.pio/
+.vscode/
+__pycache__/
+.pytest_cache/
+.DS_Store
+host/runs/
+host/.venv/
+src/*.pio.h
+host/rig.env
