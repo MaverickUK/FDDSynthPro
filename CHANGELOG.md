@@ -69,6 +69,13 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
   - a property test that damaging any interval of a real write stores exactly the right sector or nothing (1,500 cases, never wrong data);
   - a virtual PC writing to a failing card, which gets its old data back, then write-protect, then works again after a re-insert.
 
+- **A real DOS disk through the whole drive.**
+  - `mtools` builds a genuine FAT12 disk with a volume label, a fragmented file and a subdirectory.
+  - The virtual PC mounts it through the drive with a minimal DOS (`test/native/dos.h`): it reads the BIOS parameter block, FAT and root directory, reads every file by its cluster chain, and writes a new one (data, both FATs, the directory entry).
+  - `fsck.fat` then finds the disk consistent, and `mtools` reads every file, old and new.
+  - Covered: 1.44 MB, 720 KB (found by rate detection), and a 100 KB file across tracks and both heads (`host/tests/test_dos_disk.py`, `test/tools/dos_session`).
+  - CI installs `mtools` and `dosfstools`.
+
 ### Fixed
 - The test suite failed on CI (GCC): two test files defined different `MemorySource` classes, an ODR violation. One is gone, and each test file's helpers now live in an anonymous namespace.
 

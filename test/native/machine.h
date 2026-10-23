@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "activity.h"
@@ -25,6 +26,9 @@ public:
         for (uint8_t c = 0; c < 80; ++c)
             for (uint8_t h = 0; h < 2; ++h) gen_disk::track(fmt, c, h, &image_[imageTrackOffset(fmt, c, h)]);
     }
+    // A real image (an IMG file's bytes), of the format its size gives.
+    MemorySource(const ibm::Format& fmt, std::vector<uint8_t> image) : fmt_(fmt), image_(std::move(image)) {}
+    const std::vector<uint8_t>& image() const { return image_; }
     const ibm::Format& format() const override { return fmt_; }
     bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override {
         if (c >= 80) return false;

@@ -31,6 +31,7 @@ The OLED screens and controls are designed and tested ahead of the hardware: [do
 
 ```sh
 test/run_native_tests.sh                 # C++ unit tests (no hardware)
+brew install mtools dosfstools           # for the DOS disk tests
 cd host && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/pytest                         # simulator and parser tests (no hardware)
 

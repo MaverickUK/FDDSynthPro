@@ -25,6 +25,8 @@ jobs:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
       - run: pip install platformio -r host/requirements.txt
+      # mtools and fsck.fat check the virtual PC's DOS sessions (test_dos_disk.py).
+      - run: sudo apt-get install -y mtools dosfstools
 
       # Builds first, so a broken build fails fast.
       - run: pio run -e bb48 -e bb48_drive

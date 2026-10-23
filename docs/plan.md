@@ -142,7 +142,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - WGATE and WDATA captured by PIO, decoded from MFM, written back to the image on SD when the head moves or the motor stops. WPT follows a per-image setting.
   - *Before hardware:* the decoder against flux from `gw convert`; the capture program in `pio_sim.py`.
   - **Exit:** `gw write` then `gw read`, 100 images, zero mismatches; the image survives a power cycle.
-- **Slice 6: a real PC, disk swaps and soak.** *A virtual PC already runs a DOS-like session end to end on the Mac (`test/native/test_virtual_pc.cpp`); the real PC waits for hardware.*
+- **Slice 6: a real PC, disk swaps and soak.** *A virtual PC already reads and writes a real FAT12 disk end to end on the Mac, checked by mtools and fsck.fat (`host/tests/test_dos_disk.py`); the real PC waits for hardware.*
   - BIOS boot from the drive, DOS `DIR`, `COPY` and `FORMAT`. A button to change image, with DSKCHG set as a real disk change does.
   - **Exit:** an overnight soak of copies and compares with zero mismatches and zero hangs.
 

@@ -22,4 +22,7 @@ SANITIZE="${SANITIZE:-address,undefined}"
     src/track_write.cpp -o .pio/native-tests/decode_write
 "$CXX" -std=c++17 -O2 -Wall -Wextra -Isrc test/tools/render_events.cpp src/synth.cpp src/wav.cpp \
     -o .pio/native-tests/render_events
+"$CXX" -std=c++17 -O2 -Wall -Wextra -Isrc -Itest/native test/tools/dos_session.cpp src/fdd_signals.cpp \
+    src/head.cpp src/rotation.cpp src/drive.cpp src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp \
+    src/activity.cpp src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp -o .pio/native-tests/dos_session
 .pio/native-tests/run_tests "$@"

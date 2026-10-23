@@ -107,6 +107,8 @@ The loader and `BurstWriter` work through a `DiskSlot`, never an image directly.
 - Core 0's loader steps take `Core0Costs` (3 ms a read, 2.5 ms an encode until the board measures them).
 - The PC reads by watching `Machine::rdataCells` (nothing while `Drive::streams` is false), and writes by feeding `captureInterval`.
 
+`test/native/dos.h` adds just enough DOS (FAT12) on top, and `test/tools/dos_session` runs a session on a real image. `host/tests/test_dos_disk.py` builds that image with `mtools` and checks the result with `mtools` and `fsck.fat` (`brew install mtools dosfstools`; CI installs them). Those tools are the independent judge: don't relax a check to make it pass.
+
 Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's real PC, so new drive behaviour should get a session test here.
 
 ## Sound events
