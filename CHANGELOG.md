@@ -2,6 +2,12 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- A synthesised stand-in sample pack in `samples/Placeholder/`, until a real drive is recorded. It has `spinup`, `spin` (loop), `spindown`, `step`, `seek` (loop), `bump`, `insert` and `eject`, as mono 16-bit 22.05 kHz WAVs.
+- `scripts/make_placeholder_samples.py` regenerates the pack the same way every time; `--demo` writes a short session to listen to.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added

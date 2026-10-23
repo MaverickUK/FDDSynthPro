@@ -13,7 +13,7 @@ Slice 0 (listen only): the firmware records every drive select, motor, side, den
 The drive build (`pio run -e bb48_drive`, slices 1-3) is ready for when the hardware arrives:
 - it tracks the head, and drives TRK00, a 300 RPM index, write protect and disk change;
 - it streams a 720 KB or 1.44 MB image from the SD card on RDATA, or a generated disk without one;
-- it reports what it does as sound events (motor, clicks, seeks, bumps against the end stops, disk changes), ready for the FDD Synth. See [docs/activity.md](docs/activity.md).
+- it reports what it does as sound events (motor, clicks, seeks, bumps against the end stops, disk changes), ready for the FDD Synth. See [docs/activity.md](docs/activity.md), and `samples/Placeholder/` for a synthesised stand-in sample pack.
 
 Its logic is tested on the Mac against virtual hosts (the Feather's firmware and a Greaseweazle's), and its PIO program in a simulator whose output Greaseweazle's own decoder reads back. It has not run on hardware yet.
 

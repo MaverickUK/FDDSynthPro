@@ -56,6 +56,14 @@ samples/<pack>/
 └── eject.wav      optional
 ```
 
+Until a real drive is recorded, `samples/Placeholder/` holds a synthesised stand-in pack (mono, 16-bit, 22.05 kHz), made by `scripts/make_placeholder_samples.py`. It's a rough model of each mechanism, not a recording:
+- `spin` is a motor hum with a once-per-revolution flutter;
+- `step` is a damped tick over a small thump;
+- `seek` loops ticks every 6 ms;
+- `bump` is a heavier, lower tick.
+
+`--demo demo.wav` writes a short session to listen to (`afplay demo.wav` on a Mac). `spin` and `seek` loop seamlessly: whole revolutions and whole steps, with their filters run circularly.
+
 Recording these from a real drive is easiest with a Greaseweazle or the Feather host driving it: `gw seek` to make single steps and seeks on demand, and a short sector loop to keep the motor running.
 
 ## Limits and open questions
