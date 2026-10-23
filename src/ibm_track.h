@@ -36,6 +36,12 @@ struct Format {
     uint32_t dataRate() const { return uint32_t(track_bytes) * 8 * 5; }
     // The bytes the layout uses before gap 4b.
     uint32_t usedBytes() const;
+
+    // Where things are on the track, in bytes from the index: the start of
+    // the 12 x 00 before sector `s`'s ID field and data field (s from 0).
+    // Their sync words follow PRESYNC_BYTES later.
+    uint32_t idFieldStart(uint8_t s) const;
+    uint32_t dataFieldStart(uint8_t s) const;
 };
 
 // Greaseweazle's ibm.1440 and ibm.720 (gap3 108 and 84, the standard gaps

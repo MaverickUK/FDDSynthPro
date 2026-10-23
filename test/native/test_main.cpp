@@ -5,7 +5,8 @@
 // (in test_drive.cpp) the head, spindle and drive model, and (in
 // test_track.cpp) CRC-16, MFM, the IBM track layout and the generated disk,
 // (in test_loader.cpp) image geometry and the cylinder loader, and (in
-// test_activity.cpp) the sound events.
+// test_activity.cpp) the sound events, and (in test_write_decode.cpp) reading
+// writes back: the data separator, field scanner and write interpreter.
 //
 // Run: test/run_native_tests.sh
 #include <cstdio>
@@ -220,6 +221,7 @@ void runDriveTests();
 void runTrackTests();
 void runLoaderTests();
 void runActivityTests();
+void runWriteDecodeTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -243,6 +245,7 @@ int main() {
     runTrackTests();
     runLoaderTests();
     runActivityTests();
+    runWriteDecodeTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

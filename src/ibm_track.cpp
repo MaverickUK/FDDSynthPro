@@ -5,6 +5,15 @@
 
 namespace ibm {
 
+static uint32_t idFieldBytes(const Format& f) { return PRESYNC_BYTES + 4 + 4 + 2 + f.gap2; }
+static uint32_t dataFieldBytes(const Format& f) { return PRESYNC_BYTES + 4 + f.sectorBytes() + 2 + f.gap3; }
+
+uint32_t Format::idFieldStart(uint8_t s) const {
+    return gap4a + PRESYNC_BYTES + 4 + gap1 + s * (idFieldBytes(*this) + dataFieldBytes(*this));
+}
+
+uint32_t Format::dataFieldStart(uint8_t s) const { return idFieldStart(s) + idFieldBytes(*this); }
+
 uint32_t Format::usedBytes() const {
     uint32_t iam = gap4a + PRESYNC_BYTES + 4 + gap1;
     uint32_t id = PRESYNC_BYTES + 4 + 4 + 2 + gap2;

@@ -1,0 +1,51 @@
+#include "track_write.h"
+
+namespace track_write {
+
+// The sector a data field belongs to, or -1.
+static int placeByPosition(const ibm::Format& fmt, uint32_t sync_byte) {
+    for (uint8_t s = 0; s < fmt.sectors; ++s) {
+        uint32_t expected = fmt.dataFieldStart(s) + ibm::PRESYNC_BYTES;
+        uint32_t d = sync_byte > expected ? sync_byte - expected : expected - sync_byte;
+        if (d <= POSITION_SLACK_BYTES) return s;
+    }
+    return -1;
+}
+
+Result interpret(const ibm::Format& fmt, uint8_t cylinder, uint8_t head, uint32_t start_byte,
+                 const mfm::FieldScanner& fields, Update* out, size_t max) {
+    Result r;
+    const mfm::Field* last_id = nullptr;  // the last good ID field in this burst
+    for (size_t i = 0; i < fields.count(); ++i) {
+        const mfm::Field& f = fields.field(i);
+        if (f.mark == mfm::MARK_IDAM) {
+            last_id = f.crc_ok ? &f : nullptr;
+            continue;
+        }
+        if (!f.crc_ok) {
+            ++r.bad_crc;
+            last_id = nullptr;
+            continue;
+        }
+        int sector = -1;
+        if (last_id) {
+            // A track write: the ID before it names the sector.
+            const uint8_t* id = last_id->id;
+            if (id[0] == cylinder && id[1] == head && id[3] == fmt.size_code && id[2] >= 1 && id[2] <= fmt.sectors &&
+                f.data_len == fmt.sectorBytes())
+                sector = id[2] - 1;
+        } else if (f.data_len == fmt.sectorBytes()) {
+            // A sector write: where it landed names the sector.
+            sector = placeByPosition(fmt, start_byte + f.cell / 16);
+        }
+        last_id = nullptr;
+        if (sector < 0) {
+            ++r.unplaced;
+            continue;
+        }
+        if (r.updates < max) out[r.updates++] = Update{uint8_t(sector), f.data_offset};
+    }
+    return r;
+}
+
+}  // namespace track_write
