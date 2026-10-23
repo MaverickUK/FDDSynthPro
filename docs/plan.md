@@ -19,7 +19,7 @@ The prototype proves one thing: an RP2350B can act as a 3.5-inch PC floppy drive
 - Flux images (HFE, SCP), copy-protected disks, non-IBM formats (Amiga ADF, Atari ST, Mac GCR).
 - Image selection UI (buttons, OLED), bus buffers on a PCB, the final board.
 
-**Done means:** a Greaseweazle reads a 1.44 MB image from the drive byte for byte, ten times in a row, and writes and reads back 100 images with zero mismatches; then a real PC boots DOS from it and copies files both ways.
+**Done means:** the host reads a 1.44 MB image from the drive byte for byte, ten times in a row, and writes and reads back 100 images with zero mismatches; then a real PC boots DOS from it and copies files both ways.
 
 ## How a floppy interface differs from IDE
 
@@ -47,16 +47,17 @@ The prototype proves one thing: an RP2350B can act as a 3.5-inch PC floppy drive
 
 ## Test rig
 
-The Mac that builds the firmware also flashes it, drives a Greaseweazle as the floppy controller, and reads the drive's own log over USB serial.
+The Mac that builds the firmware also flashes it, drives the host (the floppy controller) through Greaseweazle's `gw` tools, and reads the drive's own log over USB serial.
 
 | Part | Role |
 |---|---|
 | Olimex RP2350-PICO2-BB48 on a Perma-Proto board | The emulated drive |
 | 34-pin IDC breakout + floppy ribbons (one straight, one PC cable with the twist) | Host connection, wired per [wiring.md](wiring.md) |
 | SN7407N (DIP, hex open-collector buffer, 40 mA sink) | The drive's five outputs |
-| 1 kΩ resistors (or a 10-pin SIP network) to 3.3 V | Termination pull-ups on the drive's ten inputs |
-| Greaseweazle V4.1 | The host under test, driven by `gw` from the Mac |
-| A real 3.5-inch PC floppy drive + 5 V supply | The known-good reference: proves the Greaseweazle setup, and gives real timings and flux to compare with |
+| Two 10-pin SIP resistor networks, 10 kΩ and 1 kΩ, in a socket, to 3.3 V | Termination pull-ups on the drive's ten inputs: 10 kΩ with the FeatherWing, 1 kΩ for a real PC |
+| Feather RP2040 + Adafruit Floppy FeatherWing | The host under test: Adafruit's Greaseweazle-compatible firmware, driven by `gw` from the Mac |
+| Optional: Greaseweazle V4.1 | A second host, running the real Greaseweazle firmware, with both drive selects and full pin access |
+| A real 3.5-inch PC floppy drive + 5 V 2 A supply | The known-good reference: proves the host setup, and gives real timings and flux to compare with |
 | Adafruit SDIO microSD breakout + five 10 kΩ pull-ups | Image storage from slice 3 (as on HDDSynthPro) |
 | Spare Pico 2 as a logic analyser (sigrok) | Traces when a test fails; floppy signals are slow enough for it |
 | Later: a retro PC with a 1.44 MB controller | The real-host test (slice 6) |
@@ -71,20 +72,20 @@ The Mac that builds the firmware also flashes it, drives a Greaseweazle as the f
 
 GPIO 0–3 and 25 are avoided for the same reasons as on HDDSynthPro (the BB48's I2C pull-ups and LED). The inputs are on consecutive pins so one read captures them all, and everything is inside one PIO block's GPIO 0–31 window.
 
-**Drive select:** the firmware watches all four select and motor lines (floppy pins 10, 12, 14, 16). A real PC drive answers on pins 12 (select) and 16 (motor); the cable's twist routes the host's drive A lines there. Slice 0 records which pins `gw --drive A` and `--drive B` use, and slice 1 answers on the ones in `cfg`.
+**Drive select:** the firmware watches all four select and motor lines (floppy pins 10, 12, 14, 16). A real PC drive answers on pins 12 (select) and 16 (motor); the cable's twist routes the host's drive A lines there. The Feather host has one select, `gw --drive A`, on pins 12/16, so a straight cable reaches our drive directly. A Greaseweazle on a straight cable needs `--drive B` for the same pins. Slice 0 records which pins each letter uses.
 
-**Power-order rule:** the BB48 is powered before the Greaseweazle's USB is plugged in, and the Greaseweazle is unplugged before the BB48. There are no buffers on the inputs, and the RP2350's pins are only 5 V tolerant while it is powered.
+**Power-order rule:** the BB48 is powered before the host's USB is plugged in, and the host is unplugged before the BB48. There are no buffers on the inputs, and the RP2350's pins are only 5 V tolerant while it is powered.
 
 ## Automation loop
 
-`scripts/rig.sh -m sliceN` runs the host unit tests, then builds, flashes and runs the rig tests. Every code change gets the full suite with no hands on the rig: the Greaseweazle needs no replugging, and `gw reset` puts it back in a known state between tests.
+`scripts/rig.sh -m sliceN` runs the host unit tests, then builds, flashes and runs the rig tests. Every code change gets the full suite with no hands on the rig: the host needs no replugging, and `gw reset` puts it back in a known state between tests.
 
 - **Flash:** `pio run -t upload` resets the board into the bootloader over serial and loads it with picotool. The runner then waits for the `READY` line.
 - **Host actions:** `host/fddproto/greaseweazle.py` runs `gw` (`seek`, `rpm`, `read`, later `write`) and keeps a transcript.
 - **Tests:** pytest, one marker per slice, so earlier slices re-run as regression tests. The `sim` marker covers the tests that need no hardware.
 
 **Two views of every test.**
-- **Host view:** what the Greaseweazle reports: the sectors it found, the image it read, the RPM it measured.
+- **Host view:** what `gw` reports: the sectors it found, the image it read, the RPM it measured.
 - **Drive view:** the trace streamed over USB serial. A test passes only when both views agree.
 
 **A third-party decoder, without hardware.** `gw convert` turns an IMG into flux (`.scp`) and back. So the drive's own track encoder can be checked against Greaseweazle's decoder on the Mac, long before the first plug-in (`host/tests/test_gw_tools.py` proves the pipeline already).
@@ -132,11 +133,11 @@ Each slice ends in a passing automated test before the next starts. Each one als
 - **Slice 3: images on SD.**
   - IMG/IMA files, geometry from size (720 KB and 1.44 MB to start), one cylinder cached, loaded on each step within the settle time. 720 KB brings the 250 kbit/s rate.
   - *Before hardware:* geometry and cache tests with a fake SD, including how long a load may take.
-  - **Exit:** real images (a DOS boot disk, a full data disk) read byte for byte; seek-heavy reads at the Greaseweazle's fastest step rate.
+  - **Exit:** real images (a DOS boot disk, a full data disk) read byte for byte; seek-heavy reads at the host's fastest step rate.
 - **Slice 4: activity events for the sounds.**
   - Motor spin-up and spin-down, single steps, seeks (with distance), recalibration and the track 0 stop, reading versus idle, disk insert and eject. Printed as `ACT` lines, like HDDSynthPro.
   - *Before hardware:* the classifier, on recorded slice 0–3 traces.
-  - **Exit:** scripted Greaseweazle sessions produce the expected event sequence every time.
+  - **Exit:** scripted `gw` sessions produce the expected event sequence every time.
 - **Slice 5: write.**
   - WGATE and WDATA captured by PIO, decoded from MFM, written back to the image on SD when the head moves or the motor stops. WPT follows a per-image setting.
   - *Before hardware:* the decoder against flux from `gw convert`; the capture program in `pio_sim.py`.
@@ -158,7 +159,8 @@ Each slice ends in a passing automated test before the next starts. Each one als
 
 | Risk | Mitigation |
 |---|---|
-| The Greaseweazle's outputs drive 5 V push-pull, not open collector | Measure them before connecting (bring-up step 3). If they do, add 1 kΩ series resistors on the inputs, or move the pull-ups to 5 V and keep the power-order rule |
+| The FeatherWing's outputs are level-shifted to 5 V, possibly push-pull: against 1 kΩ pull-ups to 3.3 V, each line feeds about 1.7 mA into the BB48's 3.3 V rail | 10 kΩ pull-ups with this host (0.17 mA a line), 1 kΩ only for a real PC. Measure the levels before connecting (bring-up step 3), and keep the power-order rule |
+| The FeatherWing's pull-ups on our outputs are too weak for RDATA's 375 ns pulses to rise cleanly | Look at RDATA with the logic analyser in bring-up. If its edges are slow, add a 1 kΩ pull-up to 5 V at the FeatherWing end, or widen the pulse (`PULSE_CYCLES`) |
 | Noise on STEP gives false steps | The slice 0 trace shows it: steps with no seek around them. A short deglitch on STEP (a few hundred ns) if needed |
 | Wrong power order | The rule above. The SN7407 runs from the BB48's VBUS, so an unpowered BB48 never sinks the outputs |
 | Erratum E9 on A2-stepping RP2350s | Never use internal pull-downs |
@@ -171,7 +173,15 @@ Each slice ends in a passing automated test before the next starts. Each one als
 - It waits 750 ms after turning a motor on, and deselects everything after 10 s of no commands.
 - `gw pin get` reads pins 8, 26 and 28 on every model, and other pins (such as 34) where the board supports them.
 
+**Answered from the Adafruit_Floppy source (0.6.x, 23 Oct 2026), for the Feather host:**
+- One select and one motor line: pins 12 and 16, which `gw` calls drive A. Drive B is refused.
+- A step holds STEP asserted for 13 ms, then waits 13 ms; a seek of 80 cylinders takes about 2 s.
+- Every seek to cylinder 0, and the first seek of all, looks for track 0: up to 100 steps out, checking TRK00 first, then up to 20 in. Seeks stop at 79.
+- Motor on waits 1 s, then up to 1 s for an index pulse.
+- `gw pin get` reads pins 26 and 28, not 34. Flux reads and writes are both supported on the Feather RP2040.
+
 **Open questions:**
 - How long is a real drive's index pulse, and how soon after a step does it update TRK00? The reference drive and the logic analyser answer these before slice 1.
-- Does the Greaseweazle look at DSKCHG (pin 34) at all? If not, DSKCHG waits for the real-PC tests in slice 6.
+- Does any of our hosts look at DSKCHG (pin 34)? The Feather can't read it, so DSKCHG waits for a Greaseweazle or the real-PC tests in slice 6.
+- Does `gw rpm` work with the Feather's firmware?
 - Does the BB48 in the rig have the A2 or A4 stepping?

@@ -85,11 +85,18 @@ def test_rpm_trace(capture, gw):
 
 def test_drive_letters(capture, gw):
     """Which select and motor pins `--drive A` and `--drive B` use, so the
-    firmware answers on the right ones."""
-    seen = {}
+    firmware answers on the right ones. A host with one drive select (the
+    Feather + FeatherWing) refuses the other letter."""
+    seen, refused = {}, []
     for letter in "AB":
-        _, t = capture(f"drive_{letter}", lambda: gw.seek(0, motor_on=True, drive=letter))
-        seen[letter] = t.asserted_signals() & {"DRVSA", "DRVSB", "MOTEA", "MOTEB"}
-    print(f"drive letters: {seen}")
-    assert seen["A"] and seen["B"], f"a drive letter asserted nothing: {seen}"
-    assert seen["A"] != seen["B"], f"A and B used the same pins: {seen}"
+        r, t = capture(f"drive_{letter}", lambda: gw.seek(0, motor_on=True, drive=letter))
+        pins = t.asserted_signals() & {"DRVSA", "DRVSB", "MOTEA", "MOTEB"}
+        if not r.ok and not pins:
+            refused.append(letter)
+        else:
+            seen[letter] = pins
+    print(f"drive letters: {seen}, refused: {refused}")
+    assert seen, "no drive letter asserted any select or motor pin"
+    assert all(seen.values()), f"a drive letter asserted nothing: {seen}"
+    if len(seen) == 2:
+        assert seen["A"] != seen["B"], f"A and B used the same pins: {seen}"

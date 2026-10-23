@@ -1,4 +1,10 @@
-"""The rig's host: a Greaseweazle driven through its `gw` command-line tool.
+"""The rig's host, driven through Greaseweazle's `gw` command-line tool:
+a Feather RP2040 + Adafruit Floppy FeatherWing running Adafruit's
+Greaseweazle-compatible firmware, or a real Greaseweazle.
+
+The Feather has one drive select, which `gw` calls drive A and which asserts
+pins 12/16, where our drive answers. A real Greaseweazle on a straight cable
+needs drive B for the same pins. FDDPRO_GW_DRIVE sets it (host/rig.env).
 
 Every call is logged (command, exit code, output), so a failing test can
 save what the Greaseweazle said alongside the drive's trace.
@@ -40,7 +46,7 @@ class GwResult:
 
 class Greaseweazle:
     def __init__(self, drive: str | None = None, device: str | None = None, gw: str | None = None):
-        self.drive = drive or os.environ.get("FDDPRO_GW_DRIVE", "B")
+        self.drive = drive or os.environ.get("FDDPRO_GW_DRIVE", "A")
         self.device = device or os.environ.get("FDDPRO_GW_DEVICE")
         self.gw = gw or find_gw()
         if not self.gw:

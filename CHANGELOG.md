@@ -2,6 +2,17 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The rig's host is now a Feather RP2040 + Adafruit Floppy FeatherWing running Adafruit's Greaseweazle-compatible firmware. A Greaseweazle is optional.
+  - `gw` defaults to drive A, the Feather's only select, which uses pins 12/16.
+  - The slice 0 drive-letter test accepts a host that refuses one letter.
+  - The input pull-ups become a socketed SIP network: 10 kΩ with the FeatherWing (its outputs are 5 V), 1 kΩ for a real PC.
+
+### Added
+- `VirtualAdafruitFloppy` in the C++ tests, following Adafruit_Floppy's seek, step and motor timing. The drive meets it as it meets the virtual Greaseweazle.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

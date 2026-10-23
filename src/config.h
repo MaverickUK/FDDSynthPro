@@ -13,10 +13,11 @@ namespace cfg {
 //             UEXT/Qwiic I2C); GPIO 0/1 stay free for a UART if needed.
 //   GPIO 25   the on-board LED (2.2k + LED to GND).
 //
-// Every floppy signal is active low. Inputs come from the host's open-collector
-// drivers and are pulled up to 3.3 V by 1k resistors on our side (the drive
-// end terminates the cable). Outputs go through an SN7407 open-collector
-// buffer: GPIO low asserts the line, GPIO high releases it.
+// Every floppy signal is active low. Inputs come from the host's drivers and
+// are pulled up to 3.3 V by resistors on our side (the drive end terminates
+// the cable: 10k with the FeatherWing host, 1k for a PC). Outputs go through
+// an SN7407 open-collector buffer: GPIO low asserts the line, GPIO high
+// releases it.
 
 // Inputs (host -> drive), on consecutive pins so one read captures them all.
 constexpr unsigned PIN_DENSEL = 4;   // floppy pin 2: density select

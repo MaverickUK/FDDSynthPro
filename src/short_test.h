@@ -3,7 +3,7 @@
 // pulls pins low one at a time, is in main.cpp. Host-tested.
 //
 // Method, with the floppy cable unplugged: every observed pin gets its
-// pull-up, so all read high (the inputs also have their 1k pull-ups, and the
+// pull-up, so all read high (the inputs also have their board pull-ups, and the
 // outputs go into SN7407 inputs, which float high). Pins that read low anyway
 // are "stuck low" (bridged to GND, or to the LED's pull-down). Then each
 // interface pin in turn is driven low: any other pin that follows it is

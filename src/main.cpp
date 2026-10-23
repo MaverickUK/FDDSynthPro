@@ -54,7 +54,7 @@ static void record(const TraceEvent& e) {
 static void setUpInputs() {
     for (unsigned pin = cfg::FIRST_INPUT_PIN; pin <= cfg::LAST_INPUT_PIN; ++pin) {
         gpio_init(pin);           // SIO input
-        gpio_disable_pulls(pin);  // the 1k pull-ups are on the board
+        gpio_disable_pulls(pin);  // the pull-ups are on the board
     }
 }
 

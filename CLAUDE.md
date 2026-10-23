@@ -1,6 +1,6 @@
 # CLAUDE.md: context for working on FDDSynthPro
 
-FDDSynthPro will become an enhanced FDD Synth that emulates the floppy drive itself, GoTek style, instead of listening to one. It starts as a proof of concept: an Olimex RP2350-PICO2-BB48 (RP2350B) acting as a 3.5-inch PC floppy drive, with a Greaseweazle V4.1 as the host. The plan, in thin slices, is in [docs/plan.md](docs/plan.md); the wiring is in [docs/wiring.md](docs/wiring.md).
+FDDSynthPro will become an enhanced FDD Synth that emulates the floppy drive itself, GoTek style, instead of listening to one. It starts as a proof of concept: an Olimex RP2350-PICO2-BB48 (RP2350B) acting as a 3.5-inch PC floppy drive. The host is a Feather RP2040 + Adafruit Floppy FeatherWing running Adafruit's Greaseweazle-compatible firmware (a real Greaseweazle also works). The `gw` tools drive either. The plan, in thin slices, is in [docs/plan.md](docs/plan.md); the wiring is in [docs/wiring.md](docs/wiring.md).
 
 It is the sister project of HDDSynthPro (`../HDDSynthPro`, the same idea for IDE) and follows its structure: Arduino-Pico under PlatformIO, core 0 for USB/SD, core 1 for the real-time work. Reuse its patterns (and `host/hddproto/pio_sim.py` when the first PIO program arrives) rather than inventing new ones. FDD Synth sound code merges in later; keep the audio out of this repo for now.
 
@@ -14,7 +14,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - The ten inputs stay on consecutive pins (one read captures them).
 - **Every floppy signal is active low.** In the code, "asserted" means low; the trace prints it as `ON`.
 - **Never use internal pull-downs** (RP2350 erratum E9). Internal pull-ups are fine.
-- **The drive terminates its inputs:** 1 kΩ pull-ups to 3.3 V on the board, unlike IDE, where the host provides the pulls.
+- **The drive terminates its inputs:** a socketed pull-up network to 3.3 V on the board, unlike IDE, where the host provides the pulls. Use 10 kΩ with the FeatherWing, whose outputs are level-shifted to 5 V, and 1 kΩ for a real PC.
 - **Outputs only through the SN7407**, which is open collector: GPIO low asserts the line, GPIO high releases it. Never drive a floppy line directly from a GPIO.
 - **Slice 0 never drives a pin:** every pin stays an SIO input, the outputs on their pull-ups, so the SN7407 stays released.
 - **Core split:** core 1 runs the drive and never touches USB, SD or anything slow. Core 0 does the slow work (SD, USB serial) and must never make core 1 wait.
@@ -33,6 +33,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
   - Plain `pytest` runs only the `sim` tests.
   - `host/fddproto/greaseweazle.py` wraps the `gw` tool; every call goes into a transcript that failing tests save.
+  - The Feather host offers only `--drive A` (pins 12/16), has no `gw pin get 34`, and must never get `gw update`. Rig tests skip what a host can't do rather than fail.
   - Greaseweazle's codec is the reference for MFM. `tests/test_track_encoder.py` uses it as a library (`greaseweazle.codec.codec.get_diskdef`), at the pinned version:
     - every track from `test/tools/build_track` must match its encoder cell for cell;
     - its decoder must read every track back to the original data.
@@ -43,7 +44,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - The Greaseweazle tools aren't on PyPI; `requirements.txt` pins a tag from GitHub.
 - **On the rig:** `scripts/rig.sh -m sliceN` runs the unit tests, builds, flashes and runs the rig tests.
   - Evidence goes to `host/runs/` (git-ignored); reference traces live in `host/reference/`.
-  - `host/rig.env` (git-ignored, from `rig.env.example`) sets the Greaseweazle's drive letter and ports.
+  - `host/rig.env` (git-ignored, from `rig.env.example`) sets the host's drive letter (A for the Feather) and its port.
 - **Host OS:** the dev machine is macOS.
 
 ## Drive model
@@ -52,7 +53,9 @@ Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSamp
 - Outputs are released while the drive is deselected; steps count only while selected.
 - The head knocks against its outer stop on a step out at cylinder 0 (`head::Step::AtOuterStop`): that's a sound event, not an error.
 - Time is `time_us_32()`, which wraps every 71 minutes. Take differences in unsigned arithmetic; `rotation::Spindle` keeps its anchor close to now.
-- `test/native/test_drive.cpp` has a virtual Greaseweazle that follows its firmware's `floppy.c`: a 15 µs STEP pulse, a 10 ms step delay, TRK00 checked before each step out (up to 256), and a 15 ms settle. Keep it faithful when adding host behaviour.
+- `test/native/test_drive.cpp` has virtual hosts that follow their firmware's source. Keep them faithful when adding host behaviour.
+  - `VirtualGreaseweazle` (`floppy.c`): a 15 µs STEP pulse, a 10 ms step delay, TRK00 checked before each step out (up to 256), and a 15 ms settle.
+  - `VirtualAdafruitFloppy` (Adafruit_Floppy, the Feather): 13 ms STEP pulses, a search for track 0 on every seek to 0 (100 out, then 20 in), seeks capped at 79, and a 1 s motor delay.
 
 ## Tracks
 

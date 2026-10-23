@@ -1,6 +1,7 @@
 // Tests for slice 1's logic: the head carriage, the spindle and the drive
-// model, finished off by a virtual Greaseweazle that seeks and measures RPM
-// the way its firmware does (greaseweazle-firmware src/floppy.c).
+// model, finished off by virtual hosts that seek and spin up the way their
+// firmware does: a Greaseweazle (greaseweazle-firmware src/floppy.c) and the
+// rig's Feather RP2040 + Floppy FeatherWing (Adafruit_Floppy).
 #include <cstdint>
 #include <initializer_list>
 #include <vector>
@@ -227,25 +228,70 @@ TEST(test_output_pins_are_active_low) {
     CHECK_EQ(s & ~fdd::OUTPUT_MASK, 0u);
 }
 
-// ---- A virtual Greaseweazle -------------------------------------------------
+// ---- Virtual hosts ----------------------------------------------------------
 //
-// Follows greaseweazle-firmware's src/floppy.c (factory delays) on the IBM PC
-// bus: drive A is pins 14/10, drive B pins 12/16. DIR is set 10 us before a
-// step, STEP is asserted for 15 us, then the step delay (10 ms) passes. The
-// first seek looks for track 0 by checking TRK00 before each step outwards,
-// up to 256 steps.
+// Hosts that drive the model the way real firmware drives a cable: setting
+// pins at given times and reading the outputs back. Each follows its
+// firmware's source, so the drive meets their exact timings before any
+// hardware does.
 
-class VirtualGreaseweazle {
+class VirtualHost {
 public:
-    explicit VirtualGreaseweazle(drive::Drive& d, unsigned select_pin = cfg::PIN_DRVSB,
-                                 unsigned motor_pin = cfg::PIN_MOTEB)
+    VirtualHost(drive::Drive& d, unsigned select_pin, unsigned motor_pin)
         : d_(d), select_(select_pin), motor_(motor_pin) {
         d_.onSample(now, pins_);
     }
 
     uint32_t now = 1000;
     std::vector<drive::StepEvent> steps;  // every step the drive saw
-    int cylinder = -1;                    // where the Greaseweazle thinks the head is (-1: unknown)
+    int cylinder = -1;                    // where the host thinks the head is (-1: unknown)
+
+    bool trk0() { return d_.outputs(now).trk00; }
+    bool index() { return d_.outputs(now).index; }
+
+    // The time between index pulses, as `gw rpm` measures it, sampled every
+    // 10 us for `revolutions` + 1 pulses. Empty if no pulses came.
+    std::vector<uint32_t> indexPeriods(int revolutions) {
+        std::vector<uint32_t> starts;
+        bool was = index();
+        for (uint32_t t = 0; t < uint32_t(revolutions + 2) * 220000u && int(starts.size()) <= revolutions;
+             t += 10) {
+            wait(10);
+            bool is = index();
+            if (is && !was) starts.push_back(now);
+            was = is;
+        }
+        std::vector<uint32_t> periods;
+        for (size_t i = 1; i < starts.size(); ++i) periods.push_back(starts[i] - starts[i - 1]);
+        return periods;
+    }
+
+protected:
+    void set(unsigned pin, bool asserted) {
+        if (asserted)
+            pins_ &= ~fdd::maskOf(pin);
+        else
+            pins_ |= fdd::maskOf(pin);
+        drive::StepEvent e = d_.onSample(now, pins_);
+        if (e.stepped) steps.push_back(e);
+    }
+    void wait(uint32_t us) { now += us; }
+
+    drive::Drive& d_;
+    unsigned select_, motor_;
+    uint32_t pins_ = fdd::INPUT_MASK;
+};
+
+// A Greaseweazle: greaseweazle-firmware's src/floppy.c (factory delays) on
+// the IBM PC bus. Drive A is pins 14/10, drive B pins 12/16. DIR is set 10 us
+// before a step, STEP is asserted for 15 us, then the step delay (10 ms)
+// passes. The first seek looks for track 0 by checking TRK00 before each
+// step outwards, up to 256 steps.
+class VirtualGreaseweazle : public VirtualHost {
+public:
+    explicit VirtualGreaseweazle(drive::Drive& d, unsigned select_pin = cfg::PIN_DRVSB,
+                                 unsigned motor_pin = cfg::PIN_MOTEB)
+        : VirtualHost(d, select_pin, motor_pin) {}
 
     static constexpr uint32_t STEP_DELAY_US = 10000;
     static constexpr uint32_t SETTLE_US = 15000;
@@ -259,8 +305,6 @@ public:
         set(motor_, on);
         if (on) wait(MOTOR_DELAY_US);
     }
-    bool trk0() { return d_.outputs(now).trk00; }
-    bool index() { return d_.outputs(now).index; }
 
     // floppy_seek(): returns false where the firmware returns ACK_NO_TRK0.
     bool seek(int cyl) {
@@ -294,33 +338,7 @@ public:
         }
     }
 
-    // The time between index pulses, as `gw rpm` measures it, sampled every
-    // 10 us for `revolutions` + 1 pulses. Empty if no pulses came.
-    std::vector<uint32_t> indexPeriods(int revolutions) {
-        std::vector<uint32_t> starts;
-        bool was = index();
-        for (uint32_t t = 0; t < uint32_t(revolutions + 2) * 220000u && int(starts.size()) <= revolutions;
-             t += 10) {
-            wait(10);
-            bool is = index();
-            if (is && !was) starts.push_back(now);
-            was = is;
-        }
-        std::vector<uint32_t> periods;
-        for (size_t i = 1; i < starts.size(); ++i) periods.push_back(starts[i] - starts[i - 1]);
-        return periods;
-    }
-
 private:
-    void set(unsigned pin, bool asserted) {
-        if (asserted)
-            pins_ &= ~fdd::maskOf(pin);
-        else
-            pins_ |= fdd::maskOf(pin);
-        drive::StepEvent e = d_.onSample(now, pins_);
-        if (e.stepped) steps.push_back(e);
-    }
-    void wait(uint32_t us) { now += us; }
     void dir(bool in) {
         set(cfg::PIN_DIR, in);
         wait(10);
@@ -331,10 +349,95 @@ private:
         set(cfg::PIN_STEP, false);
         wait(STEP_DELAY_US);
     }
+};
 
-    drive::Drive& d_;
-    unsigned select_, motor_;
-    uint32_t pins_ = fdd::INPUT_MASK;
+// A Feather RP2040 + Floppy FeatherWing running Adafruit's Greaseweazle-
+// compatible firmware (Adafruit_Floppy 0.6.x, src/Adafruit_Floppy.cpp). It
+// has one select and one motor line, on pins 12 and 16 (`gw --drive A`).
+// A step holds STEP released 13 ms, asserted 13 ms, then waits another
+// 13 ms after the last one. Every seek to cylinder 0, and the first seek of
+// all, looks for track 0: up to 100 steps out checking TRK00 first, then up
+// to 20 steps in. Seeks stop at cylinder 79. Motor on waits 1 s, then up to
+// 1 s for an index pulse to come and go.
+class VirtualAdafruitFloppy : public VirtualHost {
+public:
+    explicit VirtualAdafruitFloppy(drive::Drive& d) : VirtualHost(d, cfg::PIN_DRVSB, cfg::PIN_MOTEB) {}
+
+    static constexpr uint32_t STEP_HALF_US = 13000;  // delay(step_delay_us / 1000 + 1) ms
+    static constexpr uint32_t SETTLE_US = 15000;
+    static constexpr uint32_t MOTOR_DELAY_US = 1000000;
+
+    void select(bool on) {
+        set(select_, on);
+        wait(10);
+    }
+
+    // spin_motor(true): true if an index pulse came and went within 1 s.
+    bool motorOn() {
+        set(motor_, true);
+        wait(MOTOR_DELAY_US);
+        uint32_t start = now;
+        while (!index()) {
+            if (now - start > 1000000) return false;
+            wait(10);
+        }
+        while (index()) {
+            if (now - start > 1000000) return false;
+            wait(10);
+        }
+        return true;
+    }
+
+    // goto_track(): false where it couldn't find track 0.
+    bool gotoTrack(int track) {
+        if (cylinder < 0 || track == 0) {
+            int max_steps = 100;
+            while (max_steps--) {
+                if (trk0()) {
+                    cylinder = 0;
+                    break;
+                }
+                step(false, 1);
+            }
+            if (!trk0()) {
+                max_steps = 20;
+                while (max_steps--) {
+                    if (trk0()) {
+                        cylinder = 0;
+                        break;
+                    }
+                    step(true, 1);
+                }
+                if (!trk0()) {
+                    cylinder = -1;
+                    return false;
+                }
+            }
+        }
+        wait(SETTLE_US);
+        if (track > 79) track = 79;
+        if (cylinder == track) return true;
+        int n = track - cylinder;
+        step(n > 0, n > 0 ? n : -n);
+        wait(SETTLE_US);
+        cylinder = track;
+        return true;
+    }
+
+private:
+    // step(): STEP rests released (high); each step asserts it for 13 ms.
+    void step(bool in, int times) {
+        set(cfg::PIN_DIR, in);
+        wait(10);
+        while (times--) {
+            set(cfg::PIN_STEP, false);
+            wait(STEP_HALF_US);
+            set(cfg::PIN_STEP, true);
+            wait(STEP_HALF_US);
+            set(cfg::PIN_STEP, false);
+        }
+        wait(STEP_HALF_US);
+    }
 };
 
 static unsigned count(const std::vector<drive::StepEvent>& steps, head::Step outcome) {
@@ -423,6 +526,74 @@ TEST(test_gw_rpm_without_disk_sees_no_index) {
     CHECK(gw.indexPeriods(2).empty());
 }
 
+TEST(test_adafruit_first_seek_from_mid_disk) {
+    drive::Config c;
+    c.start_cylinder = 50;
+    drive::Drive d(c);
+    VirtualAdafruitFloppy host(d);
+    host.select(true);
+    CHECK(host.gotoTrack(10));
+    CHECK_EQ(d.head().cylinder(), 10);
+    CHECK_EQ(count(host.steps, head::Step::Out), 50u);
+    CHECK_EQ(count(host.steps, head::Step::In), 10u);
+    CHECK_EQ(count(host.steps, head::Step::AtOuterStop), 0u);
+}
+
+TEST(test_adafruit_long_step_pulses_count_once) {
+    // 13 ms assertions: one step each, not one per sample while held.
+    drive::Drive d;
+    VirtualAdafruitFloppy host(d);
+    host.select(true);
+    CHECK(host.gotoTrack(79));
+    CHECK_EQ(host.steps.size(), 79u);
+    CHECK_EQ(d.head().cylinder(), 79);
+}
+
+TEST(test_adafruit_seeks_every_cylinder_and_back) {
+    drive::Drive d;
+    VirtualAdafruitFloppy host(d);
+    host.select(true);
+    bool agree = true;
+    for (int cyl = 0; cyl < 80; ++cyl) {
+        CHECK(host.gotoTrack(cyl));
+        if (d.head().cylinder() != cyl || host.trk0() != (cyl == 0)) agree = false;
+    }
+    for (int cyl = 79; cyl >= 0; --cyl) {
+        host.gotoTrack(cyl);
+        if (d.head().cylinder() != cyl || host.trk0() != (cyl == 0)) agree = false;
+    }
+    CHECK(agree);
+    // Seeking to 0 recalibrates, but checks TRK00 first: never a knock.
+    CHECK_EQ(count(host.steps, head::Step::AtOuterStop), 0u);
+    // It never asks for more than 79: no knock at the inner stop either.
+    CHECK_EQ(count(host.steps, head::Step::AtInnerStop), 0u);
+}
+
+TEST(test_adafruit_cannot_reach_a_drive_on_other_pins) {
+    drive::Config c;
+    c.select_pin = cfg::PIN_DRVSA;
+    c.motor_pin = cfg::PIN_MOTEA;
+    drive::Drive d(c);
+    VirtualAdafruitFloppy host(d);  // only ever pins 12/16
+    host.select(true);
+    CHECK(!host.gotoTrack(5));
+    CHECK(host.steps.empty());
+}
+
+TEST(test_adafruit_motor_sees_index) {
+    drive::Drive d;
+    d.insertDisk(true);
+    VirtualAdafruitFloppy host(d);
+    host.select(true);
+    CHECK(host.motorOn());
+    std::vector<uint32_t> periods = host.indexPeriods(3);
+    CHECK_EQ(periods.size(), 3u);
+    drive::Drive empty;
+    VirtualAdafruitFloppy host2(empty);
+    host2.select(true);
+    CHECK(!host2.motorOn());  // no disk: no index, so it reports a timeout
+}
+
 void runDriveTests() {
     RUN(test_head_steps_and_stops);
     RUN(test_head_start_position);
@@ -445,4 +616,9 @@ void runDriveTests() {
     RUN(test_gw_noclick_step_knocks_once_at_track0);
     RUN(test_gw_rpm);
     RUN(test_gw_rpm_without_disk_sees_no_index);
+    RUN(test_adafruit_first_seek_from_mid_disk);
+    RUN(test_adafruit_long_step_pulses_count_once);
+    RUN(test_adafruit_seeks_every_cylinder_and_back);
+    RUN(test_adafruit_cannot_reach_a_drive_on_other_pins);
+    RUN(test_adafruit_motor_sees_index);
 }
