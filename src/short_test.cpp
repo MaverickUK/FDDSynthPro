@@ -21,9 +21,9 @@ const char* signalName(unsigned gpio) {
         "GPIO8 (MOTEB)",   "GPIO9 (DIR)",    "GPIO10 (STEP)",   "GPIO11 (WDATA)",
         "GPIO12 (WGATE)",  "GPIO13 (SIDE1)", "GPIO14 (INDEX)",  "GPIO15 (TRK00)",
         "GPIO16 (WPT)",    "GPIO17 (RDATA)", "GPIO18 (DSKCHG)", "GPIO19",
-        "GPIO20",          "GPIO21",         "GPIO22",          "GPIO23",
-        "GPIO24",          "GPIO25 (LED)",   "GPIO26",          "GPIO27",
-        "GPIO28",          "GPIO29",         "GPIO30",          "GPIO31",
+        "GPIO20 (ENC A)",  "GPIO21 (ENC B)", "GPIO22 (ENC SW)", "GPIO23 (ACTION)",
+        "GPIO24",          "GPIO25 (LED)",   "GPIO26 (AMP DIN)", "GPIO27 (AMP BCLK)",
+        "GPIO28 (AMP LRC)", "GPIO29",        "GPIO30",          "GPIO31",
     };
     return gpio < 32 ? names[gpio] : "?";
 }

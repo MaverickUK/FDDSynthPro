@@ -4,6 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+- **A write could be decoded from bytes the DMA was overwriting.** The capture stream checked for an overrun once, then read; if core 0 was nearly a whole ring behind, the DMA could lap the bytes as they were read. It now gives up a quarter ring early, before reading any of it.
+- **A swap to an image that won't open left a closed file in the drive.** Opening the new image closes the old one, so a later insert served stale or blank tracks. The old image is now reopened and put back; if that fails too, the drive stays empty and refuses an insert until a swap works.
+- An eject or insert (console `d`, or holding the action button) during a swap could put the old disk back mid-swap, and a write then landed in the new image. It's now refused while a swap runs.
+- A disk chosen on the panel during a console swap was dropped. It now waits and swaps when the first one finishes.
+- Looking for the OLED could block core 0 for up to 50 ms after the drive had started; it now happens first.
+- The solder-bridge test names the encoder, button and amp pins.
+
 ## [0.7.0] - 2026-10-23
 
 ### Added

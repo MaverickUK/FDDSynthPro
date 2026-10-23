@@ -101,7 +101,10 @@ private:
 // Positions are free-running byte counts: the ring index is the count
 // modulo the ring size. If core 0 falls a whole ring behind, the bytes it
 // hasn't read are gone: that burst is abandoned and counted, never decoded
-// from overwritten data.
+// from overwritten data. It gives up a quarter ring early (GUARD): the DMA
+// keeps writing while a chunk is read, and must not lap the bytes being
+// read. A quarter of the 16 KB ring is 11 ms of writing at 1.44 MB, far
+// longer than reading a chunk takes.
 class CaptureStream {
 public:
     // A mark from core 1: a burst began (with its cylinder, head and track
@@ -113,7 +116,7 @@ public:
     };
 
     CaptureStream(const uint8_t* ring, uint32_t ring_bytes, BurstWriter& writer)
-        : ring_(ring), mask_(ring_bytes - 1), writer_(writer) {}
+        : ring_(ring), mask_(ring_bytes - 1), guard_(ring_bytes / 4), writer_(writer) {}
 
     // Feeds up to `max_bytes` more of the current burst, up to `produced`
     // (how far the DMA has written). Takes marks from `next_mark` as it
@@ -128,6 +131,7 @@ public:
 private:
     const uint8_t* ring_;
     uint32_t mask_;
+    uint32_t guard_;
     BurstWriter& writer_;
     uint32_t consumed_ = 0;
     bool in_burst_ = false;
@@ -165,7 +169,7 @@ bool CaptureStream::service(uint32_t produced, size_t max_bytes, NextMark next_m
             have_pending_ = false;
         }
         uint32_t limit = have_end_ ? end_ : produced;
-        if (produced - consumed_ > mask_ + 1) lost_ = true;  // overwritten before we read it
+        if (produced - consumed_ > mask_ + 1 - guard_) lost_ = true;  // overwritten, or about to be
         if (!lost_) {
             uint32_t n = limit - consumed_;
             if (n > max_bytes) n = uint32_t(max_bytes);

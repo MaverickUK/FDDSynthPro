@@ -337,6 +337,8 @@ static void chooseDisk() {
 // disks: the host sees DSKCHG, and the synth plays EJECT then INSERT.
 constexpr uint32_t SWAP_EJECTED_MS = 500;
 static uint32_t g_ejected_ms = 0;
+static size_t g_swap_from = 0;  // the image to go back to if the new one won't open
+static bool g_no_disk = false;  // neither would open (the card failed?): nothing to insert
 
 // From the panel's disk list, or console `[` / `]`.
 static void startSwap(size_t index) {
@@ -344,6 +346,7 @@ static void startSwap(size_t index) {
         Serial.println("# a swap is already under way");
         return;
     }
+    g_swap_from = g_image_index;
     g_image_index = index;
     Serial.printf("# swapping to %s\n", sd_image::images().name(g_image_index));
     g_ejected_ms = 0;
@@ -361,7 +364,15 @@ static void requestSwap(bool next) {
 
 // From the panel's long action, or console `d` (the rig's way to set DSKCHG).
 static void toggleDisk() {
+    if (g_swap.load() != SWAP_NONE) {  // the swap ejects and inserts
+        Serial.println("# a swap is under way");
+        return;
+    }
     bool insert = !g_disk_in.load();
+    if (insert && g_no_disk) {
+        Serial.println("# no disk to insert: the last swap couldn't open an image");
+        return;
+    }
     g_disk_request.store(insert ? 1 : -1);
     Serial.printf("# disk %s\n", insert ? "inserted" : "ejected");
 }
@@ -374,10 +385,22 @@ static void serviceSwap() {
     if (millis() - g_ejected_ms < SWAP_EJECTED_MS || g_capture->inBurst() || g_capture_marks.size()) return;
     TrackSource* image = sd_image::open(g_image_index);
     if (!image) {
-        Serial.printf("# can't open %s; keeping the last disk out\n", sd_image::images().name(g_image_index));
+        // Opening it closed the old image, so the slot can't keep that one:
+        // put the old disk back in, freshly opened, as if the swap was undone.
+        Serial.printf("# can't open %s; putting %s back\n", sd_image::images().name(g_image_index),
+                      sd_image::images().name(g_swap_from));
+        g_image_index = g_swap_from;
+        image = sd_image::open(g_image_index);
+    }
+    if (!image) {
+        Serial.println("# can't open that either; the drive stays empty");
+        g_slot->insert(g_generated);  // never the closed file
+        g_loader.load()->reset();     // nor its cylinder: ready() is -1, so RDATA stays off
+        g_no_disk = true;
         g_swap.store(SWAP_NONE, std::memory_order_release);
         return;
     }
+    g_no_disk = false;
     g_slot->insert(*image);
     CylinderLoader& loader = *g_loader.load();
     loader.reset();
@@ -513,7 +536,9 @@ static void servicePanel() {
     panel::service(panelStatus(), millis());
     ui::Model& m = panel::model();
     size_t image;
-    if (m.takeSwap(image)) startSwap(image);
+    // Taken only when no swap is running, so a choice made during one (a
+    // console swap) waits for it instead of being refused.
+    if (g_swap.load() == SWAP_NONE && m.takeSwap(image)) startSwap(image);
     if (m.takeEjectToggle()) toggleDisk();
     if (g_mixer) g_mixer->setVolume(m.volume());
 }
@@ -671,8 +696,8 @@ static void handleConsole() {
 void setup() {
     Serial.begin(115200);
 #if FIRMWARE_SLICE != 0
+    panel::begin();  // first: looking for the display can block briefly, before anything runs
     chooseDisk();
-    panel::begin();
 #endif
     printReady();
 }

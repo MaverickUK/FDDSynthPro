@@ -483,6 +483,28 @@ TEST(test_stream_whole_track_through_a_small_ring) {
     CHECK_EQ(cs.overruns(), 0u);
 }
 
+TEST(test_stream_nearly_a_ring_behind_is_an_overrun) {
+    // Core 0 looks when the DMA is just short of lapping it. The bytes are
+    // still there, but the DMA goes on writing while they're read, so the
+    // burst is abandoned rather than read in a race.
+    WriteRig r;
+    r.load(4);
+    RingSim sim(1024);
+    CaptureStream cs(sim.ring.data(), 1024, r.writer);
+    auto a = pattern(7);
+    auto ba = captured(toFlux(sectorWriteCells(a.data())), 2);
+    sim.start(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(0), nullptr, 0});
+    sim.write(ba.data(), 1000);  // 24 bytes short of a lap
+    BurstResult res;
+    CHECK(!cs.service(sim.produced, 64, sim.source(), res));
+    auto done = stream(sim, cs, std::vector<uint8_t>(ba.begin() + 1000, ba.end()), 64, 100);
+    sim.end();
+    for (auto& d : drainStream(sim, cs)) done.push_back(d);
+    CHECK_EQ(done.size(), 1u);
+    CHECK(!done.empty() && done[0].overrun && done[0].persisted == 0);
+    CHECK_EQ(r.source.writes, 0u);
+}
+
 TEST(test_stream_overrun_writes_nothing) {
     // Core 0 stalls for more than a ring's worth: that burst is dropped and
     // counted, not decoded from overwritten bytes, and the next one is fine.
@@ -632,6 +654,7 @@ void runWriteDecodeTests() {
     RUN(test_stream_sector_write_across_the_wrap);
     RUN(test_stream_back_to_back_bursts);
     RUN(test_stream_whole_track_through_a_small_ring);
+    RUN(test_stream_nearly_a_ring_behind_is_an_overrun);
     RUN(test_stream_overrun_writes_nothing);
     RUN(test_burst_card_refuses);
     RUN(test_noise_never_writes);

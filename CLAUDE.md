@@ -129,7 +129,7 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 - **Previews:** `FDDSYNTH_PREVIEW_DIR=docs/oled test/run_native_tests.sh && python3 test/pbm_to_png.py docs/oled` regenerates the reference PNGs. Add `FDDSYNTH_PREVIEW_ALL=1` for the extra frames, or run `scripts/build_panel_page.py out.html` for the interactive page. Look at the PNGs after changing a screen.
 - **The hardware side is `src/panel.*`** (drive build, core 0). `controls.h` turns the encoder's detents and the buttons into `ui::Input`s, and `ssd1306.h` makes a frame's bus bytes; both are pure and tested. `main.cpp`'s `panelStatus()` fills the `ui::Status`, and `servicePanel()` acts on the model's requests and sets the mixer's volume.
 - **A frame never blocks core 0:** HDDSynth_Native's 25 ms blocking frame would break the 15 ms settle time. `panel.cpp` feeds the I2C FIFO each pass instead; with the FIFO empty and no STOP sent, the RP2350's I2C block holds SCL low until more comes. Keep it that way.
-- **Volume** is `Mixer::setVolume`, after the saturating mix, at unity by default, so the comparison with the player still holds. Change the player only if the mix itself changes.
+- **Volume** is `Mixer::setVolume`, after the saturating mix. The mixer is at unity until it's set, so the comparison with the player still holds; the firmware then sets the panel's volume, 75% at power-on. Change the player only if the mix itself changes.
 
 ## Trace format
 
