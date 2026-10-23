@@ -5,7 +5,7 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 ## [Unreleased]
 
 ### Added
-- **A sample pack from a real drive** (`samples/Recorded`, `scripts/make_recorded_pack.py`): spin-up, spin, spin-down, step, seek and bump, cut from a recording of a 3.5-inch drive driven by the FDD Synth's software. Each cut was found by measuring the recording (click onsets and spacing, the 199.8 ms revolution, spectra); the loops are whole revolutions and whole steps, joined smoothly. No insert or eject: the recording has none. 147 KB, inside the 160 KB pool. `make_showreel.py --pack` renders the showreel with any pack.
+- **A sample pack from a real drive** (`samples/Recorded`, `scripts/make_recorded_pack.py`): spin-up, spin, spin-down, step, seek and bump, cut from a recording of a 3.5-inch drive driven by the FDD Synth's software. Each cut was found by measuring the recording (click onsets and spacing, the 199.8 ms revolution, spectra); the loops are whole revolutions and whole steps, joined smoothly. No insert or eject: the recording has none. 147 KB, inside the 160 KB pool. The showreel now uses it (`make_showreel.py --pack` picks another), and calls the project FDD Synth Pro.
 - **A showreel** (`scripts/make_showreel.py`, `test/tools/showreel.cpp`): a 36-second video of a virtual PC using a real FAT12 disk while the front panel is worked. A swap from the panel, boot and `DIR`, reads with the volume turned down, the head trace across a long seek, the sounds and stats screens, a save with the volume back up, motor off and an eject. The OLED frames and the audio come from the firmware's own screens and mixer, in simulated real time.
 
 ### Fixed

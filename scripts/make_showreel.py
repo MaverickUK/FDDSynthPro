@@ -5,7 +5,7 @@ front panel is worked, shown and heard through the firmware's own code
 controls, a caption and the PC's log, and encodes it with ffmpeg.
 
     scripts/make_showreel.py [out.mp4] [--pack samples/Recorded]
-                                            (default media/showreel.mp4, the Placeholder pack)
+                                            (default media/showreel.mp4, the Recorded pack)
 
 It also writes a poster beside it (showreel.png): a frame from the head
 trace with a play button, which the README links to the video.
@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO = Path(__file__).resolve().parent.parent
 TOOL = REPO / ".pio/native-tests/showreel"
-PACK = REPO / "samples/Placeholder"
+PACK = REPO / "samples/Recorded"  # cut from a real drive
 
 W, H = 1280, 720
 FPS = 30
@@ -223,10 +223,17 @@ def main() -> int:
         level = levels(tmp / "audio.wav", n * PER_FRAME)
         peak = -90.0
 
+        # One gain for the whole soundtrack, so its loudest moment is at
+        # -1 dBFS: a real drive is quiet, and a video should be heard. The
+        # balance and the volume changes stay as the firmware makes them.
+        with wave.open(str(tmp / "audio.wav")) as w:
+            loudest = max(abs(v) for v in array.array("h", w.readframes(w.getnframes()))) or 1
+        gain_db = -1 - 20 * math.log10(loudest / 32768)
+        level = [v + gain_db for v in level]  # the meter shows what's heard
         encoder = subprocess.Popen(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
              "-r", str(FPS), "-i", "-", "-i", str(tmp / "audio.wav"), "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             "-crf", "18", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)],
+             "-crf", "18", "-af", f"volume={gain_db:.2f}dB", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)],
             stdin=subprocess.PIPE)
 
         caption, log = "", []
@@ -258,8 +265,8 @@ def main() -> int:
                 t = f + sub / PER_FRAME
                 img = Image.new("RGB", (W, H), BG)
                 d = ImageDraw.Draw(img)
-                d.text((64, 40), "FDDSynthPro", font=TITLE_FONT, fill=TEXT)
-                d.text((210, 40), "a virtual PC, the front panel and the FDD Synth, all running the firmware's own code",
+                d.text((64, 40), "FDD Synth Pro", font=TITLE_FONT, fill=TEXT)
+                d.text((64 + d.textlength("FDD Synth Pro  ", font=TITLE_FONT), 40), "a virtual PC, the front panel and the FDD Synth, all running the firmware's own code",
                        font=TITLE_FONT, fill=DIM)
                 ox, oy = oled_box
                 d.rounded_rectangle([ox - 18, oy - 18, ox + OLED_W * SCALE + 18, oy + OLED_H * SCALE + 18], 14,

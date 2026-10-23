@@ -12,7 +12,7 @@ It follows the approach of [HDDSynthPro](https://github.com/MaverickUK/HDDSynthP
 
 [![The showreel: the front panel's head trace during a long seek, with the sound events listed beside it. Click to play.](media/showreel.png)](https://cdn.jsdelivr.net/gh/MaverickUK/FDDSynthPro@main/media/showreel.mp4)
 
-A 36-second showreel, with sound (click to play). A virtual PC uses a FAT12 disk while the front panel is worked: a disk chosen and swapped in, boot and `DIR`, reads with the volume turned down, the head trace following a long seek, a save, motor off and an eject. The screens, the drive and the sound are all the firmware's own code, run on the Mac in simulated real time, with the stand-in sample pack. `scripts/make_showreel.py` makes it. (The link plays it through jsDelivr, which serves the repo's copy as a video; GitHub's own link would download it.)
+A 36-second showreel, with sound (click to play). A virtual PC uses a FAT12 disk while the front panel is worked: a disk chosen and swapped in, boot and `DIR`, reads with the volume turned down, the head trace following a long seek, a save, motor off and an eject. The screens, the drive and the sound are all the firmware's own code, run on the Mac in simulated real time, with the sample pack cut from a recording of a real drive (`samples/Recorded`). `scripts/make_showreel.py` makes it. (The link plays it through jsDelivr, which serves the repo's copy as a video; GitHub's own link would download it.)
 
 ## Status
 
