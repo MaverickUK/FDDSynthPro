@@ -8,6 +8,12 @@ At this stage it is a proof of concept on an Olimex RP2350-PICO2-BB48, tested fr
 
 It follows the approach of [HDDSynthPro](https://github.com/MaverickUK/HDDSynthPro), which does the same for IDE hard disks.
 
+## See and hear it
+
+[![The showreel: the front panel's head trace during a long seek, with the sound events listed beside it. Click to play.](media/showreel.png)](https://github.com/MaverickUK/FDDSynthPro/raw/main/media/showreel.mp4)
+
+A 36-second showreel, with sound (click to play). A virtual PC uses a FAT12 disk while the front panel is worked: a disk chosen and swapped in, boot and `DIR`, reads with the volume turned down, the head trace following a long seek, a save, motor off and an eject. The screens, the drive and the sound are all the firmware's own code, run on the Mac in simulated real time, with the stand-in sample pack. `scripts/make_showreel.py` makes it.
+
 ## Status
 
 Slice 0 (listen only): the firmware records every drive select, motor, side, density and write-gate change and every head step it sees, without driving any pin, and streams the trace over USB serial.

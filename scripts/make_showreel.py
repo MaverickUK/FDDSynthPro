@@ -6,6 +6,9 @@ controls, a caption and the PC's log, and encodes it with ffmpeg.
 
     scripts/make_showreel.py [out.mp4]      (default media/showreel.mp4)
 
+It also writes a poster beside it (showreel.png): a frame from the head
+trace with a play button, which the README links to the video.
+
 Needs: test/run_native_tests.sh run once (it builds the tool), mtools,
 ffmpeg, and Pillow (python3 -m pip install pillow).
 """
@@ -179,6 +182,22 @@ def draw_sound(d: ImageDraw.ImageDraw, now: float, level_db: float, peak_db: flo
         d.text((x0, row), f"{t:5.1f}s {name:<10} {SAMPLES.get(name, '')}", font=LOG_FONT, fill=colour)
 
 
+POSTER_AT = 20.0  # seconds: the head trace, with the long seek on it
+
+
+def make_poster(video: Path, poster: Path):
+    with tempfile.TemporaryDirectory() as t:
+        frame = Path(t) / "frame.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(POSTER_AT), "-i", str(video), "-frames:v", "1",
+                        str(frame)], check=True)
+        img = Image.open(frame).convert("RGB")
+    d = ImageDraw.Draw(img, "RGBA")
+    cx, cy, r = 64 + OLED_W * SCALE // 2, 110 + OLED_H * SCALE // 2, 70
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(0, 0, 0, 170), outline=(255, 255, 255, 230), width=4)
+    d.polygon([(cx - 22, cy - 36), (cx - 22, cy + 36), (cx + 40, cy)], fill=(255, 255, 255, 240))
+    img.save(poster, optimize=True)
+
+
 def main() -> int:
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "media/showreel.mp4"
     if not TOOL.exists():
@@ -253,7 +272,8 @@ def main() -> int:
         encoder.stdin.close()
         if encoder.wait():
             return 1
-    print(f"wrote {out} ({n / 10:.1f} s)")
+    make_poster(out, out.with_suffix(".png"))
+    print(f"wrote {out} ({n / 10:.1f} s) and {out.with_suffix('.png').name}")
     return 0
 
 
