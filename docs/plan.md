@@ -124,7 +124,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - Answer on one select/motor pair. Track the cylinder (0–83), assert TRK00 on cylinder 0, ignore steps outwards past 0 (but record them: that's the head hitting its stop). Index pulses every 200 ms while selected with the motor on. WPT asserted (read-only for now). DSKCHG as a PC expects: asserted at power-on, cleared by a step with a disk present.
   - *Before hardware:* `head` and `rotation` host tests, including a virtual host that recalibrates the way the slice 0 trace shows.
   - **Exit:** `gw seek` to every cylinder and back, 20 times, with the trace agreeing on the position; `gw rpm` reports 300 RPM.
-- **Slice 2: read a generated disk.**
+- **Slice 2: read a generated disk.** *Track encoder done and matching Greaseweazle cell for cell; the PIO streamer is next.*
   - Build each track's MFM stream from a generated 1.44 MB disk and stream it with PIO on RDATA, aligned to the index pulse. Rebuild on a step or side change.
   - *Before hardware:* the track encoder checked byte for byte against `gw convert` output and decoded by `gw convert`; the PIO program in `pio_sim.py`, decoded by a Python model of a floppy controller's data separator.
   - **Exit:** `gw read --format ibm.1440` gives the generated image byte for byte, ten times; random single-track reads too.

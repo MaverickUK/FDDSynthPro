@@ -9,7 +9,11 @@ mkdir -p .pio/native-tests
 SANITIZE="${SANITIZE:-address,undefined}"
 "$CXX" -std=c++17 -O2 -g -Wall -Wextra -pthread -fsanitize="$SANITIZE" \
     -Isrc test/native/test_main.cpp test/native/test_short_test.cpp test/native/test_drive.cpp \
+    test/native/test_track.cpp \
     src/fdd_signals.cpp src/trace_format.cpp src/short_test.cpp \
-    src/head.cpp src/rotation.cpp src/drive.cpp \
+    src/head.cpp src/rotation.cpp src/drive.cpp src/ibm_track.cpp \
     -o .pio/native-tests/run_tests
+# Tools the Python tests use (host/tests/test_track_encoder.py).
+"$CXX" -std=c++17 -O2 -Wall -Wextra -Isrc test/tools/build_track.cpp src/ibm_track.cpp \
+    -o .pio/native-tests/build_track
 .pio/native-tests/run_tests "$@"

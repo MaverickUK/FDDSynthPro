@@ -2,7 +2,8 @@
 // layout and signal decoding, the pin watcher that core 1 runs, the trace
 // format and coalescer, the SPSC ring (including a two-thread test that
 // mirrors core 1 / core 0), (in test_short_test.cpp) the solder-bridge test,
-// and (in test_drive.cpp) the head, spindle and drive model.
+// (in test_drive.cpp) the head, spindle and drive model, and (in
+// test_track.cpp) CRC-16, MFM, the IBM track layout and the generated disk.
 //
 // Run: test/run_native_tests.sh
 #include <cstdio>
@@ -214,6 +215,7 @@ TEST(test_ring_two_threads) {
 
 void runShortTestTests();
 void runDriveTests();
+void runTrackTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -234,6 +236,7 @@ int main() {
     RUN(test_ring_two_threads);
     runShortTestTests();
     runDriveTests();
+    runTrackTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

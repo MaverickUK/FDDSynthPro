@@ -2,6 +2,19 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Slice 2's track encoder, tested on the Mac** (not yet in the firmware):
+  - `crc16`: CRC-16-CCITT as IBM formats use it;
+  - `mfm`: MFM encoding, with the A1 and C2 sync words;
+  - `ibm_track`: one track of a 1.44 MB or 720 KB disk, in Greaseweazle's `ibm.1440` and `ibm.720` layouts;
+  - `gen_disk`: the generated test disk, with the same pattern and known answers as HDDSynthPro's, and a Python twin.
+- `test/tools/build_track` writes every track of a disk, generated or from an IMG file.
+- `host/tests/test_track_encoder.py` (`-m sim`) checks every track of four disks (generated and random, both formats) against Greaseweazle:
+  - its encoder produces the same cells;
+  - its decoder, the one `gw read` uses, reads ours back to the original data.
+
 ## [0.2.0] - 2026-10-23
 
 ### Added

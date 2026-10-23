@@ -27,13 +27,18 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation` and `drive` free of Arduino and SDK headers so they stay testable here; new logic (MFM, track layout, image, activity) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track` and `gen_disk` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
   - Plain `pytest` runs only the `sim` tests.
   - `host/fddproto/greaseweazle.py` wraps the `gw` tool; every call goes into a transcript that failing tests save.
-  - `gw convert` is the independent MFM encoder and decoder: check the drive's track encoder against it (`tests/test_gw_tools.py` shows the pipeline).
+  - Greaseweazle's codec is the reference for MFM. `tests/test_track_encoder.py` uses it as a library (`greaseweazle.codec.codec.get_diskdef`), at the pinned version:
+    - every track from `test/tools/build_track` must match its encoder cell for cell;
+    - its decoder must read every track back to the original data.
+
+    `ibm::HD_1440` and `ibm::DD_720` copy its `ibm.1440` and `ibm.720` definitions (gap3 108 and 84).
+  - `run_native_tests.sh` also builds the tools in `test/tools/` that the Python tests run.
   - The Greaseweazle tools aren't on PyPI; `requirements.txt` pins a tag from GitHub.
 - **On the rig:** `scripts/rig.sh -m sliceN` runs the unit tests, builds, flashes and runs the rig tests.
   - Evidence goes to `host/runs/` (git-ignored); reference traces live in `host/reference/`.
@@ -47,6 +52,10 @@ Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSamp
 - The head knocks against its outer stop on a step out at cylinder 0 (`head::Step::AtOuterStop`): that's a sound event, not an error.
 - Time is `time_us_32()`, which wraps every 71 minutes. Take differences in unsigned arithmetic; `rotation::Spindle` keeps its anchor close to now.
 - `test/native/test_drive.cpp` has a virtual Greaseweazle that follows its firmware's `floppy.c`: a 15 µs STEP pulse, a 10 ms step delay, TRK00 checked before each step out (up to 256), and a 15 ms settle. Keep it faithful when adding host behaviour.
+
+## Tracks
+
+A track is an array of 16-bit cell words, one per encoded byte, first cell in the top bit: the order RDATA sends them. HD is 12,500 words (200,000 cells of 1 µs), DD 6,250 (cells of 2 µs). `ibm::buildTrack` fills one from the track's sector data in IMG order; `gen_disk::track` supplies that data for the generated disk.
 
 ## Trace format
 
