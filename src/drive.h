@@ -73,6 +73,14 @@ public:
     // The output lines at this moment.
     Outputs outputs(uint32_t now_us);
 
+    // Whether RDATA may carry the track now: selected, a disk in, the motor
+    // at speed, and the streamer's buffer holding the cylinder under the
+    // head (`ready_cylinder`, from the loader; stale IDs would look like a
+    // seek error).
+    bool streams(uint32_t now_us, int ready_cylinder) const {
+        return selected_ && disk_present_ && spindle_.atSpeed(now_us) && ready_cylinder == head_.cylinder();
+    }
+
     void insertDisk(bool write_protected);
     void ejectDisk();
 

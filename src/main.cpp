@@ -163,8 +163,8 @@ void loop1() {
     activity::DriveObserver observer;
     bool index_was = false;
     bool streaming = false;
-    bool capturing = false;
-    bool missed = false;  // this WGATE assertion found the capture buffer busy
+    WriteGate write_gate;
+    g_burst.intervals = g_capture;
     for (;;) {
         uint32_t now = time_us_32();
         uint32_t pins = pinsAsSample();
@@ -197,36 +197,29 @@ void loop1() {
         bool index = d.spindle().index(now);
         if (index && !index_was) rdata_pio::restartAtIndex();
         index_was = index;
-        bool stream = d.selected() && d.diskPresent() && d.spindle().atSpeed(now) &&
-                      loader.ready() == d.head().cylinder();
+        bool stream = d.streams(now, loader.ready());
         if (stream != streaming) {
             rdata_pio::enable(stream);
             streaming = stream;
         }
 
         // Writes: capture WDATA from WGATE asserted to released, then hand
-        // the burst to core 0. Where on the track it began places a sector
-        // write (track_write.h).
-        bool gate = fdd::asserted(pins, cfg::PIN_WGATE);
-        if (gate && !capturing && !missed && d.selected() && d.diskPresent() && !d.writeProtected()) {
-            if (g_burst_state.load(std::memory_order_acquire) == BURST_FREE) {
-                uint32_t start_byte = uint32_t(uint64_t(d.spindle().phaseUs(now)) * data_rate / 8000000u);
-                g_burst = WriteBurst{d.head().cylinder(), d.side(), start_byte, g_capture, 0};
+        // the burst to core 0 (write_burst.h).
+        bool buffer_free = g_burst_state.load(std::memory_order_acquire) == BURST_FREE;
+        switch (write_gate.onSample(now, pins, d, buffer_free, data_rate, g_burst)) {
+            case WriteGate::Action::Start:
                 g_burst_state.store(BURST_CAPTURING, std::memory_order_relaxed);
                 wdata_pio::start(g_capture, sizeof g_capture);
-                capturing = true;
-            } else {
-                g_bursts_dropped.fetch_add(1, std::memory_order_relaxed);
-                missed = true;
-            }
-        }
-        if (!gate || !d.selected()) {
-            if (capturing) {
+                break;
+            case WriteGate::Action::Stop:
                 g_burst.count = wdata_pio::stop();
                 g_burst_state.store(BURST_READY, std::memory_order_release);
-                capturing = false;
-            }
-            missed = false;
+                break;
+            case WriteGate::Action::Missed:
+                g_bursts_dropped.fetch_add(1, std::memory_order_relaxed);
+                break;
+            case WriteGate::Action::None:
+                break;
         }
     }
 }

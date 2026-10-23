@@ -2,6 +2,28 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **A virtual PC driving the whole drive** (`test/native/virtual_pc.h`, `test_virtual_pc.cpp`). It models a BIOS and an 82077-style controller:
+  - 3 ms steps, a 15 ms settle and a 500 ms motor start;
+  - recalibrating by checking TRK00 before each step;
+  - finding sectors in the drive's own RDATA cells, and giving up after two index pulses;
+  - sector writes with the controller's gap 2 timing;
+  - three tries with recalibration, and the disk-change check.
+
+  It runs against a `Machine` (`test/native/machine.h`): the drive model, loader, write path and sound events, with core 0 loading in the background at SDIO speed. A DOS-like session passes first time throughout, with no retries:
+  - boot from cylinder 30;
+  - read the boot sector, FAT and root directory;
+  - read a file across the disk;
+  - write a track and the FAT, and read them back from the card;
+  - a disk swap.
+
+  Further tests cover a head switch with no settle, a write-protected disk, a 720 KB disk, and a card too slow to ever answer, where the read fails rather than returning stale data. The session's sound events are saved to `.pio/native-tests/pc_session_act.txt`.
+
+### Changed
+- Core 1's RDATA gate and write-capture control moved out of `main.cpp` into pure code (`drive::Drive::streams`, `WriteGate` in `write_burst.h`), so the firmware and the virtual PC share them.
+
 ## [0.6.0] - 2026-10-23
 
 ### Added

@@ -26,6 +26,7 @@ public:
     std::function<void(uint32_t now, const drive::StepEvent&)> on_sample;
 
     bool trk0() { return d_.outputs(now).trk00; }
+    uint32_t pins() const { return pins_; }
     bool index() { return d_.outputs(now).index; }
 
     // The time between index pulses, as `gw rpm` measures it, sampled every

@@ -85,6 +85,15 @@ Core 0's `BurstWriter` runs the burst through `mfm::DataSeparator`, `mfm::FieldS
 - **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
 - `WDATA` and `RDATA` programs both live in PIO 2 or 1 (`pio_get_gpio_base == 0`), never PIO 0.
 
+## The virtual PC
+
+`test/native/virtual_pc.h` drives a `Machine` (`test/native/machine.h`): the drive as both cores run it, in simulated time.
+- Core 1's per-sample work (sound events, `WriteGate`) runs on every pin change and on every `tick`.
+- Core 0's loader steps take `Core0Costs` (3 ms a read, 2.5 ms an encode until the board measures them).
+- The PC reads by watching `Machine::rdataCells` (nothing while `Drive::streams` is false), and writes by feeding `captureInterval`.
+
+Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's real PC, so new drive behaviour should get a session test here.
+
 ## Sound events
 
 `src/activity.*` (rationale: `docs/activity.md`). Core 1's `DriveObserver` diffs the drive model after each sample (motor, disk, and the `StepEvent`) into `DriveEvent`s on `g_drive_events`. Core 0's `Tracker` turns them into `ACT` lines.
