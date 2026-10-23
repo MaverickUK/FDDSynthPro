@@ -27,10 +27,10 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). CI builds them with GCC on Linux, the Mac with Clang: anything the two may treat differently (undefined behaviour, ODR) shows up there first.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). It runs `test/native.mk` in parallel (`JOBS=n` to limit it) and rebuilds only what changed, so after an edit a run takes seconds. Add new `src/` files to `SRC` there, and to a tool's `_SRC` list if a tool needs them. CI builds them with GCC on Linux, the Mac with Clang: anything the two may treat differently (undefined behaviour, ODR) shows up there first.
   - Each test file's own types and tests live in an anonymous namespace; only its `run...Tests()` is outside. Two test files once defined different `MemorySource` classes: an ODR violation that Clang's link happened to survive and GCC's didn't.
   - To run them with GCC locally: `docker run --rm -v "$PWD":/src:ro gcc:13 bash -c 'cp -r /src /tmp/w && cd /tmp/w && rm -rf .pio && test/run_native_tests.sh'` (ThreadSanitizer doesn't run in Docker). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write`, `write_burst`, `synth`, `wav`, `ui`, `screens`, `canvas`, `quadrature` and `button` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
-- **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
+- **CI:** `.github/workflows/build.yml` builds the firmware in one job and runs the C++ tests and `pytest -m sim` in another, side by side, on every push. The tests job fetches only `pioasm` (`$PIOASM`), not PlatformIO. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
   - Plain `pytest` runs only the `sim` tests.
@@ -39,6 +39,8 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - Greaseweazle's codec is the reference for MFM. `tests/test_track_encoder.py` uses it as a library (`greaseweazle.codec.codec.get_diskdef`), at the pinned version:
     - every track from `test/tools/build_track` must match its encoder cell for cell;
     - its decoder must read every track back to the original data.
+
+    By default it compares a spread of tracks; `FDDPRO_FULL_TRACKS=1` compares all 160, as CI does on tags and on a manual run.
 
     `ibm::HD_1440` and `ibm::DD_720` copy its `ibm.1440` and `ibm.720` definitions (gap3 108 and 84).
   - `run_native_tests.sh` also builds the tools in `test/tools/` that the Python tests run.

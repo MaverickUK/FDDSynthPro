@@ -38,7 +38,7 @@ def assemble():
     except in CI, where a missing pioasm must not hide these tests."""
     pioasm = pio_sim.find_pioasm()
     if not pioasm:
-        message = "pioasm not found (build once with `pio run`, or set PIOASM)"
+        message = "pioasm not found (build once with `pio run`, or set PIOASM to its path)"
         if os.environ.get("CI"):
             pytest.fail(message)
         pytest.skip(message)

@@ -82,6 +82,10 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 ### Changed
 - The player mixes in integers and saturates, as the firmware does, instead of normalising the whole render.
 - Core 1's RDATA gate and write-capture control moved out of `main.cpp` into pure code (`drive::Drive::streams`, `WriteGate` in `write_burst.h`), so the firmware and the virtual PC share them.
+- Faster CI and local test runs:
+  - the C++ tests build through `test/native.mk`, in parallel and only what changed;
+  - the firmware build and the tests run as separate jobs side by side, and the tests job fetches only `pioasm` rather than all of PlatformIO;
+  - the Greaseweazle comparison checks a spread of tracks by default, and all 160 on tags, on a manual run, or with `FDDPRO_FULL_TRACKS=1`.
 
 ## [0.6.0] - 2026-10-23
 

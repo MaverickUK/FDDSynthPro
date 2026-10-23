@@ -6,6 +6,10 @@ no hardware: for every track of a disk,
     back to the original sector data.
 
 The tracks come from test/tools/build_track, built by test/run_native_tests.sh.
+
+By default a spread of tracks is compared (the outermost and innermost
+cylinders, both heads, the middle, and a fixed random few): a second or so.
+FDDPRO_FULL_TRACKS=1 compares all 160, as CI does on release tags.
 """
 from __future__ import annotations
 
@@ -23,6 +27,18 @@ pytestmark = pytest.mark.sim
 
 TOOL = REPO / ".pio/native-tests/build_track"
 CYLINDERS, HEADS = 80, 2
+FULL = os.environ.get("FDDPRO_FULL_TRACKS") == "1"
+
+
+def tracks_to_check() -> list[int]:
+    """Track numbers (cylinder * 2 + head) to compare."""
+    if FULL:
+        return list(range(CYLINDERS * HEADS))
+    chosen = {0, 1, 78, 79, 80, 81, 156, 157, 158, 159}  # cylinders 0, 39, 40, 78, 79
+    chosen.update(random.Random(160).sample(range(CYLINDERS * HEADS), 6))
+    return sorted(chosen)
+
+
 FORMATS = {  # name: (sectors per track, track bytes)
     "1440": (18, 12500),
     "720": (9, 6250),
@@ -67,7 +83,8 @@ def check_against_greaseweazle(gw_codec, fmt: str, image: bytes, tracks: list[by
     disk = codec.get_diskdef(f"ibm.{fmt}")
     per_track = FORMATS[fmt][0] * 512
     encode_mismatches, decode_failures = [], []
-    for n, ours in enumerate(tracks):
+    for n in tracks_to_check():
+        ours = tracks[n]
         cyl, head = divmod(n, HEADS)
         data = image[n * per_track:(n + 1) * per_track]
 

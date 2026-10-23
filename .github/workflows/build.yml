@@ -1,6 +1,10 @@
 # Build the firmware and run every test that needs no hardware, on each push
-# and pull request. A tag vX.Y.Z also publishes a GitHub release with the
-# UF2, after checking that the tag matches FIRMWARE_VERSION in src/version.h.
+# and pull request, in two jobs side by side. A tag vX.Y.Z also publishes a
+# GitHub release with the UF2s, after checking that the tag matches
+# FIRMWARE_VERSION in src/version.h.
+#
+# The Greaseweazle comparison checks a spread of tracks on routine runs and
+# all 160 on tags, or when run by hand with "full tracks" ticked.
 name: Build and test
 
 on:
@@ -8,10 +12,16 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      full_tracks:
+        description: Compare every track with Greaseweazle's encoder
+        type: boolean
+        default: true
 
 jobs:
-  build:
-    name: Firmware and host tests
+  firmware:
+    name: Firmware
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -24,17 +34,8 @@ jobs:
         with:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
-      - run: pip install platformio -r host/requirements.txt
-      # mtools and fsck.fat check the virtual PC's DOS sessions (test_dos_disk.py).
-      - run: sudo apt-get install -y mtools dosfstools
-
-      # Builds first, so a broken build fails fast.
+      - run: pip install platformio
       - run: pio run -e bb48 -e bb48_drive
-      - name: C++ unit tests
-        run: test/run_native_tests.sh
-      - name: Simulator and parser tests
-        working-directory: host
-        run: pytest -m sim
 
       - name: Read the firmware version
         id: version
@@ -61,17 +62,46 @@ jobs:
           name: firmware-v${{ steps.version.outputs.version }}
           path: dist/*.uf2
 
+  tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    env:
+      # pioasm for the PIO simulator tests: the same build PlatformIO uses,
+      # without the rest of the toolchain.
+      PIOASM_URL: https://github.com/earlephilhower/pico-quick-toolchain/releases/download/5.0.0/x86_64-linux-gnu.pioasm-98a542c1.260719.tar.gz
+      FDDPRO_FULL_TRACKS: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.full_tracks) && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: host/requirements.txt
+      - run: pip install -r host/requirements.txt
+      # mtools and fsck.fat check the virtual PC's DOS sessions (test_dos_disk.py).
+      - run: sudo apt-get install -y mtools dosfstools
+      - name: Fetch pioasm
+        run: |
+          curl -sfL "$PIOASM_URL" | tar xz -C "$RUNNER_TEMP"
+          echo "PIOASM=$RUNNER_TEMP/pioasm/pioasm" >> "$GITHUB_ENV"
+
+      - name: C++ unit tests
+        run: test/run_native_tests.sh
+      - name: Simulator and parser tests
+        working-directory: host
+        run: pytest -m sim
+
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [firmware, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: firmware-v${{ needs.build.outputs.version }}
+          name: firmware-v${{ needs.firmware.outputs.version }}
           path: dist
       - name: Create the GitHub release
         env:
