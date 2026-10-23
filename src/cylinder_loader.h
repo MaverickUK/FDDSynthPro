@@ -38,6 +38,13 @@ public:
     // (Idle: nothing to do).
     Step service();
 
+    // A sector the host wrote: puts it in the loaded track data and
+    // re-encodes that head into the buffer, so the host reads it back at
+    // once. The buffer is rewritten in place with the same cells except the
+    // sector's, so RDATA stays valid throughout. Returns false (and changes
+    // nothing) unless the buffer holds `cylinder`.
+    bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data);
+
     // The cylinder the buffer holds, or -1 while it is being built. Safe to
     // read from the other core: it turns -1 before the first write into the
     // buffer, and to the cylinder only after the last.

@@ -2,11 +2,26 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-23
 
 ### Added
+- **Slice 5, writing (`bb48_drive` build, now `FIRMWARE_SLICE` 5).** The drive takes writes into an image on the SD card.
+  - **Capture:** `fdd_wdata.pio` times WDATA's flux transitions while WGATE is asserted: 16 ticks a cell, one byte an interval, DMA into an 80 KB buffer. Core 1 notes where on the track the write began.
+  - **Decoding:** core 0 decodes each burst. `mfm_decode` is a data separator (a PLL with Greaseweazle's gains) and a field scanner. `track_write` places each data field: by position for a single-sector write, as a PC's controller makes it, and by its ID field for a whole-track write such as FORMAT or `gw write`.
+  - **Storing:** written sectors go into the live track at once, so a verify read sees them, and through to the image on the card, synced.
+  - **Write protection:** an image is writable unless the file is marked read-only; the generated disk stays write-protected.
+  - **Console:** `s` adds `writable`, `written`, `write_bad_crc`, `write_unplaced`, `bursts_dropped` and `write_us_max`; `i` shows `writable`.
+- **Host tests, all without hardware:**
+  - The data separator tolerates about 0.2 cell of random jitter on every edge and a host clock about 10% off. Both were measured, not assumed.
+  - Every track Greaseweazle's encoder makes decodes exactly (`test/tools/decode_write`).
+  - The WDATA program, in the simulator, measures intervals to within a tick with no bias, and a sector write it captures decodes into the right sector.
+  - The whole write path, end to end.
+- The PIO simulator gains `IN` and autopush. Rig tests for slice 5 (`-m slice5`) write random tracks with `gw write`, read them back, and restore the originals.
 - A synthesised stand-in sample pack in `samples/Placeholder/`, until a real drive is recorded. It has `spinup`, `spin` (loop), `spindown`, `step`, `seek` (loop), `bump`, `insert` and `eject`, as mono 16-bit 22.05 kHz WAVs.
 - `scripts/make_placeholder_samples.py` regenerates the pack the same way every time; `--demo` writes a short session to listen to.
+
+### Changed
+- `rdata::clockDivider` takes the program's cycles per cell.
 
 ## [0.5.0] - 2026-10-23
 

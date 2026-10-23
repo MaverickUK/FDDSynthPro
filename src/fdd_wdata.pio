@@ -1,0 +1,35 @@
+; The WDATA capture: times the flux transitions the host writes.
+;
+; Each transition is a falling edge on WDATA (a short low pulse). The program
+; counts ticks of two cycles from one falling edge to the next, and pushes
+; each interval as 8 bits: autopush at 32, shifting right, so the first
+; interval of a word is its low byte. Core 1 runs it only while WGATE is
+; asserted; the clock divider makes TICKS_PER_CELL ticks a cell (wdata_pio.h).
+;
+; Each interval reads EDGE_TICKS short: the cycles spent on the edge itself
+; aren't counted. The reader adds them back. 8 bits hold 255 ticks, nearly
+; 16 cells; MFM never has more than 4 between transitions. Only the first
+; interval, from WGATE to the first pulse, can be longer, and it wraps.
+;
+; Configure: jmp pin = WDATA, IN shifting right with autopush at 32, RX
+; FIFO joined.
+
+.program fdd_wdata
+
+.define public TICKS_PER_CELL 16
+.define public EDGE_TICKS 2
+
+public start:
+    mov x, ~null            ; the count runs down from 0xFFFFFFFF
+.wrap_target
+wait_rise:                  ; WDATA low (a pulse): count until it ends
+    jmp pin, wait_fall
+    jmp x--, wait_rise
+wait_fall:                  ; WDATA high: count until the next pulse
+    jmp x--, high
+high:
+    jmp pin, wait_fall
+    mov y, ~x               ; a falling edge: the ticks counted
+    in y, 8
+    mov x, ~null
+.wrap

@@ -5,14 +5,18 @@
 //               records select, motor, side, write gate and density changes,
 //               and every step. Every pin stays an input; the SN7407 outputs
 //               stay released.
-//   bb48_drive  slices 1-4, the drive: core 1 also runs the drive model
+//   bb48_drive  slices 1-5, the drive: core 1 also runs the drive model
 //               (drive.h) and puts INDEX, TRK00, WPT and DSKCHG on the
 //               SN7407, and the RDATA streamer (rdata_pio.h) sends the
 //               cylinder under the head. Core 0 loads it (cylinder_loader.h)
 //               from the first image on the SD card, or from the generated
 //               1.44 MB disk without one. A read-only disk is in from
-//               power-on. What the drive does becomes sound events
-//               (activity.h), printed as ACT lines for the FDD Synth.
+//               power-on, writable if the image is. What the drive does
+//               becomes sound events (activity.h), printed as ACT lines for
+//               the FDD Synth. Writes: core 1 captures WDATA while WGATE is
+//               asserted (wdata_pio.h); core 0 decodes each burst and puts
+//               the sectors in the live track and on the card
+//               (write_burst.h).
 // In both, core 1 records events into the trace ring and core 0 owns USB
 // serial: it prints the trace and runs the console.
 #include <Arduino.h>
@@ -38,6 +42,8 @@
 #include "rdata_pio.h"
 #include "sd_image.h"
 #include "track_source.h"
+#include "wdata_pio.h"
+#include "write_burst.h"
 #endif
 
 static SpscRing<TraceEvent, cfg::TRACE_RING_EVENTS> g_trace;
@@ -114,9 +120,18 @@ constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
 // in place when the head moves; the DMA reads it all the time.
 static uint32_t g_cylinder_slots[ibm::HD_1440.track_bytes];
 
-// Set by core 0 once it has chosen the disk (setup()); core 1 waits for both.
+// Set by core 0 once it has chosen the disk (setup()); core 1 waits for them.
 static std::atomic<const ibm::Format*> g_format{nullptr};
+static std::atomic<bool> g_writable{false};
 static std::atomic<CylinderLoader*> g_loader{nullptr};
+
+// One write burst at a time, from core 1's capture to core 0's decoder. Big
+// enough for a whole HD track (about 75,000 flux transitions).
+enum BurstState : int { BURST_FREE, BURST_CAPTURING, BURST_READY };
+static uint8_t g_capture[80 * 1024] __attribute__((aligned(4)));
+static WriteBurst g_burst;
+static std::atomic<int> g_burst_state{BURST_FREE};
+static std::atomic<uint32_t> g_bursts_dropped{0};  // WGATE while core 0 was still on the last burst
 
 void setup1() {
     setUpInputs();
@@ -131,6 +146,7 @@ void setup1() {
     while (!g_loader.load(std::memory_order_acquire)) tight_loop_contents();
     const ibm::Format* fmt = g_format.load();
     rdata_pio::begin(g_cylinder_slots, fmt->track_bytes, fmt->dataRate());
+    wdata_pio::begin(fmt->dataRate());
 }
 
 void loop1() {
@@ -139,12 +155,16 @@ void loop1() {
     // edges are late by at most one pass (well under a microsecond).
     static drive::Drive d;
     const CylinderLoader& loader = *g_loader.load();
-    d.insertDisk(true);  // read-only until slice 5
+    const bool write_protected = !g_writable.load();
+    const uint32_t data_rate = g_format.load()->dataRate();
+    d.insertDisk(write_protected);
     g_disk_in.store(true);
     PinWatch w(pinsAsSample());
     activity::DriveObserver observer;
     bool index_was = false;
     bool streaming = false;
+    bool capturing = false;
+    bool missed = false;  // this WGATE assertion found the capture buffer busy
     for (;;) {
         uint32_t now = time_us_32();
         uint32_t pins = pinsAsSample();
@@ -160,7 +180,7 @@ void loop1() {
         g_selected.store(d.selected(), std::memory_order_relaxed);
 
         int request = g_disk_request.exchange(0, std::memory_order_relaxed);
-        if (request > 0) d.insertDisk(true);
+        if (request > 0) d.insertDisk(write_protected);
         if (request < 0) d.ejectDisk();
         if (request) g_disk_in.store(d.diskPresent(), std::memory_order_relaxed);
 
@@ -183,6 +203,31 @@ void loop1() {
             rdata_pio::enable(stream);
             streaming = stream;
         }
+
+        // Writes: capture WDATA from WGATE asserted to released, then hand
+        // the burst to core 0. Where on the track it began places a sector
+        // write (track_write.h).
+        bool gate = fdd::asserted(pins, cfg::PIN_WGATE);
+        if (gate && !capturing && !missed && d.selected() && d.diskPresent() && !d.writeProtected()) {
+            if (g_burst_state.load(std::memory_order_acquire) == BURST_FREE) {
+                uint32_t start_byte = uint32_t(uint64_t(d.spindle().phaseUs(now)) * data_rate / 8000000u);
+                g_burst = WriteBurst{d.head().cylinder(), d.side(), start_byte, g_capture, 0};
+                g_burst_state.store(BURST_CAPTURING, std::memory_order_relaxed);
+                wdata_pio::start(g_capture, sizeof g_capture);
+                capturing = true;
+            } else {
+                g_bursts_dropped.fetch_add(1, std::memory_order_relaxed);
+                missed = true;
+            }
+        }
+        if (!gate || !d.selected()) {
+            if (capturing) {
+                g_burst.count = wdata_pio::stop();
+                g_burst_state.store(BURST_READY, std::memory_order_release);
+                capturing = false;
+            }
+            missed = false;
+        }
     }
 }
 
@@ -195,13 +240,37 @@ static uint16_t g_track_scratch[ibm::HD_1440.track_bytes];
 static uint32_t g_read_us_max = 0;    // slowest track read (console `s`)
 static uint32_t g_encode_us_max = 0;  // slowest track encode
 
+// Decoding writes: a full track's data fields, plus room for strays.
+static uint8_t g_write_store[12 * 1024];
+static mfm::Field g_write_fields[64];
+static BurstWriter* g_writer = nullptr;
+static uint32_t g_sectors_written = 0;  // console `s`
+static uint32_t g_write_bad_crc = 0;
+static uint32_t g_write_unplaced = 0;
+static uint32_t g_write_us_max = 0;
+
 static void chooseDisk() {
     if (TrackSource* image = sd_image::open()) g_source = image;
     static CylinderLoader loader(*g_source, g_cylinder_slots, g_track_scratch, g_track_data[0],
                                  g_track_data[1]);
+    static BurstWriter writer(*g_source, loader, g_write_store, sizeof g_write_store, g_write_fields, 64);
+    g_writer = &writer;
     while (loader.service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
     g_format.store(&g_source->format());
+    g_writable.store(g_source->writable());
     g_loader.store(&loader, std::memory_order_release);
+}
+
+static void serviceWrites() {
+    if (g_burst_state.load(std::memory_order_acquire) != BURST_READY) return;
+    uint32_t started = time_us_32();
+    BurstResult r = g_writer->apply(g_burst, wdata_pio::ticksPerCell(), wdata_pio::edgeTicks());
+    uint32_t took = time_us_32() - started;
+    if (took > g_write_us_max) g_write_us_max = took;
+    g_sectors_written += r.persisted;
+    g_write_bad_crc += r.decoded.bad_crc;
+    g_write_unplaced += r.decoded.unplaced;
+    g_burst_state.store(BURST_FREE, std::memory_order_release);
 }
 
 static void serviceLoader() {
@@ -249,7 +318,8 @@ static void printImage() {
     if (g_source == &g_generated)
         Serial.printf("IMAGE generated %u\n", kb);
     else
-        Serial.printf("IMAGE %s %u contiguous=%d\n", sd_image::name(), kb, (int)sd_image::contiguous());
+        Serial.printf("IMAGE %s %u contiguous=%d writable=%d\n", sd_image::name(), kb, (int)sd_image::contiguous(),
+                      (int)g_writable.load());
 }
 
 #endif
@@ -291,6 +361,10 @@ static void printStats() {
     Serial.printf(" ready=%d loads=%lu restarts=%lu read_us_max=%lu encode_us_max=%lu", loader.ready(),
                   (unsigned long)loader.loads(), (unsigned long)loader.restarts(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
+    Serial.printf(" writable=%d written=%lu write_bad_crc=%lu write_unplaced=%lu bursts_dropped=%lu write_us_max=%lu",
+                  (int)g_writable.load(), (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
+                  (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
+                  (unsigned long)g_write_us_max);
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
                   (unsigned long)g_activity.seeks(), (unsigned long)g_activity.bumps(),
                   (unsigned long)(g_activity.dropped() + g_drive_events_dropped.load()));
@@ -405,6 +479,7 @@ void setup() {
 
 void loop() {
 #if FIRMWARE_SLICE != 0
+    serviceWrites();  // before loading: a write may be to the cylinder being left
     serviceLoader();
     serviceActivity();
 #endif

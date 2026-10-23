@@ -86,6 +86,11 @@ class Greaseweazle:
         args = ["--format", fmt] + (["--tracks", tracks] if tracks else []) + [str(image)]
         return self.run("read", *args, timeout=300)
 
+    def write(self, image: Path, fmt: str = "ibm.1440", tracks: str | None = None) -> GwResult:
+        """Writes an image (or some of its tracks); gw reads each track back to verify."""
+        args = ["--format", fmt] + (["--tracks", tracks] if tracks else []) + [str(image)]
+        return self.run("write", *args, timeout=600)
+
     def transcript(self) -> str:
         """Every call so far, for a run folder."""
         return "\n".join(f"$ {' '.join(r.command)}\n(exit {r.returncode})\n{r.output}" for r in self.log)

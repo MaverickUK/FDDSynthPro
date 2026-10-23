@@ -79,6 +79,7 @@ public:
     bool selected() const { return selected_; }
     bool diskPresent() const { return disk_present_; }
     bool diskChanged() const { return disk_changed_; }
+    bool writeProtected() const { return write_protected_; }
     uint8_t side() const { return side_; }
     const head::Head& head() const { return head_; }
     rotation::Spindle& spindle() { return spindle_; }

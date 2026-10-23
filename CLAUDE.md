@@ -23,11 +23,11 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 - **Build:** `pio run` (PlatformIO lives in `~/.platformio-venv/bin/pio` on the dev Mac). The board is `olimex_pico2bb48`. There are two builds, selected by `FIRMWARE_SLICE`:
   - `bb48` (0): listen only;
-  - `bb48_drive` (4): the drive, slices 1-4.
+  - `bb48_drive` (5): the drive, slices 1-5.
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader` and `activity` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write` and `write_burst` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -74,6 +74,16 @@ At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, el
 - `ready()` is atomic: -1 before the first write into the buffer, the cylinder after the last. Core 1 only lets RDATA out when it equals the head's cylinder.
 - A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
 - **PIO blocks:** SdFat's SDIO driver takes PIO 0 and sets its window to GPIO 16–47; `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window. Keep new programs off PIO 0.
+
+## Writes
+
+Core 1 starts `wdata_pio` when WGATE is asserted, and the drive is selected, has a disk and isn't write-protected. It notes the track position (`start_byte`, from the spindle's phase) and hands the burst to core 0 when WGATE is released. There's one burst buffer: a burst that finds it busy is dropped and counted (`bursts_dropped`).
+
+Core 0's `BurstWriter` runs the burst through `mfm::DataSeparator`, `mfm::FieldScanner` and `track_write::interpret`. It then patches each sector into the loader's track (`CylinderLoader::writeSector` re-encodes that head in place; unchanged cells are rewritten with the same values, so RDATA stays valid) and writes it through to the `TrackSource`.
+- `fdd_wdata.pio` doesn't count `EDGE_TICKS` (2) at each edge; the reader adds them back. Its 8-bit counts wrap after about 16 cells, which only the first interval can reach.
+- The data separator uses Greaseweazle's gains (60% phase, 5% period). Lower gains take more jitter but follow speed errors worse; `test/native/test_write_decode.cpp` measures both.
+- **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
+- `WDATA` and `RDATA` programs both live in PIO 2 or 1 (`pio_get_gpio_base == 0`), never PIO 0.
 
 ## Sound events
 

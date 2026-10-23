@@ -138,7 +138,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - Motor spin-up and spin-down, single steps, seeks (with distance), recalibration and the track 0 stop, reading versus idle, disk insert and eject. Printed as `ACT` lines, like HDDSynthPro.
   - *Before hardware:* the classifier, on recorded slice 0–3 traces.
   - **Exit:** scripted `gw` sessions produce the expected event sequence every time.
-- **Slice 5: write.**
+- **Slice 5: write.** *Done in firmware (0.6.0) and host tests; waiting for hardware.*
   - WGATE and WDATA captured by PIO, decoded from MFM, written back to the image on SD when the head moves or the motor stops. WPT follows a per-image setting.
   - *Before hardware:* the decoder against flux from `gw convert`; the capture program in `pio_sim.py`.
   - **Exit:** `gw write` then `gw read`, 100 images, zero mismatches; the image survives a power cycle.
@@ -165,6 +165,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
 | Wrong power order | The rule above. The SN7407 runs from the BB48's VBUS, so an unpowered BB48 never sinks the outputs |
 | Erratum E9 on A2-stepping RP2350s | Never use internal pull-downs |
 | RDATA pulse width and jitter the controller won't accept | Match the reference drive (measured with the logic analyser), and check `gw read` margins with its flux histogram |
+| A write burst arrives while core 0 is still decoding the last one | Bursts of a sector write are ~11 ms apart; a sector decodes in well under that. Measure `write_us_max` and watch `bursts_dropped`; a second capture buffer if needed |
 | SD reads slower than the settle time | Measure in slice 3; the host retries on the next revolution, and a second cylinder buffer can prefetch neighbours |
 
 **Answered from the Greaseweazle firmware source (`floppy.c`, 23 Oct 2026):**

@@ -35,6 +35,13 @@ public:
     // Returns false for a track the disk doesn't have (cylinders 80-83, or
     // a read error): the drive then sends a blank track.
     virtual bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) = 0;
+    // Writes one sector (index from 0) back to the disk. Returns false if it
+    // can't keep it: a read-only image, or the generated disk.
+    virtual bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) {
+        (void)cylinder, (void)head, (void)sector, (void)data;
+        return false;
+    }
+    virtual bool writable() const { return false; }
 };
 
 class GeneratedSource : public TrackSource {

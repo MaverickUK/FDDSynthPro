@@ -1,6 +1,17 @@
 #include "cylinder_loader.h"
 
+#include <cstring>
+
 #include "rdata_stream.h"
+
+bool CylinderLoader::writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) {
+    const ibm::Format& fmt = source_.format();
+    if (ready() != cylinder || loading_ >= 0 || head > 1 || sector >= fmt.sectors || !present_[head]) return false;
+    std::memcpy(data_[head] + sector * fmt.sectorBytes(), data, fmt.sectorBytes());
+    if (!ibm::buildTrack(fmt, cylinder, head, data_[head], scratch_)) return false;
+    rdata::setHead(head, scratch_, fmt.track_bytes, slots_);
+    return true;
+}
 
 CylinderLoader::Step CylinderLoader::service() {
     if (loading_ >= 0 && loading_ != wanted_) {

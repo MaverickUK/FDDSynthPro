@@ -13,7 +13,7 @@ SANITIZE="${SANITIZE:-address,undefined}"
     test/native/test_write_decode.cpp \
     src/fdd_signals.cpp src/trace_format.cpp src/short_test.cpp \
     src/head.cpp src/rotation.cpp src/drive.cpp src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp \
-    src/activity.cpp src/mfm_decode.cpp src/track_write.cpp \
+    src/activity.cpp src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp \
     -o .pio/native-tests/run_tests
 # Tools the Python tests use (host/tests/test_track_encoder.py).
 "$CXX" -std=c++17 -O2 -Wall -Wextra -Isrc test/tools/build_track.cpp src/ibm_track.cpp src/rdata_stream.cpp \

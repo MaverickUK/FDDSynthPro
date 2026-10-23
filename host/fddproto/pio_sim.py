@@ -6,13 +6,13 @@ built. Modelled:
   - the two-cycle input synchroniser, bypassable per pin;
   - side-set (optional, to pin values or directions), applied when an
     instruction issues, even if it then stalls;
-  - OUT shifting right or left, autopull, PUSH/PULL with blocking, and
-    joined or 4-deep FIFOs;
+  - OUT shifting right or left, autopull; IN shifting right or left,
+    autopush; PUSH/PULL with blocking, and joined or 4-deep FIFOs;
   - WAIT on gpio/pin/jmppin, JMP conditions including pin.
 Anything else raises NotImplementedError rather than guessing.
 
-Copied from HDDSynthPro and extended (left shifts, autopull, public
-defines). Pins use the sample layout of src/fdd_signals.h throughout: bit n
+Copied from HDDSynthPro and extended (left shifts, autopull, IN and
+autopush, public defines). Pins use the sample layout of src/fdd_signals.h throughout: bit n
 is GPIO (4 + n). Pin indices passed in (out base, side-set
 base, jmp pin) are in that layout too.
 """
@@ -86,6 +86,10 @@ class PioSim:
     out_shift_right: bool = True # False: OUT takes the top bits first
     autopull: bool = False
     pull_threshold: int = 32
+    in_shift_right: bool = True  # True: new bits enter at the top
+    autopush: bool = False
+    push_threshold: int = 32
+    isr_count: int = 0           # bits shifted into the ISR
     x: int = 0
     y: int = 0
     isr: int = 0
@@ -217,6 +221,27 @@ class PioSim:
             self._advance()
             return True
 
+        if opcode == 0b010:  # IN
+            src, count = (instr >> 5) & 7, (instr & 0x1F) or 32
+            value = {0: pins, 1: self.x, 2: self.y, 3: 0, 6: self.isr, 7: self.osr}.get(src)
+            if value is None:
+                raise NotImplementedError(f"in source {src}")
+            if self.autopush and self.isr_count + count >= self.push_threshold \
+                    and len(self.rx_fifo) >= self.fifo_depth:
+                self.rx_stall = True
+                return False  # stalls until the FIFO has room
+            data = value & ((1 << count) - 1)
+            if self.in_shift_right:
+                self.isr = ((self.isr >> count) | (data << (32 - count))) & MASK32 if count < 32 else data
+            else:
+                self.isr = ((self.isr << count) | data) & MASK32 if count < 32 else data
+            self.isr_count = min(32, self.isr_count + count)
+            if self.autopush and self.isr_count >= self.push_threshold:
+                self.rx_fifo.append(self.isr)
+                self.isr, self.isr_count = 0, 0
+            self._advance()
+            return True
+
         if opcode == 0b101:  # MOV
             dest, op, src = (instr >> 5) & 7, (instr >> 3) & 3, instr & 7
             value = {0: pins, 1: self.x, 2: self.y, 3: 0, 6: self.isr, 7: self.osr}.get(src)
@@ -236,6 +261,7 @@ class PioSim:
                 self.pindirs = self._set_bits(self.pindirs, self.out_base, self.out_count, value)
             elif dest == 6:
                 self.isr = value
+                self.isr_count = 0
             elif dest == 7:
                 self.osr = value
                 self.osr_count = 0
@@ -265,6 +291,7 @@ class PioSim:
                 else:
                     self.rx_fifo.append(self.isr)
                 self.isr = 0
+                self.isr_count = 0
             self._advance()
             return True
 

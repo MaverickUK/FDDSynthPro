@@ -42,6 +42,8 @@ struct Divider {
     uint8_t frac;
     bool exact;
 };
-Divider clockDivider(uint32_t sys_hz, uint32_t data_rate_bps);
+// `cycles_per_cell` is the program's: CELL_CYCLES for the streamer, 32 for
+// the WDATA capture (16 ticks of 2 cycles).
+Divider clockDivider(uint32_t sys_hz, uint32_t data_rate_bps, uint32_t cycles_per_cell = CELL_CYCLES);
 
 }  // namespace rdata

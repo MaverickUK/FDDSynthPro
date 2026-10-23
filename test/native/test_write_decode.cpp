@@ -12,6 +12,10 @@
 #include "mfm.h"
 #include "mfm_decode.h"
 #include "track_write.h"
+#include "cylinder_loader.h"
+#include "rdata_stream.h"
+#include "track_source.h"
+#include "write_burst.h"
 #include "crc16.h"
 
 static const uint32_t TICKS = 16;  // capture ticks per cell, as the WDATA program measures them
@@ -265,6 +269,135 @@ TEST(test_dd_track_write) {
     CHECK_EQ(track_write::interpret(fmt, 79, 1, 0, d.scanner, u, 16).updates, 9u);
 }
 
+// ---- The whole write path: burst in, live track and disk out --------------------------------
+
+// A writable disk in memory, starting as the generated disk.
+class MemorySource : public TrackSource {
+public:
+    explicit MemorySource(const ibm::Format& fmt) : fmt_(fmt), image_(80 * 2 * fmt.trackDataBytes()) {
+        for (uint8_t c = 0; c < 80; ++c)
+            for (uint8_t h = 0; h < 2; ++h) gen_disk::track(fmt, c, h, &image_[imageTrackOffset(fmt, c, h)]);
+    }
+    const ibm::Format& format() const override { return fmt_; }
+    bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override {
+        if (c >= 80) return false;
+        std::memcpy(out, &image_[imageTrackOffset(fmt_, c, h)], fmt_.trackDataBytes());
+        return true;
+    }
+    bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
+        std::memcpy(&image_[imageTrackOffset(fmt_, c, h) + s * 512u], data, 512);
+        ++writes;
+        return true;
+    }
+    bool writable() const override { return true; }
+    const uint8_t* sector(uint8_t c, uint8_t h, uint8_t s) const { return &image_[imageTrackOffset(fmt_, c, h) + s * 512u]; }
+    unsigned writes = 0;
+
+private:
+    const ibm::Format& fmt_;
+    std::vector<uint8_t> image_;
+};
+
+// As the WDATA capture delivers them: 8-bit ticks, less the edge ticks.
+static std::vector<uint8_t> captured(const std::vector<uint32_t>& flux, uint32_t edge_ticks) {
+    std::vector<uint8_t> out;
+    for (uint32_t t : flux) out.push_back(uint8_t(t - edge_ticks));
+    return out;
+}
+
+struct WriteRig {
+    MemorySource source{ibm::HD_1440};
+    std::vector<uint32_t> slots = std::vector<uint32_t>(12500);
+    std::vector<uint16_t> scratch = std::vector<uint16_t>(12500);
+    std::vector<uint8_t> d0 = std::vector<uint8_t>(9216), d1 = std::vector<uint8_t>(9216);
+    CylinderLoader loader{source, slots.data(), scratch.data(), d0.data(), d1.data()};
+    std::vector<uint8_t> store = std::vector<uint8_t>(12 * 1024);
+    std::vector<mfm::Field> fields = std::vector<mfm::Field>(64);
+    BurstWriter writer{source, loader, store.data(), store.size(), fields.data(), fields.size()};
+
+    void load(uint8_t cyl) {
+        loader.request(cyl);
+        while (loader.service() != CylinderLoader::Step::Idle) {}
+    }
+    // The live buffer's head, decoded: what the host would read now.
+    std::vector<uint8_t> liveSector(uint8_t head, uint8_t s) {
+        std::vector<uint16_t> cells(12500);
+        for (size_t i = 0; i < cells.size(); ++i) cells[i] = rdata::headCells(slots[i], head);
+        Decoded d;
+        decode(d, toFlux(cells));
+        for (size_t i = 0; i < d.scanner.count(); ++i) {
+            const mfm::Field& f = d.scanner.field(i);
+            if (f.mark == mfm::MARK_DAM && f.crc_ok && i > 0 && d.scanner.field(i - 1).id[2] == s + 1)
+                return std::vector<uint8_t>(&d.store[f.data_offset], &d.store[f.data_offset] + 512);
+        }
+        return {};
+    }
+};
+
+TEST(test_burst_sector_write) {
+    WriteRig r;
+    r.load(9);
+    auto data = pattern(42);
+    auto flux = toFlux(sectorWriteCells(data.data()), Timing{1.01, 0.1, 0.0}, 12);
+    auto bytes = captured(flux, 2);
+    BurstResult res = r.writer.apply(WriteBurst{9, 1, ibm::HD_1440.dataFieldStart(4), bytes.data(), bytes.size()}, 16, 2);
+    CHECK_EQ(res.decoded.updates, 1u);
+    CHECK_EQ(res.patched, 1u);
+    CHECK_EQ(res.persisted, 1u);
+    // On the disk, and in what the host reads back at once.
+    CHECK(std::memcmp(r.source.sector(9, 1, 4), data.data(), 512) == 0);
+    CHECK(r.liveSector(1, 4) == data);
+    // The other head, and the other sectors, are untouched.
+    std::vector<uint8_t> before(512);
+    gen_disk::sector(gen_disk::firstLba(ibm::HD_1440, 9, 1) + 3, before.data());
+    CHECK(r.liveSector(1, 3) == before);
+    gen_disk::sector(gen_disk::firstLba(ibm::HD_1440, 9, 0) + 4, before.data());
+    CHECK(r.liveSector(0, 4) == before);
+}
+
+TEST(test_burst_track_write) {
+    WriteRig r;
+    r.load(30);
+    // A whole new track 30.0, as `gw write` sends it.
+    std::vector<uint8_t> data(9216);
+    for (size_t i = 0; i < data.size(); ++i) data[i] = uint8_t(i * 13 + 1);
+    std::vector<uint16_t> cells(12500);
+    ibm::buildTrack(ibm::HD_1440, 30, 0, data.data(), cells.data());
+    auto bytes = captured(toFlux(cells, Timing{0.99, 0.1, 0.0}, 13), 2);
+    BurstResult res = r.writer.apply(WriteBurst{30, 0, 0, bytes.data(), bytes.size()}, 16, 2);
+    CHECK_EQ(res.persisted, 18u);
+    CHECK_EQ(r.source.writes, 18u);
+    bool all = true;
+    for (uint8_t s = 0; s < 18; ++s) all = all && r.liveSector(0, s) == std::vector<uint8_t>(&data[s * 512], &data[s * 512] + 512);
+    CHECK(all);
+}
+
+TEST(test_burst_survives_a_reload) {
+    // Written sectors come back from the disk after the head moves away and back.
+    WriteRig r;
+    r.load(2);
+    auto data = pattern(7);
+    auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
+    r.writer.apply(WriteBurst{2, 0, ibm::HD_1440.dataFieldStart(0), bytes.data(), bytes.size()}, 16, 2);
+    r.load(3);
+    r.load(2);
+    CHECK(r.liveSector(0, 0) == data);
+}
+
+TEST(test_burst_on_an_unloaded_cylinder_still_persists) {
+    // The head moved before core 0 got to the burst: the buffer can't take
+    // it, but the disk does, and the next load shows it.
+    WriteRig r;
+    r.load(5);
+    auto data = pattern(3);
+    auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
+    BurstResult res = r.writer.apply(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(1), bytes.data(), bytes.size()}, 16, 2);
+    CHECK_EQ(res.patched, 0u);
+    CHECK_EQ(res.persisted, 1u);
+    r.load(4);
+    CHECK(r.liveSector(0, 1) == data);
+}
+
 void runWriteDecodeTests() {
     RUN(test_field_positions);
     RUN(test_exact_flux_reads_back);
@@ -275,4 +408,8 @@ void runWriteDecodeTests() {
     RUN(test_track_write_placed_by_ids);
     RUN(test_bad_crc_is_not_written);
     RUN(test_dd_track_write);
+    RUN(test_burst_sector_write);
+    RUN(test_burst_track_write);
+    RUN(test_burst_survives_a_reload);
+    RUN(test_burst_on_an_unloaded_cylinder_still_persists);
 }

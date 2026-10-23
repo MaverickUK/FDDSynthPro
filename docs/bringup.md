@@ -112,6 +112,15 @@ Note the numbers in `docs/plan.md`, under the open questions.
   - `d` twice gives `EJECT` then `INSERT`.
 - [ ] Watch the `ACT` lines in `pio device monitor` while running `gw read`. With the Feather host, expect separate `STEP`s, since it steps every 26 ms.
 
+## 11. Slice 5: writing
+
+- [ ] Set the FeatherWing's write switch to **WR**.
+- [ ] Copy a fresh test image to the card (not marked read-only). Type `i`: `writable=1`.
+- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice5`. It writes random tracks with `gw write`, reads each back, checks one survives a seek away and back, and puts the originals back. `FDDPRO_WRITE_CYCLES=100` gives the plan's 100 cycles.
+- [ ] Check `s`: `write_bad_crc=0`, `bursts_dropped=0`, and `write_us_max` (a whole-track write is the slowest).
+- [ ] **Power cycle:** write a track, unplug the BB48 (Feather first), plug it back and read the track: the card kept it.
+- [ ] Afterwards, copy the image back to the Mac and compare it with the local copy: identical, since the tests restored every track.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

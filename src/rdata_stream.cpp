@@ -39,8 +39,8 @@ bool buildCylinder(const ibm::Format& fmt, uint8_t cylinder, const uint8_t* head
     return true;
 }
 
-Divider clockDivider(uint32_t sys_hz, uint32_t data_rate_bps) {
-    uint64_t cycles_per_s = uint64_t(data_rate_bps) * 2 * CELL_CYCLES;
+Divider clockDivider(uint32_t sys_hz, uint32_t data_rate_bps, uint32_t cycles_per_cell) {
+    uint64_t cycles_per_s = uint64_t(data_rate_bps) * 2 * cycles_per_cell;
     uint64_t div256 = (uint64_t(sys_hz) * 256 + cycles_per_s / 2) / cycles_per_s;  // rounded
     return Divider{uint16_t(div256 >> 8), uint8_t(div256), div256 * cycles_per_s == uint64_t(sys_hz) * 256};
 }
