@@ -73,7 +73,7 @@ Until a real drive is recorded, `samples/Placeholder/` holds a synthesised stand
 
 The recording has no insert or eject, so the pack has neither. It keeps the drive's own balance, with one gain for the whole pack: loud clicks over a quiet motor. `--audition out.wav` writes each sound in turn to listen to.
 
-The firmware plays the first folder under `/samples` in name order, so put one pack on the card.
+Put any number of packs on the card, one folder each under `/samples`. On the panel's Sounds screen, press the encoder for the list: turn to one and press to load it (console `k` loads the next). It loads once the drive is idle, and the drive remembers it across power-off (`/FDDSYNTH.CFG`). The first time, it plays the first folder in name order.
 
 ## Hearing it
 

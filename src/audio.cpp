@@ -20,6 +20,10 @@ void begin(synth::Mixer& mixer, uint32_t rate) {
     s_i2s.begin(int(rate));
 }
 
+void setRate(uint32_t rate) {
+    if (s_mixer) s_i2s.setFrequency(int(rate));
+}
+
 void service() {
     if (!s_mixer) return;
     static int16_t mono[cfg::AUDIO_BLOCK_FRAMES];

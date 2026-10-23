@@ -14,7 +14,7 @@ OUT := .pio/native-tests
 SRC := src/fdd_signals.cpp src/trace_format.cpp src/short_test.cpp src/head.cpp src/rotation.cpp \
        src/drive.cpp src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp src/activity.cpp \
        src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp src/synth.cpp src/wav.cpp src/ui.cpp \
-       src/screens.cpp src/canvas.cpp
+       src/screens.cpp src/canvas.cpp src/settings.cpp
 TESTS := $(wildcard test/native/*.cpp)
 
 comma := ,

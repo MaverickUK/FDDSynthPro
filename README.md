@@ -29,7 +29,7 @@ Its logic is tested on the Mac against virtual hosts (the Feather's firmware and
 
 ## Front panel
 
-An SSD1306 OLED on the BB48's Qwiic socket, a rotary encoder and an action button, as on the HDD Synth. Turn for the volume; press to pick a disk from the card and insert it; the action button steps through the screens, and holding it ejects the disk. [docs/oled](docs/oled) has every screen, drawn by the firmware's own code.
+An SSD1306 OLED on the BB48's Qwiic socket, a rotary encoder and an action button, as on the HDD Synth. Turn for the volume; press to pick a disk from the card and insert it; the action button steps through the screens, and holding it ejects the disk. On the Sounds screen, press to choose the sample pack. Like a GoTek, it remembers the disk, the pack and the volume across power-off. [docs/oled](docs/oled) has every screen, drawn by the firmware's own code.
 
 <img src="docs/oled/home_reading.png" alt="The home screen: GAMES.IMG, track 40, head 1, reading" width="256"> <img src="docs/oled/head_trace.png" alt="The head trace screen" width="256">
 

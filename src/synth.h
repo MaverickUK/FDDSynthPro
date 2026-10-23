@@ -64,6 +64,11 @@ public:
     void event(const activity::Event& e);
     void render(int16_t* out, size_t frames);
 
+    // For a new pack in the same Pack (the samples have moved): stops every
+    // sound, which pointed into the old one. A running motor keeps running,
+    // its spin loop restarting at once with no spin-up.
+    void reset();
+
     // 0-100. Loudness follows the square of the setting, roughly as the ear
     // hears it. A change glides over VOLUME_RAMP samples, so it never clicks.
     void setVolume(int percent);

@@ -27,6 +27,7 @@
 #include "synth.h"
 #include "track_source.h"
 #include "ui.h"
+#include "version.h"
 #include "virtual_pc.h"
 #include "wav.h"
 
@@ -278,7 +279,7 @@ int main(int argc, char** argv) {
     const uint32_t S = 1000000;  // a second, in simulated microseconds
 
     panel.caption("Power on: the card's first disk is in");
-    panel.log("FDD Synth Pro 0.7.0 drive, sample pack " + pack.name);
+    panel.log(std::string("FDD Synth Pro ") + FIRMWARE_VERSION + " drive, sample pack " + pack.name);
     panel.turn(pc.now + S, 5);  // 75% (the power-on volume) up to 100%
     pc.run(2 * S);
 

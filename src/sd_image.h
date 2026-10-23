@@ -27,13 +27,20 @@ TrackSource* open(size_t index);
 const char* name();
 bool contiguous();
 
-// Loads the FDD Synth's sample pack: the first folder under /samples, in
-// name order, holding spinup.wav, spin.wav, spindown.wav, step.wav,
-// seek.wav, bump.wav (and optionally insert.wav, eject.wav): mono, 16-bit,
-// one rate. The samples go into one allocation sized to the pack, up to
-// `max_bytes`; a pack bigger than that is cut short. Returns true if the
-// pack is complete (synth::Pack::complete). Call once, after mount(): the
-// memory is never freed.
-bool loadPack(synth::Pack& pack, size_t max_bytes, char* name, size_t name_len);
+// The FDD Synth's sample packs: the folders under /samples (mount() lists them).
+const PackList& packs();
+
+// Loads pack `index` of packs(): its spinup.wav, spin.wav, spindown.wav,
+// step.wav, seek.wav, bump.wav (and optionally insert.wav, eject.wav):
+// mono, 16-bit, one rate. The samples go into one allocation sized to the
+// pack, up to `max_bytes`; a pack bigger than that is cut short. The last
+// pack loaded is freed first, so whatever plays it (synth::Mixer::reset)
+// must be told. Returns true if the pack is complete (synth::Pack::complete).
+bool loadPack(synth::Pack& pack, size_t index, size_t max_bytes);
+
+// The settings file (settings.h): its text into `out`, up to `cap` bytes;
+// 0 if there isn't one. And writing it, replacing the last.
+size_t readSettings(char* out, size_t cap);
+bool writeSettings(const char* text, size_t len);
 
 }  // namespace sd_image

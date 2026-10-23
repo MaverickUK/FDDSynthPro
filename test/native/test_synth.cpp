@@ -128,6 +128,36 @@ struct Tone {
     }
 };
 
+TEST(test_synth_reset_for_a_new_pack) {
+    // Mid spin-up, a step and a seek playing: a new pack comes in.
+    ToyPack t;
+    synth::Mixer m(t.pack);
+    m.event(ev(activity::Sound::MotorOn));
+    m.event(ev(activity::Sound::Step));
+    m.event(ev(activity::Sound::SeekStart));
+    std::vector<int16_t> out(20);
+    m.render(out.data(), out.size());
+    CHECK_EQ(out[0], 100 + 100 + 10);  // spinup + step + seek loop
+    m.reset();
+    m.render(out.data(), out.size());
+    bool spin_only = true;
+    for (int16_t v : out) spin_only = spin_only && v == 10;
+    CHECK(spin_only);  // the spin loop at once, no spin-up; the rest stopped
+    // Motor off: nothing after a reset.
+    m.event(ev(activity::Sound::MotorOff));
+    m.reset();
+    m.render(out.data(), out.size());
+    bool silent = true;
+    for (int16_t v : out) silent = silent && v == 0;
+    CHECK(silent);
+    // And the motor still stops as normal after a reset with it running.
+    m.event(ev(activity::Sound::MotorOn));
+    m.reset();
+    m.event(ev(activity::Sound::MotorOff));
+    m.render(out.data(), out.size());
+    CHECK_EQ(out[0], 100);  // spindown only
+}
+
 TEST(test_synth_volume_unity_is_the_mix) {
     Tone t;
     synth::Mixer m(t.pack);
@@ -178,6 +208,7 @@ void runSynthTests() {
     RUN(test_synth_steals_the_oldest_voice);
     RUN(test_synth_saturates);
     RUN(test_synth_pack_complete);
+    RUN(test_synth_reset_for_a_new_pack);
     RUN(test_synth_volume_unity_is_the_mix);
     RUN(test_synth_volume_glides);
     RUN(test_synth_pack_info);

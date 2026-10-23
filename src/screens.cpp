@@ -150,10 +150,12 @@ void home(Canvas& c, const ui::Status& s) {
     for (int i = 0; i < 4; ++i) c.hLine(hx - 3 + i, 55 + i, 7 - 2 * i);  // a marker pointing down
 }
 
-void disks(Canvas& c, const ui::Status& s, size_t selection) {
-    size_t n = s.images ? s.images->count() : 0;
+// A list to choose from, the selection lit and the current one marked ">":
+// `label(i, name, right)` gives row i's name and the text at its right.
+template <typename Label>
+static void chooser(Canvas& c, const char* heading, size_t n, size_t selection, size_t current, Label label) {
     char t[24];
-    std::snprintf(t, sizeof t, "Disks %u/%u", unsigned(selection + 1), unsigned(n));
+    std::snprintf(t, sizeof t, "%s %u/%u", heading, unsigned(selection + 1), unsigned(n));
     title(c, t);
     const int rows = 6, row_h = 9, top = 11;
     // Scroll only when the list is longer than the screen, keeping the
@@ -168,14 +170,31 @@ void disks(Canvas& c, const ui::Status& s, size_t selection) {
         int y = top + r * row_h;
         bool sel = i == selection;
         if (sel) c.fillRect(0, y - 1, Canvas::WIDTH, row_h);
-        if (i == s.image) c.text(1, y, ">", !sel);  // the disk that's in
+        if (i == current) c.text(1, y, ">", !sel);
         char name[16];
-        std::strncpy(name, s.images->name(i), 15);
-        name[15] = 0;
-        if (char* dot = std::strrchr(name, '.')) *dot = 0;  // the extension says nothing here
+        const char* right = "";
+        label(i, name, right);
         c.text(8, y, name, !sel);
-        rightText(c, 126, y, s.images->size(i) == 737280 ? "720K" : "1.44M", !sel);
+        rightText(c, 126, y, right, !sel);
     }
+}
+
+void disks(Canvas& c, const ui::Status& s, size_t selection) {
+    chooser(c, "Disks", s.images ? s.images->count() : 0, selection, s.image,
+            [&](size_t i, char (&name)[16], const char*& right) {
+                std::strncpy(name, s.images->name(i), 15);
+                name[15] = 0;
+                if (char* dot = std::strrchr(name, '.')) *dot = 0;  // the extension says nothing here
+                right = s.images->size(i) == 737280 ? "720K" : "1.44M";
+            });
+}
+
+void packs(Canvas& c, const ui::Status& s, size_t selection) {
+    chooser(c, "Sounds", s.packs ? s.packs->count() : 0, selection, s.pack_index,
+            [&](size_t i, char (&name)[16], const char*&) {
+                std::strncpy(name, s.packs->name(i), 15);
+                name[15] = 0;
+            });
 }
 
 void swap(Canvas& c, const ui::Status& s, size_t to) {
@@ -242,7 +261,10 @@ void sounds(Canvas& c, const ui::Status& s) {
             frame(c, x, y, 7, 7);
         c.text(x + 10, y, ui::SOUND_NAMES[i]);
     }
-    if (s.pack[0]) {
+    if (s.pack_loading) {
+        const char* waiting = "LOADING WHEN IDLE";
+        c.text((Canvas::WIDTH - Canvas::textWidth(waiting)) / 2, 56, waiting);
+    } else if (s.pack[0]) {
         char line_[24];
         std::snprintf(line_, sizeof line_, "%u Hz  %u KB", s.rate, s.pack_kb);
         c.text((Canvas::WIDTH - Canvas::textWidth(line_)) / 2, 56, line_);
@@ -269,6 +291,7 @@ void draw(Canvas& c, const ui::Model& m, const ui::Status& s, const ui::HeadTrac
     switch (m.screen()) {
         case ui::Screen::Home: home(c, s); break;
         case ui::Screen::Disks: disks(c, s, m.selection()); break;
+        case ui::Screen::Packs: packs(c, s, m.selection()); break;
         case ui::Screen::Swap: swap(c, s, m.selection()); break;
         case ui::Screen::Volume: volume(c, m.volume()); break;
         case ui::Screen::HeadTrace: headTrace(c, s, trace); break;

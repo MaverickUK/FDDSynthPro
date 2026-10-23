@@ -6,7 +6,8 @@
 // action button.
 //   Turn          volume (the overlay stays OLED_OVERLAY_MS after the last
 //                 turn); on the disk list, move the selection
-//   Press         open the disk list; on the list, insert the selected disk
+//   Press         open the disk list; on the list, insert the selected disk.
+//                 On the sounds screen, the pack list instead: press to load
 //   Action        next screen: home, head trace, sounds, stats; on the disk
 //                 list, back
 //   Long action   eject the disk, or insert it again
@@ -19,7 +20,7 @@
 
 namespace ui {
 
-enum class Screen : uint8_t { Home, Disks, Swap, Volume, HeadTrace, Sounds, Stats };
+enum class Screen : uint8_t { Home, Disks, Swap, Volume, HeadTrace, Sounds, Stats, Packs };
 enum class Input : uint8_t { TurnUp, TurnDown, Press, Action, LongAction };
 enum class Activity : uint8_t { Idle, Read, Write, Seek };
 
@@ -39,6 +40,9 @@ struct Status {
     uint8_t rotation = 0;               // 0-255 round the disk, for the spinning icon
     // Sounds
     const char* pack = "";              // "" if none loaded
+    const PackList* packs = nullptr;    // the packs on the card
+    size_t pack_index = 0;              // which one is loaded
+    bool pack_loading = false;          // a change waiting for the drive to be idle
     uint8_t sounds_loaded = 0;          // bit n: sound n of SOUND_NAMES
     unsigned rate = 0;
     unsigned pack_kb = 0;
@@ -70,7 +74,7 @@ private:
 class Model {
 public:
     static constexpr uint32_t OVERLAY_MS = 4000;  // volume
-    static constexpr uint32_t LIST_MS = 15000;    // the disk list closes if left alone
+    static constexpr uint32_t LIST_MS = 15000;    // the disk and pack lists close if left alone
 
     void input(Input in, const Status& s, uint32_t now_ms);
     // Timeouts. Call every frame.
@@ -79,12 +83,20 @@ public:
     Screen screen() const { return screen_; }
     size_t selection() const { return selection_; }
     int volume() const { return volume_; }  // 0-100
+    // The volume as saved, at power-on.
+    void setVolume(int percent) { volume_ = percent < 0 ? 0 : percent > 100 ? 100 : percent; }
 
     // Requests for the firmware; each is handed over once.
     bool takeSwap(size_t& image) {
         if (!swap_pending_) return false;
         swap_pending_ = false;
         image = swap_to_;
+        return true;
+    }
+    bool takePackChange(size_t& pack) {
+        if (!pack_pending_) return false;
+        pack_pending_ = false;
+        pack = pack_to_;
         return true;
     }
     bool takeEjectToggle() {
@@ -103,6 +115,8 @@ private:
     size_t swap_to_ = 0;
     bool eject_toggle_ = false;
     bool saw_swap_ = false;
+    bool pack_pending_ = false;
+    size_t pack_to_ = 0;
 };
 
 }  // namespace ui

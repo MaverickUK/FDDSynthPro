@@ -9,7 +9,8 @@
 // writes back: the data separator, field scanner and write interpreter, and
 // (in test_virtual_pc.cpp) a virtual PC driving the whole drive, and (in
 // test_synth.cpp) the FDD Synth's mixer, and (in test_ui.cpp) the front
-// panel's controls and OLED screens.
+// panel's controls and OLED screens, and (in test_settings.cpp) what the
+// drive remembers across power-off.
 //
 // Run: test/run_native_tests.sh
 #include <cstdio>
@@ -252,6 +253,7 @@ void runWriteDecodeTests();
 void runVirtualPcTests();
 void runSynthTests();
 void runUiTests();
+void runSettingsTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -280,6 +282,7 @@ int main() {
     runVirtualPcTests();
     runSynthTests();
     runUiTests();
+    runSettingsTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

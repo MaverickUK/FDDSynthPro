@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "config.h"
+#include "settings.h"
 #include "wav.h"
 
 namespace sd_image {
@@ -14,6 +15,8 @@ namespace sd_image {
 static SdFs s_sd;
 static FsFile s_file;
 static ImageList s_images;
+static PackList s_packs;
+static int16_t* s_pool = nullptr;  // the loaded pack's samples
 static char s_name[ImageList::NAME];
 static bool s_writable = false;
 
@@ -54,7 +57,34 @@ bool mount() {
         f.close();
     }
     root.close();
+    s_packs.clear();
+    FsFile dir;
+    if (dir.open("/samples")) {
+        while (f.openNext(&dir, O_RDONLY)) {
+            char name[PackList::NAME];
+            if (f.isDir() && f.getName(name, sizeof name)) s_packs.add(name);
+            f.close();
+        }
+        dir.close();
+    }
     return true;
+}
+
+const PackList& packs() { return s_packs; }
+
+size_t readSettings(char* out, size_t cap) {
+    FsFile f;
+    if (!f.open(settings::PATH, O_RDONLY)) return 0;
+    int n = f.read(out, cap);
+    f.close();
+    return n > 0 ? size_t(n) : 0;
+}
+
+bool writeSettings(const char* text, size_t len) {
+    FsFile f;
+    if (!f.open(settings::PATH, O_WRONLY | O_CREAT | O_TRUNC)) return false;
+    bool ok = f.write(text, len) == len;
+    return f.close() && ok;
 }
 
 const ImageList& images() { return s_images; }
@@ -77,20 +107,12 @@ TrackSource* open(size_t index) {
     return &s_source;
 }
 
-bool loadPack(synth::Pack& pack, size_t max_bytes, char* pack_name, size_t name_len) {
-    FsFile dir, entry;
-    if (!dir.open("/samples")) return false;
-    char best[ImageList::NAME] = "";
-    while (entry.openNext(&dir, O_RDONLY)) {
-        char name[ImageList::NAME];
-        if (entry.isDir() && entry.getName(name, sizeof name) && (!best[0] || strcasecmp(name, best) < 0))
-            std::strcpy(best, name);
-        entry.close();
-    }
-    dir.close();
-    if (!best[0]) return false;
-    std::strncpy(pack_name, best, name_len - 1);
-    pack_name[name_len - 1] = '\0';
+bool loadPack(synth::Pack& pack, size_t index, size_t max_bytes) {
+    std::free(s_pool);  // the last pack's samples
+    s_pool = nullptr;
+    pack = synth::Pack{};
+    if (index >= s_packs.count()) return false;
+    const char* best = s_packs.name(index);
 
     struct Sound {
         const char* file;
@@ -105,7 +127,6 @@ bool loadPack(synth::Pack& pack, size_t max_bytes, char* pack_name, size_t name_
 
     // First pass: the headers, so the pool can be sized to the pack.
     static uint8_t header[cfg::WAV_HEADER_BYTES];
-    pack = synth::Pack{};
     size_t total = 0;
     for (Sound& s : sounds) {
         char p[ImageList::NAME * 2 + 24];
@@ -126,7 +147,11 @@ bool loadPack(synth::Pack& pack, size_t max_bytes, char* pack_name, size_t name_
     }
     if (!total) return false;
     int16_t* pool = static_cast<int16_t*>(std::malloc(total * 2));
-    if (!pool) return false;
+    if (!pool) {
+        pack = synth::Pack{};
+        return false;
+    }
+    s_pool = pool;
 
     // Second pass: the samples.
     size_t used = 0;

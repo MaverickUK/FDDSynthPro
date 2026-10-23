@@ -75,6 +75,13 @@ static void addLoop(int32_t* mix, size_t n, uint32_t from, uint32_t start, uint3
     }
 }
 
+void Mixer::reset() {
+    for (OneShot& o : shots_) o = OneShot{};
+    for (Loop& l : seeks_) l = Loop{};
+    seeking_ = -1;
+    spin_ = motor_ ? Loop{true, pos_, UINT32_MAX} : Loop{};
+}
+
 void Mixer::setVolume(int percent) {
     percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
     target_gain_ = UNITY * uint32_t(percent * percent) / 10000;

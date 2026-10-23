@@ -131,6 +131,8 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 - **Previews:** `FDDSYNTH_PREVIEW_DIR=docs/oled test/run_native_tests.sh && python3 test/pbm_to_png.py docs/oled` regenerates the reference PNGs. Add `FDDSYNTH_PREVIEW_ALL=1` for the extra frames, or run `scripts/build_panel_page.py out.html` for the interactive page. Look at the PNGs after changing a screen.
 - **The hardware side is `src/panel.*`** (drive build, core 0). `controls.h` turns the encoder's detents and the buttons into `ui::Input`s, and `ssd1306.h` makes a frame's bus bytes; both are pure and tested. `main.cpp`'s `panelStatus()` fills the `ui::Status`, and `servicePanel()` acts on the model's requests and sets the mixer's volume.
 - **A frame never blocks core 0:** HDDSynth_Native's 25 ms blocking frame would break the 15 ms settle time. `panel.cpp` feeds the I2C FIFO each pass instead; with the FIFO empty and no STOP sent, the RP2350's I2C block holds SCL low until more comes. Keep it that way.
+- **Packs:** the Sounds screen's press opens the pack list (`ui::Screen::Packs`). `main.cpp`'s `servicePack` loads a choice only when `driveIdle()`: reading a pack takes long enough to miss a seek. `sd_image::loadPack` frees the last pack first, and `Mixer::reset` drops what pointed into it. The mixer hears every drive event even with no pack loaded, so it knows the motor's state when one arrives.
+- **Remembered across power-off** (`src/settings.*`, `/FDDSYNTH.CFG`): the disk by name, the pack by name, the volume. Written by `serviceSettings` `SaveTimer::SETTLE_MS` after the last change, and only when `driveIdle()`. A missing or damaged file falls back to the defaults: never let it stop the drive starting.
 - **Volume** is `Mixer::setVolume`, after the saturating mix. The mixer is at unity until it's set, so the comparison with the player still holds; the firmware then sets the panel's volume, 75% at power-on. Change the player only if the mix itself changes.
 
 ## Trace format
@@ -148,6 +150,7 @@ Console:
 - `p`: input pin levels (wiring check);
 - `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
 - `d`: eject or insert the disk (drive build);
+- `k`: load the next sample pack, once the drive is idle (drive build);
 - `i`: the image being served (drive build);
 - `[` / `]`: swap to the previous or next image on the card (drive build);
 - `m`: print a `MARK` timestamp;

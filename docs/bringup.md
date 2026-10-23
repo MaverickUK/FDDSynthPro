@@ -134,9 +134,9 @@ Note the numbers in `docs/plan.md`, under the open questions.
 ## 13. The FDD Synth: sound
 
 - [ ] Wire the MAX98357A and a speaker ([wiring.md](wiring.md)).
-- [ ] Copy `samples/Placeholder/` from the repo to `/samples/Placeholder/` on the card. The drive plays the first folder under `/samples`, in name order, so have only one there.
-- [ ] Later, swap it for `samples/Recorded/` (cut from a real drive): `s` then shows `pack=Recorded`. It has no insert or eject sounds.
+- [ ] Copy `samples/Placeholder/` and `samples/Recorded/` from the repo to `/samples/` on the card. The first time, the drive plays the first in name order.
 - [ ] Power up and type `s`: `pack=Placeholder`.
+- [ ] Type `k`: `# pack Recorded`, and `s` agrees. Its sounds are cut from a real drive; it has no insert or eject.
 - [ ] Run `gw seek` and `gw read`: spin-up, the spin loop, clicks or seeks, spin-down. `[` and `]` add eject and insert.
 - [ ] After a long `gw read` and a `gw write`, `s` should show `audio_underruns=0`. If not, core 0 stalled longer than the 46 ms queue: note what it was doing (`write_us_max` is the likely one).
 
@@ -147,6 +147,9 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Turn the encoder clockwise: the volume screen, rising, and the sound gets louder. If it falls instead, set `ENCODER_REVERSED` in `src/config.h`.
 - [ ] Press the encoder: the disk list. Turn to another disk and press: the Swap screen, the eject and insert sounds, then home with the new disk (`i` agrees).
 - [ ] Press the action button: head trace, sounds, stats, home. Hold it for a second: the disk ejects (`DSKCHG`); hold again to insert.
+- [ ] On the Sounds screen, press the encoder: the pack list, `>` on the one loaded. Choose the other and press: it loads (with the host using the drive, the screen says `LOADING WHEN IDLE` until it stops). A running motor carries on in the new pack's sound.
+- [ ] **Remembered:** choose a disk, a pack and a volume, wait 5 seconds with the drive idle, and power off. Power on: the same three come back. `/FDDSYNTH.CFG` on the card holds them, and can be edited by hand.
+- [ ] Delete `/FDDSYNTH.CFG`, or put nonsense in it: the drive still starts, on the first disk and pack at 75%.
 - [ ] During a long `gw read` with the panel on, `audio_underruns` stays 0, `draw_us_max` is a few milliseconds at most, and `oled_aborts=0`. Then repeat slice 2's seek test: the panel must not make a read miss its settle time.
 
 ## If something fails

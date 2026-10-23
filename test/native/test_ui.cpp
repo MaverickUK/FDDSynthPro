@@ -345,6 +345,88 @@ TEST(test_ui_generated_disk_has_no_list) {
     CHECK(m.screen() == ui::Screen::Home);
 }
 
+// The card's packs, the second loaded.
+struct Packs {
+    PackList list;
+    Packs(ui::Status& s) {
+        list.add("Placeholder");
+        list.add("Recorded");
+        list.add("Zx81");
+        s.packs = &list;
+        s.pack_index = 1;
+        s.pack = list.name(1);
+    }
+};
+
+TEST(test_ui_choose_a_pack) {
+    Card k;
+    Packs p(k.s);
+    ui::Model m;
+    for (int i = 0; i < 2; ++i) m.input(ui::Input::Action, k.s, 0);  // home -> head trace -> sounds
+    CHECK(m.screen() == ui::Screen::Sounds);
+    m.input(ui::Input::Press, k.s, 10);
+    CHECK(m.screen() == ui::Screen::Packs);
+    CHECK_EQ(m.selection(), 1u);  // starts on the one loaded
+    m.input(ui::Input::TurnUp, k.s, 20);
+    m.input(ui::Input::Press, k.s, 30);
+    CHECK(m.screen() == ui::Screen::Sounds);
+    size_t to = 9;
+    CHECK(m.takePackChange(to));
+    CHECK_EQ(to, 0u);
+    CHECK(!m.takePackChange(to));  // once
+    // The one already loaded: nothing to do.
+    m.input(ui::Input::Press, k.s, 40);
+    m.input(ui::Input::Press, k.s, 50);
+    CHECK(!m.takePackChange(to));
+    // Action backs out; left alone, the list closes.
+    m.input(ui::Input::Press, k.s, 60);
+    m.input(ui::Input::Action, k.s, 70);
+    CHECK(m.screen() == ui::Screen::Sounds);
+    m.input(ui::Input::Press, k.s, 80);
+    m.tick(k.s, 80 + ui::Model::LIST_MS);
+    CHECK(m.screen() == ui::Screen::Sounds);
+    // Elsewhere, press still opens the disk list.
+    m.input(ui::Input::Action, k.s, 90000);  // stats
+    m.input(ui::Input::Press, k.s, 90010);
+    CHECK(m.screen() == ui::Screen::Disks);
+}
+
+TEST(test_ui_no_packs_no_list) {
+    Card k;  // no pack list
+    ui::Model m;
+    for (int i = 0; i < 2; ++i) m.input(ui::Input::Action, k.s, 0);
+    m.input(ui::Input::Press, k.s, 10);
+    CHECK(m.screen() == ui::Screen::Sounds);
+}
+
+TEST(test_ui_restored_volume) {
+    ui::Model m;
+    m.setVolume(40);
+    CHECK_EQ(m.volume(), 40);
+    m.setVolume(140);
+    CHECK_EQ(m.volume(), 100);
+}
+
+TEST(test_screen_packs) {
+    Card k;
+    Packs p(k.s);
+    Canvas c;
+    screens::packs(c, k.s, 2);
+    preview(c, "packs");
+    CHECK(lit(c, 0, 0, 127, 9) > 300);  // the title bar
+    CHECK(lit(c, 0, 28, 127, 36) > 300);  // the third row, lit (selected)
+    c.clear();
+    k.s.pack_loading = true;
+    screens::sounds(c, k.s);
+    preview(c, "sounds_loading");
+    Canvas want;
+    want.text((Canvas::WIDTH - Canvas::textWidth("LOADING WHEN IDLE")) / 2, 56, "LOADING WHEN IDLE");
+    bool same = true;
+    for (int y = 56; y < 63; ++y)
+        for (int x = 0; x < 128; ++x) same = same && c.get(x, y) == want.get(x, y);
+    CHECK(same);
+}
+
 TEST(test_draw_picks_the_screen) {
     Card k;
     ui::Model m;
@@ -495,6 +577,10 @@ void runUiTests() {
     RUN(test_ui_action_cycles_screens);
     RUN(test_ui_long_action_ejects);
     RUN(test_ui_generated_disk_has_no_list);
+    RUN(test_ui_choose_a_pack);
+    RUN(test_ui_no_packs_no_list);
+    RUN(test_ui_restored_volume);
+    RUN(test_screen_packs);
     RUN(test_draw_picks_the_screen);
     RUN(test_controls_turns);
     RUN(test_controls_encoder_press_is_debounced);

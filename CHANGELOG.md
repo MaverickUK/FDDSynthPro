@@ -4,7 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-23
+
 ### Added
+- **The drive remembers the disk, the sample pack and the volume across power-off**, GoTek style, in `/FDDSYNTH.CFG` on the card (`src/settings.*`): plain text, by name, so adding files doesn't change which disk comes back. A change is written 3 s after the last one, and only while the drive is idle. A missing or damaged file falls back to the defaults.
+- **Choosing the sample pack on the panel:** on the Sounds screen, press the encoder for the card's packs (every folder under `/samples`), turn and press to load one (console `k`: the next). It loads when the drive is idle (`LOADING WHEN IDLE` until then); the old pack's memory is freed first, and a running motor carries on in the new pack's sound.
 - **A sample pack from a real drive** (`samples/Recorded`, `scripts/make_recorded_pack.py`): spin-up, spin, spin-down, step, seek and bump, cut from a recording of a 3.5-inch drive driven by the FDD Synth's software. Each cut was found by measuring the recording (click onsets and spacing, the 199.8 ms revolution, spectra); the loops are whole revolutions and whole steps, joined smoothly. No insert or eject: the recording has none. 147 KB, inside the 160 KB pool. The showreel now uses it (`make_showreel.py --pack` picks another), and calls the project FDD Synth Pro.
 - **A showreel** (`scripts/make_showreel.py`, `test/tools/showreel.cpp`): a 36-second video of a virtual PC using a real FAT12 disk while the front panel is worked. A swap from the panel, boot and `DIR`, reads with the volume turned down, the head trace across a long seek, the sounds and stats screens, a save with the volume back up, motor off and an eject. The OLED frames and the audio come from the firmware's own screens and mixer, in simulated real time.
 

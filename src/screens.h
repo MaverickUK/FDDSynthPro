@@ -17,6 +17,7 @@ void draw(Canvas& c, const ui::Model& m, const ui::Status& s, const ui::HeadTrac
 // Each screen on its own (draw() picks one).
 void home(Canvas& c, const ui::Status& s);
 void disks(Canvas& c, const ui::Status& s, size_t selection);
+void packs(Canvas& c, const ui::Status& s, size_t selection);  // the sample packs
 void swap(Canvas& c, const ui::Status& s, size_t to);
 void volume(Canvas& c, int percent);
 void headTrace(Canvas& c, const ui::Status& s, const ui::HeadTrace& trace);

@@ -3,6 +3,7 @@
 namespace ui {
 
 static size_t imageCount(const Status& s) { return s.images ? s.images->count() : 0; }
+static size_t packCount(const Status& s) { return s.packs ? s.packs->count() : 0; }
 
 void Model::input(Input in, const Status& s, uint32_t now_ms) {
     last_input_ms_ = now_ms;
@@ -34,6 +35,31 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
                 return;
         }
     }
+    if (screen_ == Screen::Packs) {
+        size_t n = packCount(s);
+        switch (in) {
+            case Input::TurnUp:
+                if (n) selection_ = s.packs->prev(selection_);
+                return;
+            case Input::TurnDown:
+                if (n) selection_ = s.packs->next(selection_);
+                return;
+            case Input::Press:
+                if (n && selection_ != s.pack_index) {
+                    pack_to_ = selection_;
+                    pack_pending_ = true;
+                }
+                screen_ = Screen::Sounds;  // shows it loading, then the new pack
+                return;
+            case Input::Action:
+                screen_ = Screen::Sounds;
+                return;
+            case Input::LongAction:
+                eject_toggle_ = true;
+                screen_ = Screen::Sounds;
+                return;
+        }
+    }
     if (screen_ == Screen::Swap) return;  // wait for it to finish
 
     switch (in) {
@@ -44,6 +70,12 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
             screen_ = Screen::Volume;
             return;
         case Input::Press:
+            if (screen_ == Screen::Sounds) {
+                if (!packCount(s)) return;
+                selection_ = s.pack_index;
+                screen_ = Screen::Packs;
+                return;
+            }
             if (!imageCount(s)) return;  // the generated disk: nothing to choose
             selection_ = s.image;
             screen_ = Screen::Disks;
@@ -72,6 +104,7 @@ void Model::tick(const Status& s, uint32_t now_ms) {
     uint32_t idle = now_ms - last_input_ms_;
     if (screen_ == Screen::Volume && idle >= OVERLAY_MS) screen_ = base_;
     if (screen_ == Screen::Disks && idle >= LIST_MS) screen_ = base_;
+    if (screen_ == Screen::Packs && idle >= LIST_MS) screen_ = Screen::Sounds;
     if (screen_ == Screen::Swap) {
         // Shown until the swap the firmware started has finished.
         if (s.swapping) saw_swap_ = true;

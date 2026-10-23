@@ -49,6 +49,7 @@
 #include "panel.h"
 #include "rdata_pio.h"
 #include "sd_image.h"
+#include "settings.h"
 #include "synth.h"
 #include "track_source.h"
 #include "wdata_pio.h"
@@ -301,23 +302,60 @@ static uint32_t g_write_unplaced = 0;
 static uint32_t g_write_us_max = 0;  // the longest chunk of decoding
 static uint32_t g_write_faults = 0;
 
-// The FDD Synth: the card's sample pack, in RAM, played by the mixer.
+// The FDD Synth: a sample pack from the card, in RAM, played by the mixer.
+// The mixer hears every drive event even with no pack loaded (it's silent
+// then), so a pack loaded later knows the motor is running.
 static synth::Pack g_pack;
-static synth::Mixer* g_mixer = nullptr;
-static char g_pack_name[ImageList::NAME] = "";
+static synth::Mixer g_mixer(g_pack);
+static bool g_pack_ok = false;  // a complete pack is loaded
+static size_t g_pack_index = 0;
+static int g_pack_request = -1;  // a pack chosen on the panel, loaded once the drive is idle
 
-static void startSynth(bool card) {
-    if (!card || !sd_image::loadPack(g_pack, cfg::SAMPLE_POOL_MAX_BYTES, g_pack_name, sizeof g_pack_name))
-        return;  // no pack: the drive works, silently
-    static synth::Mixer mixer(g_pack);
-    g_mixer = &mixer;
-    audio::begin(mixer, g_pack.rate);
+static const char* packName() { return g_pack_ok ? sd_image::packs().name(g_pack_index) : ""; }
+
+// Loads pack `index` in place of the last; the mixer drops what was playing
+// (it pointed into the old pack) and carries on.
+static void loadPack(size_t index) {
+    g_pack_ok = sd_image::loadPack(g_pack, index, cfg::SAMPLE_POOL_MAX_BYTES);
+    g_pack_index = index;
+    g_mixer.reset();
+    if (!g_pack_ok) {
+        Serial.printf("# pack %s is incomplete or unreadable: no sound\n", sd_image::packs().name(index));
+        return;
+    }
+    if (audio::running())
+        audio::setRate(g_pack.rate);
+    else
+        audio::begin(g_mixer, g_pack.rate);
+    Serial.printf("# pack %s\n", packName());
 }
+
+// What the drive remembers across power-off (settings.h): read at power-on,
+// written a few seconds after a change once the drive is idle.
+static settings::Settings g_settings;  // as on the card
+static settings::Settings g_latest;    // as now
+static settings::SaveTimer g_save;
+static bool g_card = false;
 
 static void chooseDisk() {
     bool card = sd_image::mount();
-    startSynth(card);
-    TrackSource* image = card ? sd_image::open(0) : nullptr;
+    g_card = card;
+    if (card) {
+        char text[settings::FILE_MAX];
+        g_settings = settings::parse(text, sd_image::readSettings(text, sizeof text));
+        g_latest = g_settings;
+        const PackList& packs = sd_image::packs();
+        if (packs.count()) {
+            size_t pack = packs.find(g_settings.pack);
+            loadPack(pack < packs.count() ? pack : 0);
+        }
+    }
+    // The disk that was in at power-off, else the card's first.
+    size_t index = card ? sd_image::images().find(g_settings.image) : 0;
+    if (card && index >= sd_image::images().count()) index = 0;
+    TrackSource* image = card ? sd_image::open(index) : nullptr;
+    if (!image && index) image = sd_image::open(index = 0);
+    g_image_index = index;
     g_from_card = image != nullptr;
     static DiskSlot slot(image ? *image : static_cast<TrackSource&>(g_generated));
     g_slot = &slot;
@@ -467,7 +505,7 @@ static void serviceActivity() {
     static SpscRing<activity::Event, 64> unprinted;
     activity::Event e;
     while (g_activity.pop(e)) {
-        if (g_mixer) g_mixer->event(e);
+        g_mixer.event(e);
         unprinted.push(e);  // dropped if the trace can't keep up; the sound isn't
     }
     static activity::Event pending;
@@ -518,12 +556,15 @@ static ui::Status panelStatus() {
     static uint8_t rotation = 0;
     if (s.motor) rotation = uint8_t((time_us_32() % 200000) * 256 / 200000);
     s.rotation = rotation;
-    if (g_mixer) {
-        s.pack = g_pack_name;
+    if (g_pack_ok) {
+        s.pack = packName();
         s.sounds_loaded = g_pack.loadedMask();
         s.rate = g_pack.rate;
         s.pack_kb = g_pack.bytes() / 1024;
     }
+    s.packs = g_card ? &sd_image::packs() : nullptr;
+    s.pack_index = g_pack_index;
+    s.pack_loading = g_pack_request >= 0;
     s.loads = g_loader.load()->loads();
     s.written = g_sectors_written;
     s.bad_crc = g_write_bad_crc;
@@ -540,7 +581,45 @@ static void servicePanel() {
     // console swap) waits for it instead of being refused.
     if (g_swap.load() == SWAP_NONE && m.takeSwap(image)) startSwap(image);
     if (m.takeEjectToggle()) toggleDisk();
-    if (g_mixer) g_mixer->setVolume(m.volume());
+    size_t pack;
+    if (m.takePackChange(pack)) g_pack_request = int(pack);
+    g_mixer.setVolume(m.volume());
+}
+
+// Nothing the host is doing could be held up: it has deselected the drive,
+// and no swap or write is under way. Slow card work (a pack, the settings)
+// waits for this.
+static bool driveIdle() {
+    return !g_selected.load(std::memory_order_relaxed) && g_swap.load() == SWAP_NONE &&
+           !g_writing.load(std::memory_order_relaxed) && !g_capture->inBurst() && !g_capture_marks.size();
+}
+
+static void servicePack() {
+    if (g_pack_request < 0 || !driveIdle()) return;
+    size_t pack = size_t(g_pack_request);
+    g_pack_request = -1;
+    loadPack(pack);
+}
+
+static void serviceSettings() {
+    if (!g_card) return;
+    settings::Settings now;
+    if (g_from_card && !g_no_disk) std::strncpy(now.image, sd_image::name(), settings::NAME - 1);
+    if (sd_image::packs().count()) std::strncpy(now.pack, sd_image::packs().name(g_pack_index), settings::NAME - 1);
+    now.volume = panel::model().volume();
+    uint32_t ms = millis();
+    if (now != g_latest) {
+        g_latest = now;
+        g_save.changed(ms);
+    }
+    if (!g_save.due(ms, driveIdle())) return;
+    g_save.saved();
+    if (g_latest == g_settings) return;  // changed back again
+    char text[settings::FILE_MAX];
+    if (sd_image::writeSettings(text, settings::format(g_latest, text, sizeof text)))
+        g_settings = g_latest;
+    else
+        Serial.println("# couldn't save the settings to the card");
 }
 
 #endif
@@ -587,8 +666,8 @@ static void printStats() {
                   (int)g_writable.load(), (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
                   (unsigned long)g_capture->overruns(), (unsigned long)g_write_faults, (unsigned long)g_write_us_max);
-    Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_mixer ? g_pack_name : "none",
-                  (unsigned long)audio::underruns(), (unsigned long)(g_mixer ? g_mixer->voicesStolen() : 0));
+    Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_pack_ok ? packName() : "none",
+                  (unsigned long)audio::underruns(), (unsigned long)g_mixer.voicesStolen());
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
                   (unsigned long)g_activity.seeks(), (unsigned long)g_activity.bumps(),
                   (unsigned long)(g_activity.dropped() + g_drive_events_dropped.load()));
@@ -656,8 +735,8 @@ static void handleConsole() {
                 Serial.println("# h help, p pins, s stats, m mark, x short test (cable unplugged), "
                                "b reboot to bootloader");
 #else
-                Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, m mark, "
-                               "x short test (cable unplugged), b reboot to bootloader");
+                Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, "
+                               "k next sample pack, m mark, x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
             case 'p': printPins(); break;
@@ -678,6 +757,9 @@ static void handleConsole() {
                 break;
 #if FIRMWARE_SLICE != 0
             case 'i': printImage(); break;
+            case 'k':  // the next pack, as the panel's pack list does: when the drive is idle
+                if (sd_image::packs().count()) g_pack_request = int(sd_image::packs().next(g_pack_index));
+                break;
             case '[': requestSwap(false); break;
             case ']': requestSwap(true); break;
             case 'd': toggleDisk(); break;
@@ -698,6 +780,7 @@ void setup() {
 #if FIRMWARE_SLICE != 0
     panel::begin();  // first: looking for the display can block briefly, before anything runs
     chooseDisk();
+    if (g_card) panel::model().setVolume(g_settings.volume);
 #endif
     printReady();
 }
@@ -713,6 +796,9 @@ void loop() {
     audio::service();
     serviceActivity();
     servicePanel();
+    audio::service();
+    servicePack();      // only when the drive is idle
+    serviceSettings();  // likewise
 #endif
     handleConsole();
 
