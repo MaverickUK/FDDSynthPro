@@ -51,8 +51,12 @@ BurstResult BurstWriter::finish() {
     r.decoded = track_write::interpret(fmt, burst_.cylinder, burst_.head, burst_.start_byte, scanner_, updates, 32);
     for (unsigned i = 0; i < r.decoded.updates; ++i) {
         const uint8_t* data = store_ + updates[i].data_offset;
+        if (!source_.writeSector(burst_.cylinder, burst_.head, updates[i].sector, data)) {
+            ++r.failed;
+            continue;  // the live track keeps the old data: what the disk has
+        }
+        ++r.persisted;
         r.patched += loader_.writeSector(burst_.cylinder, burst_.head, updates[i].sector, data);
-        r.persisted += source_.writeSector(burst_.cylinder, burst_.head, updates[i].sector, data);
     }
     return r;
 }

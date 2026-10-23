@@ -32,7 +32,7 @@ public:
         return true;
     }
     bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
-        if (!writable_) return false;
+        if (!writable_ || failing) return false;
         std::memcpy(&image_[imageTrackOffset(fmt_, c, h) + s * fmt_.sectorBytes()], data, fmt_.sectorBytes());
         ++writes;
         return true;
@@ -44,6 +44,7 @@ public:
 
     unsigned writes = 0;
     bool writable_ = true;
+    bool failing = false;  // the card refuses every write (an error, or pulled out)
 
 private:
     const ibm::Format& fmt_;
@@ -102,7 +103,7 @@ public:
     void insert(TrackSource& disk) {
         slot.insert(disk);
         loader.reset();
-        d.insertDisk(!disk.writable());
+        d.insertDisk(!disk.writable());  // a fresh start: any write fault is cleared
     }
 
     // Core 1's work after each sample the host's pin changes cause.
@@ -123,8 +124,10 @@ public:
     void runCore0(uint32_t now) {
         // Writes first, as on the board: decode whatever has arrived.
         BurstResult r;
-        while (stream.service(produced_, SIZE_MAX, [this](CaptureStream::Mark& m) { return nextMark(m); }, r))
+        while (stream.service(produced_, SIZE_MAX, [this](CaptureStream::Mark& m) { return nextMark(m); }, r)) {
             writes.push_back(r);
+            if (lostWrite(r)) d.setWriteProtected(true);  // as core 1 does on the board
+        }
         while (int32_t(now - core0_us_) > 0) {
             loader.request(d.head().cylinder());
             CylinderLoader::Step s = loader.service();

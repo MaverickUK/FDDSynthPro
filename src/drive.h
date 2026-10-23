@@ -83,6 +83,8 @@ public:
 
     void insertDisk(bool write_protected);
     void ejectDisk();
+    // Protects the disk that's in, after a lost write (write_burst.h: lostWrite).
+    void setWriteProtected(bool write_protected) { write_protected_ = write_protected; }
 
     bool selected() const { return selected_; }
     bool diskPresent() const { return disk_present_; }

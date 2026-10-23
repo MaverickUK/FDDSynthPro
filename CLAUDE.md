@@ -88,6 +88,8 @@ The capture streams through a 16 KB ring (`cfg::CAPTURE_RING_BYTES`). An endless
 - `fdd_wdata.pio` doesn't count `EDGE_TICKS` (2) at each edge; the reader adds them back. Its 8-bit counts wrap after about 16 cells, which only the first interval can reach.
 - The data separator uses Greaseweazle's gains (60% phase, 5% period). Lower gains take more jitter but follow speed errors worse; `test/native/test_write_decode.cpp` measures both.
 - **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
+- **Card first, then the live track:** `BurstWriter::finish` writes each sector to the `TrackSource` and patches the loader only if that worked, so a read-back after a card failure shows the old data.
+- **Lost writes** (`lostWrite`: a sector the card refused, or an overrun) set `g_write_fault`. Core 1 then asserts write-protect until the next insert (console `d`, or a swap), so the host's next write fails visibly. A floppy can't report a failed write any other way.
 - `WDATA` and `RDATA` programs both live in PIO 2 or 1 (`pio_get_gpio_base == 0`), never PIO 0.
 
 ## Swapping images

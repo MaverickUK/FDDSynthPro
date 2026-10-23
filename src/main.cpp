@@ -144,6 +144,9 @@ static uint8_t g_capture_ring[cfg::CAPTURE_RING_BYTES] __attribute__((aligned(cf
 static SpscRing<CaptureStream::Mark, 16> g_capture_marks;
 static std::atomic<uint32_t> g_capture_produced{0};
 static std::atomic<uint32_t> g_bursts_dropped{0};  // WGATE with no room for its marks
+// A lost write (write_burst.h: lostWrite): core 0 sets it, core 1 then
+// reports write-protect until the disk is inserted again.
+static std::atomic<bool> g_write_fault{false};
 
 void setup1() {
     setUpInputs();
@@ -193,7 +196,10 @@ void loop1() {
         g_selected.store(d.selected(), std::memory_order_relaxed);
 
         int request = g_disk_request.exchange(0, std::memory_order_relaxed);
-        if (request > 0) d.insertDisk(write_protected);
+        if (request > 0) {
+            g_write_fault.store(false, std::memory_order_relaxed);  // a fresh start
+            d.insertDisk(write_protected);
+        }
         if (request < 0) d.ejectDisk();
         if (request) g_disk_in.store(d.diskPresent(), std::memory_order_relaxed);
 
@@ -211,6 +217,7 @@ void loop1() {
                 wdata_pio::setRate(data_rate);
             }
             write_protected = !g_writable.load();
+            g_write_fault.store(false, std::memory_order_relaxed);
             d.insertDisk(write_protected);
             g_disk_in.store(true, std::memory_order_relaxed);
             g_swap.store(SWAP_NONE, std::memory_order_release);
@@ -234,6 +241,11 @@ void loop1() {
             rdata_pio::enable(stream);
             streaming = stream;
         }
+
+        // After a lost write the disk reads as write-protected, so the host's
+        // next write fails where the user can see it.
+        if (g_write_fault.load(std::memory_order_relaxed) && d.diskPresent() && !d.writeProtected())
+            d.setWriteProtected(true);
 
         // Writes: run the capture from WGATE asserted to released, marking
         // each burst's start and end in the stream for core 0 (write_burst.h).
@@ -277,6 +289,7 @@ static uint32_t g_sectors_written = 0;  // console `s`
 static uint32_t g_write_bad_crc = 0;
 static uint32_t g_write_unplaced = 0;
 static uint32_t g_write_us_max = 0;  // the longest chunk of decoding
+static uint32_t g_write_faults = 0;
 
 // The FDD Synth: the card's sample pack, in RAM, played by the mixer.
 static synth::Pack g_pack;
@@ -365,6 +378,12 @@ static void serviceWrites() {
         g_sectors_written += r.persisted;
         g_write_bad_crc += r.decoded.bad_crc;
         g_write_unplaced += r.decoded.unplaced;
+        if (lostWrite(r)) {
+            ++g_write_faults;
+            g_write_fault.store(true, std::memory_order_relaxed);
+            Serial.printf("# WRITE FAULT: %s; write-protected until the disk is inserted again\n",
+                          r.overrun ? "the capture overran" : "the card refused a sector");
+        }
     }
     uint32_t took = time_us_32() - started;
     if (took > g_write_us_max) g_write_us_max = took;
@@ -468,10 +487,10 @@ static void printStats() {
                   (unsigned long)loader.loads(), (unsigned long)loader.restarts(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
     Serial.printf(" writable=%d written=%lu write_bad_crc=%lu write_unplaced=%lu bursts_dropped=%lu "
-                  "capture_overruns=%lu write_us_max=%lu",
+                  "capture_overruns=%lu write_faults=%lu write_us_max=%lu",
                   (int)g_writable.load(), (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
-                  (unsigned long)g_capture->overruns(), (unsigned long)g_write_us_max);
+                  (unsigned long)g_capture->overruns(), (unsigned long)g_write_faults, (unsigned long)g_write_us_max);
     Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_mixer ? g_pack_name : "none",
                   (unsigned long)audio::underruns(), (unsigned long)(g_mixer ? g_mixer->voicesStolen() : 0));
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),

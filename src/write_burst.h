@@ -25,8 +25,16 @@ struct BurstResult {
     track_write::Result decoded;
     unsigned patched = 0;    // sectors put into the live track
     unsigned persisted = 0;  // sectors written to the disk
+    unsigned failed = 0;     // sectors the disk refused (a card error, or the card gone)
     bool overrun = false;    // the capture outran core 0: nothing written
 };
+
+// A write the drive couldn't keep: the disk refused a sector, or the
+// capture overran and the burst was dropped. A floppy has no way to tell
+// the host, which carries on as if it worked. So the drive then reports
+// write-protect until the disk is inserted again: the host's next write
+// fails visibly ("Write protect error") instead of being lost as well.
+inline bool lostWrite(const BurstResult& r) { return r.overrun || r.failed > 0; }
 
 // Core 1's side of a write: when to start and stop capturing WDATA. A
 // capture runs from WGATE asserted to WGATE released (or the drive
@@ -58,6 +66,10 @@ public:
     BurstWriter(TrackSource& source, CylinderLoader& loader, uint8_t* store, size_t store_len, mfm::Field* fields,
                 size_t max_fields)
         : source_(source), loader_(loader), scanner_(store, store_len, fields, max_fields), store_(store) {}
+
+    // Each sector goes to the disk first, and into the live track only once
+    // the disk has it: if the disk refuses it, the host reads back the old
+    // data, so a host that verifies its writes sees the failure.
 
     // A whole burst at once.
     BurstResult apply(const WriteBurst& burst, uint32_t ticks_per_cell, uint32_t edge_ticks);

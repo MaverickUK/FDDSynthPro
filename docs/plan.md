@@ -168,6 +168,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
 | Core 0 falls behind a long write | Writes stream through a 16 KB ring (44 ms at 1.44 MB) and decode in 2 KB chunks. An overrun drops that burst rather than writing junk; watch `capture_overruns` |
 | RAM: the drive build uses 41% statically, plus the sample pack at run time (152 KB for the stand-in pack, up to 160 KB) | Watch for heap trouble at bring-up. Packs with longer samples would stream from SD, as HDDSynth_Native does |
 | Core 0 stalls longer than the 46 ms audio queue | Writes decode in chunks with audio between them; the longest remaining step is an SD read or a track encode (a few ms). `audio_underruns` in `s` |
+| The card fails or is pulled out while writing | Sectors reach the live track only once the card has them, so a read-back shows the old data. After any lost write, the drive reports write-protect until the disk is inserted again, so the host's next write fails visibly (`write_faults` in `s`). A failed read gives a blank track: the host sees missing sectors |
 | SD reads slower than the settle time | Measure in slice 3; the host retries on the next revolution, and a second cylinder buffer can prefetch neighbours |
 
 **Answered from the Greaseweazle firmware source (`floppy.c`, 23 Oct 2026):**

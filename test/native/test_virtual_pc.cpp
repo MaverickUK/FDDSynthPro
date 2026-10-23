@@ -216,6 +216,34 @@ TEST(test_pc_disk_swaps) {
     CHECK_EQ(countSounds(m.sounds, activity::Sound::Insert), 2u);
 }
 
+TEST(test_pc_write_to_a_failing_card) {
+    // The card fails mid-session. The PC's write seems to go (a floppy
+    // can't say otherwise), but its read-back shows the old data, and its
+    // next write gets write-protect. Re-inserting the disk with the card
+    // working again clears it.
+    Machine m;
+    VirtualPc pc(m);
+    std::vector<uint8_t> buf(512), data(512, 0x42), old(m.source.sector(8, 0, 3), m.source.sector(8, 0, 3) + 512);
+    pc.motorOn();
+    pc.recalibrate();
+    m.source.failing = true;
+    CHECK(pc.writeSectors(8, 0, 4, 1, data.data()) == Status::Ok);
+    CHECK(pc.readSectors(8, 0, 4, 1, buf.data()) == Status::Ok);
+    CHECK(buf == old);                               // not the data it wrote
+    CHECK(pc.writeSectors(8, 0, 5, 1, data.data()) == Status::WriteProtected);
+    CHECK(!m.writes.empty() && lostWrite(m.writes.back()));
+
+    m.source.failing = false;
+    m.eject();
+    pc.run(500000);
+    m.insert(m.source);
+    pc.run(100000);
+    pc.clearDiskChange();
+    CHECK(pc.writeSectors(8, 0, 4, 1, data.data()) == Status::Ok);
+    CHECK(pc.readSectors(8, 0, 4, 1, buf.data()) == Status::Ok);
+    CHECK(buf == data);
+}
+
 TEST(test_image_list) {
     ImageList l;
     CHECK(l.add("games.IMG", 1474560));
@@ -244,5 +272,6 @@ void runVirtualPcTests() {
     RUN(test_pc_dd_disk);
     RUN(test_pc_gives_up_on_a_card_that_never_answers);
     RUN(test_pc_disk_swaps);
+    RUN(test_pc_write_to_a_failing_card);
     RUN(test_image_list);
 }

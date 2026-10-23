@@ -510,6 +510,109 @@ TEST(test_stream_overrun_writes_nothing) {
     CHECK(std::memcmp(r.source.sector(4, 0, 1), b.data(), 512) == 0);
 }
 
+// ---- When writes go wrong ----------------------------------------------------------------
+
+TEST(test_burst_card_refuses) {
+    // The card fails (or is pulled out) mid-session: nothing reaches the
+    // live track either, so a verifying host reads back the old data.
+    WriteRig r;
+    r.load(6);
+    r.source.failing = true;
+    auto before = r.liveSector(0, 2);
+    auto data = pattern(11);
+    auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
+    BurstResult res = r.writer.apply(WriteBurst{6, 0, ibm::HD_1440.dataFieldStart(2), bytes.data(), bytes.size()}, 16, 2);
+    CHECK_EQ(res.decoded.updates, 1u);
+    CHECK_EQ(res.failed, 1u);
+    CHECK_EQ(res.persisted, 0u);
+    CHECK_EQ(res.patched, 0u);
+    CHECK(lostWrite(res));
+    CHECK(r.liveSector(0, 2) == before);
+    // A good burst is not a lost write.
+    r.source.failing = false;
+    res = r.writer.apply(WriteBurst{6, 0, ibm::HD_1440.dataFieldStart(2), bytes.data(), bytes.size()}, 16, 2);
+    CHECK(!lostWrite(res));
+    CHECK(r.liveSector(0, 2) == data);
+}
+
+TEST(test_noise_never_writes) {
+    // Random intervals: all over the place, then within MFM's range (2-4
+    // cells, so the decoder sees plausible cells). Nothing may be written.
+    WriteRig r;
+    r.load(12);
+    Lcg rng{99};
+    std::vector<uint8_t> noise;
+    unsigned decoded = 0;
+    for (int round = 0; round < 300; ++round) {
+        noise.resize(200 + size_t((rng.next() + 1) * 4000));
+        bool mfm_range = round % 2;
+        for (auto& v : noise) {
+            double u = (rng.next() + 1) / 2;
+            v = uint8_t(mfm_range ? 30 + u * 34 : u * 255);  // ticks less the 2 edge ticks
+        }
+        uint32_t start = uint32_t((rng.next() + 1) / 2 * 12000);
+        BurstResult res = r.writer.apply(WriteBurst{12, uint8_t(round & 1), start, noise.data(), noise.size()}, 16, 2);
+        decoded += res.decoded.updates;
+    }
+    CHECK_EQ(decoded, 0u);
+    CHECK_EQ(r.source.writes, 0u);
+}
+
+TEST(test_noise_after_a_real_sync_never_writes) {
+    // Worse than noise: a real sync and data mark, then random data. The
+    // field is found; its CRC must stop it (a 1 in 65,536 chance each).
+    WriteRig r;
+    r.load(13);
+    Lcg rng{7};
+    unsigned bad = 0;
+    for (int round = 0; round < 200; ++round) {
+        std::vector<uint8_t> junk(512);
+        for (auto& b : junk) b = uint8_t((rng.next() + 1) * 127);
+        auto cells = sectorWriteCells(junk.data());
+        // Corrupt the CRC's two bytes, so the field is a real-looking fake.
+        cells[ibm::PRESYNC_BYTES + 4 + 512] ^= 0x0101;
+        auto bytes = captured(toFlux(cells), 2);
+        BurstResult res = r.writer.apply(WriteBurst{13, 0, ibm::HD_1440.dataFieldStart(5), bytes.data(), bytes.size()}, 16, 2);
+        bad += res.decoded.bad_crc;
+        CHECK_EQ(res.persisted, 0u);
+    }
+    CHECK(bad > 150u);  // seen, and refused
+    CHECK_EQ(r.source.writes, 0u);
+}
+
+TEST(test_damaged_writes_store_all_or_nothing) {
+    // Change one interval of a real sector write, every way: shorter,
+    // longer, gone to the extremes. The drive must store exactly the sector
+    // the host meant, or nothing. Never something else.
+    WriteRig r;
+    r.load(20);
+    auto data = pattern(33);
+    auto good = captured(toFlux(sectorWriteCells(data.data()), Timing{1.0, 0.05, 0.0}, 4), 2);
+    std::vector<uint8_t> original(r.source.sector(20, 1, 7), r.source.sector(20, 1, 7) + 512);
+    unsigned stored = 0, refused = 0, wrong = 0;
+    Lcg rng{5};
+    for (int round = 0; round < 1500; ++round) {
+        auto bytes = good;
+        size_t i = size_t((rng.next() + 1) / 2 * double(bytes.size() - 1));
+        int how = round % 4;
+        bytes[i] = how == 0 ? uint8_t(bytes[i] + 8) : how == 1 ? uint8_t(bytes[i] - 8) : how == 2 ? 0 : 255;
+        unsigned writes = r.source.writes;
+        r.writer.apply(WriteBurst{20, 1, ibm::HD_1440.dataFieldStart(6), bytes.data(), bytes.size()}, 16, 2);
+        if (r.source.writes == writes) {
+            ++refused;
+            continue;
+        }
+        if (std::memcmp(r.source.sector(20, 1, 6), data.data(), 512) == 0)
+            ++stored;
+        else
+            ++wrong;
+        r.source.writeSector(20, 1, 6, original.data());  // put it back for the next round
+    }
+    CHECK_EQ(wrong, 0u);
+    CHECK(stored > 0u);   // damage in the gaps or presync doesn't matter
+    CHECK(refused > 0u);  // damage in the field does
+}
+
 }  // namespace
 
 void runWriteDecodeTests() {
@@ -530,4 +633,8 @@ void runWriteDecodeTests() {
     RUN(test_stream_back_to_back_bursts);
     RUN(test_stream_whole_track_through_a_small_ring);
     RUN(test_stream_overrun_writes_nothing);
+    RUN(test_burst_card_refuses);
+    RUN(test_noise_never_writes);
+    RUN(test_noise_after_a_real_sync_never_writes);
+    RUN(test_damaged_writes_store_all_or_nothing);
 }

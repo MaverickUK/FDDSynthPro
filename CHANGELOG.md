@@ -63,6 +63,12 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
   - The front panel's pins are planned and reserved in `config.h`: the OLED on the BB48's own Qwiic socket (GPIO 2/3), the encoder on GPIO 20–22 and the action button on 23. A test checks no GPIO is used twice.
   - The input pull-ups are an 11-pin bussed SIP network: ten inputs need ten resistors, which the 10-pin network doesn't have.
 
+- **Lost writes are no longer silent.** Each sector goes to the card first, and into the live track only if the card took it, so a host that verifies sees the failure. After any lost write (a card error, the card pulled out, or a capture overrun), the drive reports write-protect until the disk is inserted again (`d`, or a swap), so the host's next write fails visibly. The console prints `# WRITE FAULT`; `s` adds `write_faults`.
+- **Tests:**
+  - random intervals and random fields behind real sync marks, which never write a sector;
+  - a property test that damaging any interval of a real write stores exactly the right sector or nothing (1,500 cases, never wrong data);
+  - a virtual PC writing to a failing card, which gets its old data back, then write-protect, then works again after a re-insert.
+
 ### Fixed
 - The test suite failed on CI (GCC): two test files defined different `MemorySource` classes, an ODR violation. One is gone, and each test file's helpers now live in an anonymous namespace.
 
