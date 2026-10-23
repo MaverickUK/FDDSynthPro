@@ -4,7 +4,8 @@
 // mirrors core 1 / core 0), (in test_short_test.cpp) the solder-bridge test,
 // (in test_drive.cpp) the head, spindle and drive model, and (in
 // test_track.cpp) CRC-16, MFM, the IBM track layout and the generated disk,
-// and (in test_loader.cpp) image geometry and the cylinder loader.
+// (in test_loader.cpp) image geometry and the cylinder loader, and (in
+// test_activity.cpp) the sound events.
 //
 // Run: test/run_native_tests.sh
 #include <cstdio>
@@ -218,6 +219,7 @@ void runShortTestTests();
 void runDriveTests();
 void runTrackTests();
 void runLoaderTests();
+void runActivityTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -240,6 +242,7 @@ int main() {
     runDriveTests();
     runTrackTests();
     runLoaderTests();
+    runActivityTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

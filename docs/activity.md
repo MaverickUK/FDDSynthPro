@@ -1,0 +1,65 @@
+# Sound events
+
+The original FDD Synth listens to the floppy cable and works out what the drive is doing from the select, motor, step and direction lines. FDDSynthPro *is* the drive, so it knows rather than guesses:
+- when the motor starts and stops;
+- every step, and the cylinder it took the head to;
+- when the head knocks against an end stop instead of moving;
+- when a disk goes in or comes out.
+
+This note covers the events, how steps become clicks or seeks, and a proposed sample pack. The code is `src/activity.*`, tested in `test/native/test_activity.cpp`.
+
+## The events
+
+The drive build prints one `ACT` line per event:
+
+| Line | When | Suggested sound |
+|---|---|---|
+| `ACT <t> MOTOR_ON` | The motor line is asserted | `spinup.wav`, then `spin.wav` looping |
+| `ACT <t> MOTOR_OFF` | The motor line is released | `spindown.wav` |
+| `ACT <t> STEP IN\|OUT <cyl>` | One step, on its own | `step.wav`, a single click |
+| `ACT <t> SEEK_START IN\|OUT <cyl>` | A second step close behind the first: a seek begins | `seek.wav` looping, the buzz of rapid steps |
+| `ACT <t> SEEK_END <cyl> <steps>` | No step for 20 ms: the seek is over | Stop `seek.wav`. `<steps>` gives the distance, for variety |
+| `ACT <t> BUMP OUTER\|INNER` | A step out at cylinder 0, or in at the last cylinder: the head knocks the stop and stays put | `bump.wav`; a run of them is the recalibrate "grind" |
+| `ACT <t> INSERT` / `EJECT` | A disk goes in or out (console `d` now; a button later) | `insert.wav`, `eject.wav` |
+
+`<t>` is the drive's microsecond clock. A seek's first step has already played as a `STEP`. `SEEK_END` is timed at the seek's last step, but printed 20 ms later, once the gap shows that the seek is over.
+
+## Clicks or a seek
+
+A real drive clicks once per step. When steps come every few milliseconds, the clicks run together into a buzz. The tracker splits on the gap between steps (`activity::Config::seek_gap_us`, 20 ms):
+
+| Host | Step interval | Sounds like |
+|---|---|---|
+| PC BIOS / DOS | 3–6 ms | A seek: one buzz |
+| Greaseweazle | 10 ms | A seek |
+| Feather + FeatherWing | 26 ms | A run of separate clicks |
+
+The first step of a run always clicks at once: the second step tells the tracker it's a seek. A change of direction or a bump ends a seek.
+
+## Why the bump matters
+
+A host looking for track 0 normally checks TRK00 before each step, so the head never hits the stop: the Greaseweazle, the Feather and a PC's controller all do. Some software doesn't. It steps out a fixed number of times and lets the head hammer the outer stop: that's the grinding sound of an old PC finding track 0, and of some copy-protection checks. A listen-only synth can't tell a bump from a step. This drive can, because the head model knows it's already at cylinder 0 (`head::Step::AtOuterStop`).
+
+## A sample pack
+
+Following the HDD Synth packs (`spinup`, `idle`, `access`, `spindown`), an FDD pack could be:
+
+```
+samples/<pack>/
+├── spinup.wav     motor on
+├── spin.wav       loops while the motor runs
+├── spindown.wav   motor off
+├── step.wav       one click
+├── seek.wav       loops during a seek
+├── bump.wav       the head hitting a stop
+├── insert.wav     optional
+└── eject.wav      optional
+```
+
+Recording these from a real drive is easiest with a Greaseweazle or the Feather host driving it: `gw seek` to make single steps and seeks on demand, and a short sector loop to keep the motor running.
+
+## Limits and open questions
+
+- **Reads and writes sound the same as idle** on a 3.5-inch drive: the heads are always loaded. 5.25-inch drives with a head-load solenoid would add a `HEAD_LOAD` event.
+- **Seek speed.** `SEEK_START` doesn't yet say how fast the steps come. A 3 ms seek and a 10 ms seek buzz at different pitches; the step interval could be reported for the synth to pick a sample or a playback rate.
+- **Tuning.** The 20 ms gap is a starting value. Listening against real hosts will refine it, and the synth may want two thresholds (a "fast click" region).

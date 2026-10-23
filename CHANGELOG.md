@@ -2,6 +2,19 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
+## [0.5.0] - 2026-10-23
+
+### Added
+- **Slice 4, sound events (`bb48_drive` build, now `FIRMWARE_SLICE` 4).**
+  - **Core 1:** watches the drive model for motor, step (with its outcome and cylinder) and disk changes, and passes them to core 0 on a ring.
+  - **Core 0:** turns them into `ACT` lines: `MOTOR_ON`, `MOTOR_OFF`, `STEP`, `SEEK_START`, `SEEK_END`, `BUMP`, `INSERT` and `EJECT`. Steps closer than 20 ms make a seek, and further apart they're separate clicks. A step against an end stop is a `BUMP`, not a click.
+  - `s` adds `clicks`, `seeks`, `bumps` and `act_dropped`. See `docs/activity.md`, which also proposes an FDD sample pack.
+- **Host tests:** the tracker and observer on their own, then fed through the drive model by the virtual hosts. A Greaseweazle's seek is one seek, the Feather's 26 ms steps are clicks, and a blind recalibrate grinds the stop.
+- The trace parser reads `ACT` lines; rig tests for slice 4 (`-m slice4`) check that the sounds account for every step on the cable.
+
+### Changed
+- The virtual hosts moved to `test/native/virtual_hosts.h`, with an optional per-sample hook.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added

@@ -103,6 +103,15 @@ Note the numbers in `docs/plan.md`, under the open questions.
   The test prints the measured times. Compare them with the assumptions in `test/native/test_loader.cpp` (3 ms a read, 2.5 ms an encode), and update the assumptions if they're off.
 - [ ] Repeat with each image, power-cycling between them.
 
+## 10. Slice 4: sound events
+
+- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice4`. The checks:
+  - `gw rpm` gives `MOTOR_ON` then `MOTOR_OFF`;
+  - a full seek's sounds account for all 79 steps, with no bumps;
+  - one step is one `STEP`;
+  - `d` twice gives `EJECT` then `INSERT`.
+- [ ] Watch the `ACT` lines in `pio device monitor` while running `gw read`. With the Feather host, expect separate `STEP`s, since it steps every 26 ms.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

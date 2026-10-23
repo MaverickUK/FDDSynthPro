@@ -5,13 +5,14 @@
 //               records select, motor, side, write gate and density changes,
 //               and every step. Every pin stays an input; the SN7407 outputs
 //               stay released.
-//   bb48_drive  slices 1-3, the drive: core 1 also runs the drive model
+//   bb48_drive  slices 1-4, the drive: core 1 also runs the drive model
 //               (drive.h) and puts INDEX, TRK00, WPT and DSKCHG on the
 //               SN7407, and the RDATA streamer (rdata_pio.h) sends the
 //               cylinder under the head. Core 0 loads it (cylinder_loader.h)
 //               from the first image on the SD card, or from the generated
 //               1.44 MB disk without one. A read-only disk is in from
-//               power-on.
+//               power-on. What the drive does becomes sound events
+//               (activity.h), printed as ACT lines for the FDD Synth.
 // In both, core 1 records events into the trace ring and core 0 owns USB
 // serial: it prints the trace and runs the console.
 #include <Arduino.h>
@@ -31,6 +32,7 @@
 #include "version.h"
 
 #if FIRMWARE_SLICE != 0
+#include "activity.h"
 #include "cylinder_loader.h"
 #include "ibm_track.h"
 #include "rdata_pio.h"
@@ -101,6 +103,10 @@ static std::atomic<uint32_t> g_outer_knocks{0};  // steps out at cylinder 0
 static std::atomic<uint32_t> g_inner_knocks{0};  // steps in at the last cylinder
 static std::atomic<int> g_disk_request{0};       // console `d`: +1 insert, -1 eject
 
+// What the drive did, from core 1 to core 0's activity tracker.
+static SpscRing<activity::DriveEvent, 256> g_drive_events;
+static std::atomic<uint32_t> g_drive_events_dropped{0};
+
 constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
 
 // The cylinder the RDATA streamer sends: both heads, interleaved
@@ -136,6 +142,7 @@ void loop1() {
     d.insertDisk(true);  // read-only until slice 5
     g_disk_in.store(true);
     PinWatch w(pinsAsSample());
+    activity::DriveObserver observer;
     bool index_was = false;
     bool streaming = false;
     for (;;) {
@@ -156,6 +163,11 @@ void loop1() {
         if (request > 0) d.insertDisk(true);
         if (request < 0) d.ejectDisk();
         if (request) g_disk_in.store(d.diskPresent(), std::memory_order_relaxed);
+
+        activity::DriveEvent changes[3];
+        unsigned n = observer.observe(now, d, e, changes);
+        for (unsigned i = 0; i < n; ++i)
+            if (!g_drive_events.push(changes[i])) g_drive_events_dropped.fetch_add(1, std::memory_order_relaxed);
 
         gpio_put_masked(OUTPUT_GPIO_MASK, drive::outputPins(d.outputs(now)) << cfg::BUS_FIRST_PIN);
 
@@ -202,6 +214,32 @@ static void serviceLoader() {
         if (took > g_read_us_max) g_read_us_max = took;
     } else if (step != CylinderLoader::Step::Idle) {
         if (took > g_encode_us_max) g_encode_us_max = took;
+    }
+}
+
+// The sounds: drive events in, ACT lines out. A line that can't be printed
+// yet waits, and the tracker's queue holds the rest.
+static activity::Tracker g_activity;
+static uint32_t g_activity_checked_us = 0;
+
+static bool printLine(const char* line, size_t n);
+
+static void serviceActivity() {
+    activity::DriveEvent in;
+    while (g_drive_events.pop(in)) g_activity.onDriveEvent(in);
+    uint32_t now = time_us_32();
+    if (now - g_activity_checked_us >= 1000) {
+        g_activity_checked_us = now;
+        g_activity.update(now);
+    }
+    static activity::Event pending;
+    static bool has_pending = false;
+    for (int i = 0; i < 8; ++i) {
+        if (!has_pending && !g_activity.pop(pending)) return;
+        char line[48];
+        size_t len = activity::format(pending, line, sizeof line);
+        has_pending = !printLine(line, len);
+        if (has_pending) return;
     }
 }
 
@@ -253,6 +291,9 @@ static void printStats() {
     Serial.printf(" ready=%d loads=%lu restarts=%lu read_us_max=%lu encode_us_max=%lu", loader.ready(),
                   (unsigned long)loader.loads(), (unsigned long)loader.restarts(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
+    Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
+                  (unsigned long)g_activity.seeks(), (unsigned long)g_activity.bumps(),
+                  (unsigned long)(g_activity.dropped() + g_drive_events_dropped.load()));
 #endif
     Serial.print("\n");
 }
@@ -365,6 +406,7 @@ void setup() {
 void loop() {
 #if FIRMWARE_SLICE != 0
     serviceLoader();
+    serviceActivity();
 #endif
     handleConsole();
 

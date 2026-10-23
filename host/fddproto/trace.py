@@ -2,6 +2,7 @@
 
     SIG <t_us> <NAME>=ON|OFF ...
     STEP <t_us> IN|OUT x<count> <span_us>
+    ACT <t_us> <SOUND> [<args>...]      sound events (src/activity.h)
     DROP <n>
     MARK <t_us>
 
@@ -38,11 +39,19 @@ class Change:
 
 
 @dataclass
+class Act:
+    t_us: int
+    sound: str        # MOTOR_ON, STEP, SEEK_START, SEEK_END, BUMP, ...
+    args: list[str]
+
+
+@dataclass
 class Trace:
     steps: list[StepRun] = field(default_factory=list)
     changes: list[Change] = field(default_factory=list)
     dropped: int = 0
     marks: list[int] = field(default_factory=list)
+    activity: list[Act] = field(default_factory=list)
     other: list[str] = field(default_factory=list)
 
     @property
@@ -60,6 +69,15 @@ class Trace:
     def asserted_signals(self) -> set[str]:
         """Every signal that was asserted at some point."""
         return {name for c in self.changes for name, on in c.signals.items() if on}
+
+    def sounds(self) -> list[str]:
+        return [a.sound for a in self.activity]
+
+    def act_moving_steps(self) -> int:
+        """The head moves the sound events account for: each STEP, plus each
+        seek's steps after its first (which was a STEP)."""
+        return sum(1 for a in self.activity if a.sound == "STEP") + sum(
+            int(a.args[1]) - 1 for a in self.activity if a.sound == "SEEK_END")
 
     def final_state(self) -> dict[str, bool]:
         """The last reported state of each signal that changed."""
@@ -82,6 +100,8 @@ def parse_line(line: str, t: Trace):
         t.changes.append(Change(int(parts[1]), signals))
     elif kind == "STEP" and len(parts) == 5:
         t.steps.append(StepRun(int(parts[1]), parts[2], int(parts[3].removeprefix("x")), int(parts[4])))
+    elif kind == "ACT" and len(parts) >= 3:
+        t.activity.append(Act(int(parts[1]), parts[2], parts[3:]))
     elif kind == "DROP" and len(parts) == 2:
         t.dropped += int(parts[1])
     elif kind == "MARK" and len(parts) == 2:

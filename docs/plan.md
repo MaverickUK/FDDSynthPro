@@ -134,7 +134,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - IMG/IMA files, geometry from size (720 KB and 1.44 MB to start), one cylinder cached, loaded on each step within the settle time. 720 KB brings the 250 kbit/s rate.
   - *Before hardware:* geometry and cache tests with a fake SD, including how long a load may take.
   - **Exit:** real images (a DOS boot disk, a full data disk) read byte for byte; seek-heavy reads at the host's fastest step rate.
-- **Slice 4: activity events for the sounds.**
+- **Slice 4: activity events for the sounds.** *Done in firmware (0.5.0) and host tests; waiting for hardware. See [activity.md](activity.md).*
   - Motor spin-up and spin-down, single steps, seeks (with distance), recalibration and the track 0 stop, reading versus idle, disk insert and eject. Printed as `ACT` lines, like HDDSynthPro.
   - *Before hardware:* the classifier, on recorded slice 0–3 traces.
   - **Exit:** scripted `gw` sessions produce the expected event sequence every time.

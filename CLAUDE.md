@@ -23,11 +23,11 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 - **Build:** `pio run` (PlatformIO lives in `~/.platformio-venv/bin/pio` on the dev Mac). The board is `olimex_pico2bb48`. There are two builds, selected by `FIRMWARE_SLICE`:
   - `bb48` (0): listen only;
-  - `bb48_drive` (3): the drive, slices 1-3.
+  - `bb48_drive` (4): the drive, slices 1-4.
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source` and `cylinder_loader` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader` and `activity` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -75,11 +75,19 @@ At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, el
 - A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
 - **PIO blocks:** SdFat's SDIO driver takes PIO 0 and sets its window to GPIO 16–47; `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window. Keep new programs off PIO 0.
 
+## Sound events
+
+`src/activity.*` (rationale: `docs/activity.md`). Core 1's `DriveObserver` diffs the drive model after each sample (motor, disk, and the `StepEvent`) into `DriveEvent`s on `g_drive_events`. Core 0's `Tracker` turns them into `ACT` lines.
+- A step against a stop is a `BUMP`, never a click, and ends a seek.
+- A seek is two or more same-direction steps within `seek_gap_us` (20 ms). Its first step has already clicked, and `SEEK_END`'s count includes it.
+- Tests drive it through the virtual hosts (`test/native/virtual_hosts.h`); drain the tracker as core 0 does, or its 32-event queue drops the oldest.
+
 ## Trace format
 
 Core 1 records events into an SPSC ring, and core 0 prints them (`src/trace_format.h`).
 - `SIG <t_us> NAME=ON|OFF ...`: input lines that changed. WDATA is never traced (it toggles every few µs during a write).
 - `STEP <t_us> IN|OUT x<count> <span_us>`: consecutive steps in one direction merge into one line unless 50 ms apart. IN is towards higher cylinders.
+- `ACT <t_us> <SOUND> ...`: sound events (drive build), from `activity::format`.
 - `DROP <n>` when the ring overflowed.
 
 The Python parser is `host/fddproto/trace.py`; change both together.

@@ -41,6 +41,22 @@ def test_derived_values():
     assert t.final_state() == {"DRVSB": False, "MOTEB": False, "SIDE1": False, "DIR": True}
 
 
+def test_activity_lines():
+    t = trace.parse([
+        "ACT 10 MOTOR_ON",
+        "ACT 100 STEP IN 1",
+        "ACT 110 SEEK_START IN 2",
+        "ACT 880 SEEK_END 79 79",
+        "ACT 900 BUMP OUTER",
+        "ACT 950 STEP OUT 78",
+        "ACT 990 MOTOR_OFF",
+    ])
+    assert t.sounds() == ["MOTOR_ON", "STEP", "SEEK_START", "SEEK_END", "BUMP", "STEP", "MOTOR_OFF"]
+    assert t.activity[3].args == ["79", "79"]
+    assert t.act_moving_steps() == 80  # 79 in the seek (its first is the STEP before it), plus one
+    assert t.empty  # sound events alone aren't cable activity
+
+
 def test_empty_and_noise():
     t = trace.parse(["", "# h help", "STATS events=0 dropped=0 steps=0 ring=0", "STEP garbage"])
     assert t.empty
