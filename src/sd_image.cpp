@@ -3,6 +3,7 @@
 #include <SdFat.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "config.h"
@@ -76,7 +77,7 @@ TrackSource* open(size_t index) {
     return &s_source;
 }
 
-bool loadPack(synth::Pack& pack, int16_t* pool, size_t pool_samples, char* pack_name, size_t name_len) {
+bool loadPack(synth::Pack& pack, size_t max_bytes, char* pack_name, size_t name_len) {
     FsFile dir, entry;
     if (!dir.open("/samples")) return false;
     char best[ImageList::NAME] = "";
@@ -91,30 +92,52 @@ bool loadPack(synth::Pack& pack, int16_t* pool, size_t pool_samples, char* pack_
     std::strncpy(pack_name, best, name_len - 1);
     pack_name[name_len - 1] = '\0';
 
-    static uint8_t header[cfg::WAV_HEADER_BYTES];
-    struct { const char* file; synth::Sample* slot; } sounds[] = {
+    struct Sound {
+        const char* file;
+        synth::Sample* slot;
+        uint32_t offset = 0;  // of the samples in the file
+        size_t count = 0;     // samples to load (0: missing or unplayable)
+    } sounds[] = {
         {"spinup", &pack.spinup}, {"spin", &pack.spin}, {"spindown", &pack.spindown}, {"step", &pack.step},
         {"seek", &pack.seek},     {"bump", &pack.bump}, {"insert", &pack.insert},     {"eject", &pack.eject},
     };
-    size_t used = 0;
+    auto path = [&](const Sound& s, char* out, size_t len) { std::snprintf(out, len, "/samples/%s/%s.wav", best, s.file); };
+
+    // First pass: the headers, so the pool can be sized to the pack.
+    static uint8_t header[cfg::WAV_HEADER_BYTES];
     pack = synth::Pack{};
-    for (auto& s : sounds) {
-        char path[ImageList::NAME * 2 + 24];
-        std::snprintf(path, sizeof path, "/samples/%s/%s.wav", best, s.file);
+    size_t total = 0;
+    for (Sound& s : sounds) {
+        char p[ImageList::NAME * 2 + 24];
+        path(s, p, sizeof p);
         FsFile f;
-        if (!f.open(path, O_RDONLY)) continue;
+        if (!f.open(p, O_RDONLY)) continue;
         int n = f.read(header, sizeof header);
         WavInfo info;
-        bool ok = n > 0 && parseWavHeader(header, size_t(n), uint32_t(f.fileSize()), info) == WavError::Ok &&
-                  wavIsPlayable(info) && (!pack.rate || info.sampleRate == pack.rate);
-        if (ok) {
-            size_t count = info.dataBytes / 2;
-            if (count > pool_samples - used) count = pool_samples - used;  // cut short to fit
-            if (count && f.seekSet(info.dataOffset) && f.read(pool + used, count * 2) == int(count * 2)) {
-                *s.slot = synth::Sample{pool + used, uint32_t(count)};
-                pack.rate = info.sampleRate;
-                used += count;
-            }
+        if (n > 0 && parseWavHeader(header, size_t(n), uint32_t(f.fileSize()), info) == WavError::Ok &&
+            wavIsPlayable(info) && (!pack.rate || info.sampleRate == pack.rate)) {
+            s.offset = info.dataOffset;
+            s.count = info.dataBytes / 2;
+            if ((total + s.count) * 2 > max_bytes) s.count = max_bytes / 2 - total;  // cut short to fit
+            total += s.count;
+            pack.rate = info.sampleRate;
+        }
+        f.close();
+    }
+    if (!total) return false;
+    int16_t* pool = static_cast<int16_t*>(std::malloc(total * 2));
+    if (!pool) return false;
+
+    // Second pass: the samples.
+    size_t used = 0;
+    for (Sound& s : sounds) {
+        if (!s.count) continue;
+        char p[ImageList::NAME * 2 + 24];
+        path(s, p, sizeof p);
+        FsFile f;
+        if (f.open(p, O_RDONLY) && f.seekSet(s.offset) && f.read(pool + used, s.count * 2) == int(s.count * 2)) {
+            *s.slot = synth::Sample{pool + used, uint32_t(s.count)};
+            used += s.count;
         }
         f.close();
     }

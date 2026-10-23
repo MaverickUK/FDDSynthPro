@@ -2,6 +2,7 @@
 // the write interpreter. Tracks are built with ibm::buildTrack (itself
 // checked cell for cell against Greaseweazle), turned into flux intervals
 // with the kinds of timing error a real host's writes have, and read back.
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -374,6 +375,141 @@ TEST(test_burst_on_an_unloaded_cylinder_still_persists) {
     CHECK(r.liveSector(0, 1) == data);
 }
 
+// ---- Streaming capture: a ring, marks from core 1, chunks on core 0 -------------------------
+
+// A DMA writing into a ring, and core 1's marks, as the firmware has them.
+struct RingSim {
+    explicit RingSim(uint32_t bytes) : ring(bytes) {}
+    std::vector<uint8_t> ring;
+    uint32_t produced = 0;
+    std::vector<CaptureStream::Mark> marks;
+    size_t next = 0;
+
+    void start(const WriteBurst& meta) { marks.push_back({true, produced, meta}); }
+    void end() { marks.push_back({false, produced, WriteBurst{}}); }
+    void write(const uint8_t* p, size_t n) {
+        for (size_t i = 0; i < n; ++i) ring[(produced + i) % ring.size()] = p[i];
+        produced += uint32_t(n);
+    }
+    auto source() {
+        return [this](CaptureStream::Mark& m) {
+            if (next == marks.size()) return false;
+            m = marks[next++];
+            return true;
+        };
+    }
+};
+
+// Feeds `bytes` into the ring `step` at a time, letting core 0 take up to
+// `chunk` after each step. Returns every finished burst.
+static std::vector<BurstResult> stream(RingSim& sim, CaptureStream& cs, const std::vector<uint8_t>& bytes,
+                                       size_t step, size_t chunk) {
+    std::vector<BurstResult> out;
+    BurstResult r;
+    for (size_t at = 0; at < bytes.size(); at += step) {
+        sim.write(&bytes[at], std::min(step, bytes.size() - at));
+        while (cs.service(sim.produced, chunk, sim.source(), r)) out.push_back(r);
+    }
+    return out;
+}
+
+static std::vector<BurstResult> drainStream(RingSim& sim, CaptureStream& cs) {
+    std::vector<BurstResult> out;
+    BurstResult r;
+    for (int i = 0; i < 100000; ++i) {
+        if (cs.service(sim.produced, 256, sim.source(), r)) out.push_back(r);
+        else if (sim.next == sim.marks.size() && !cs.inBurst()) break;
+    }
+    return out;
+}
+
+TEST(test_stream_sector_write_across_the_wrap) {
+    WriteRig r;
+    r.load(9);
+    RingSim sim(1024);
+    sim.produced = 900;  // the ring's write position is part way round
+    CaptureStream cs(sim.ring.data(), 1024, r.writer);
+    auto data = pattern(77);
+    auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
+    sim.start(WriteBurst{9, 0, ibm::HD_1440.dataFieldStart(2), nullptr, 0});
+    auto done = stream(sim, cs, bytes, 64, 100);
+    sim.end();
+    for (auto& d : drainStream(sim, cs)) done.push_back(d);
+    CHECK_EQ(done.size(), 1u);
+    CHECK(!done.empty() && done[0].persisted == 1 && !done[0].overrun);
+    CHECK(std::memcmp(r.source.sector(9, 0, 2), data.data(), 512) == 0);
+}
+
+TEST(test_stream_back_to_back_bursts) {
+    WriteRig r;
+    r.load(3);
+    RingSim sim(16384);  // two sector writes are about 6,300 bytes of intervals
+    CaptureStream cs(sim.ring.data(), 16384, r.writer);
+    auto a = pattern(1), b = pattern(2);
+    auto ba = captured(toFlux(sectorWriteCells(a.data())), 2), bb = captured(toFlux(sectorWriteCells(b.data())), 2);
+    // Both bursts land before core 0 looks at either.
+    sim.start(WriteBurst{3, 1, ibm::HD_1440.dataFieldStart(0), nullptr, 0});
+    sim.write(ba.data(), ba.size());
+    sim.end();
+    sim.start(WriteBurst{3, 1, ibm::HD_1440.dataFieldStart(1), nullptr, 0});
+    sim.write(bb.data(), bb.size());
+    sim.end();
+    auto done = drainStream(sim, cs);
+    CHECK_EQ(done.size(), 2u);
+    CHECK_EQ(cs.overruns(), 0u);
+    CHECK(std::memcmp(r.source.sector(3, 1, 0), a.data(), 512) == 0);
+    CHECK(std::memcmp(r.source.sector(3, 1, 1), b.data(), 512) == 0);
+}
+
+TEST(test_stream_whole_track_through_a_small_ring) {
+    // `gw write`: about 75,000 intervals through a 16 KB ring, core 0
+    // keeping up a chunk at a time.
+    WriteRig r;
+    r.load(30);
+    std::vector<uint8_t> data(9216);
+    for (size_t i = 0; i < data.size(); ++i) data[i] = uint8_t(i * 5 + 3);
+    std::vector<uint16_t> cells(12500);
+    ibm::buildTrack(ibm::HD_1440, 30, 0, data.data(), cells.data());
+    auto bytes = captured(toFlux(cells, Timing{1.0, 0.1, 0.0}, 21), 2);
+    CHECK(bytes.size() > 16384u * 3);
+    RingSim sim(16384);
+    CaptureStream cs(sim.ring.data(), 16384, r.writer);
+    sim.start(WriteBurst{30, 0, 0, nullptr, 0});
+    auto done = stream(sim, cs, bytes, 512, 1024);
+    sim.end();
+    for (auto& d : drainStream(sim, cs)) done.push_back(d);
+    CHECK_EQ(done.size(), 1u);
+    CHECK(!done.empty() && done[0].persisted == 18 && !done[0].overrun);
+    CHECK_EQ(cs.overruns(), 0u);
+}
+
+TEST(test_stream_overrun_writes_nothing) {
+    // Core 0 stalls for more than a ring's worth: that burst is dropped and
+    // counted, not decoded from overwritten bytes, and the next one is fine.
+    WriteRig r;
+    r.load(4);
+    RingSim sim(1024);
+    CaptureStream cs(sim.ring.data(), 1024, r.writer);
+    auto a = pattern(5), b = pattern(6);
+    auto ba = captured(toFlux(sectorWriteCells(a.data())), 2), bb = captured(toFlux(sectorWriteCells(b.data())), 2);
+    CHECK(ba.size() > 1024u);
+    sim.start(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(0), nullptr, 0});
+    sim.write(ba.data(), ba.size());  // all of it before core 0 looks
+    sim.end();
+    auto done = drainStream(sim, cs);
+    CHECK_EQ(done.size(), 1u);
+    CHECK(!done.empty() && done[0].overrun && done[0].persisted == 0);
+    CHECK_EQ(cs.overruns(), 1u);
+    CHECK_EQ(r.source.writes, 0u);
+    // The next burst, read in time, is written.
+    sim.start(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(1), nullptr, 0});
+    done = stream(sim, cs, bb, 64, 128);
+    sim.end();
+    for (auto& d : drainStream(sim, cs)) done.push_back(d);
+    CHECK(!done.empty() && done.back().persisted == 1);
+    CHECK(std::memcmp(r.source.sector(4, 0, 1), b.data(), 512) == 0);
+}
+
 }  // namespace
 
 void runWriteDecodeTests() {
@@ -390,4 +526,8 @@ void runWriteDecodeTests() {
     RUN(test_burst_track_write);
     RUN(test_burst_survives_a_reload);
     RUN(test_burst_on_an_unloaded_cylinder_still_persists);
+    RUN(test_stream_sector_write_across_the_wrap);
+    RUN(test_stream_back_to_back_bursts);
+    RUN(test_stream_whole_track_through_a_small_ring);
+    RUN(test_stream_overrun_writes_nothing);
 }

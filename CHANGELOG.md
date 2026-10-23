@@ -41,6 +41,15 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
   - `wav.h` is copied from HDDSynth_Native, so packs follow the same rules.
 - **The sample player** (`python -m fddproto.player <trace> <out.wav>`) mixes a trace's sound events with a sample pack, by the rules the synth's firmware will follow. It works on the virtual PC's session or a real drive's log.
 
+- **Streaming write capture.** WDATA goes into a 16 KB ring by endless DMA (RP2350), in place of an 80 KB buffer for a whole burst.
+  - Core 1 marks each burst's start and end; core 0's `CaptureStream` decodes behind it in 2 KB chunks, with audio served between them.
+  - Bursts queue rather than wait for a single buffer.
+  - If core 0 ever falls a whole ring behind, that burst is dropped and counted (`capture_overruns`), never decoded from overwritten data.
+  - `BurstWriter` takes a burst in pieces (`begin`, `feed`, `finish`).
+  - Tests: a sector write across the ring's wrap, back-to-back bursts, a whole track through 16 KB, and an overrun that writes nothing. The virtual PC's sessions run through the streaming path.
+- **The sample pool is one allocation sized to the pack** (up to 160 KB), loaded in two passes, instead of a fixed 160 KB array.
+- Static RAM in the drive build falls from 85% to 41%.
+
 ### Fixed
 - The test suite failed on CI (GCC): two test files defined different `MemorySource` classes, an ODR violation. One is gone, and each test file's helpers now live in an anonymous namespace.
 

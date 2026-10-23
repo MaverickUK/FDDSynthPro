@@ -137,13 +137,13 @@ static std::atomic<const ibm::Format*> g_format{nullptr};
 static std::atomic<bool> g_writable{false};
 static std::atomic<CylinderLoader*> g_loader{nullptr};
 
-// One write burst at a time, from core 1's capture to core 0's decoder. Big
-// enough for a whole HD track (about 75,000 flux transitions).
-enum BurstState : int { BURST_FREE, BURST_CAPTURING, BURST_READY };
-static uint8_t g_capture[80 * 1024] __attribute__((aligned(4)));
-static WriteBurst g_burst;
-static std::atomic<int> g_burst_state{BURST_FREE};
-static std::atomic<uint32_t> g_bursts_dropped{0};  // WGATE while core 0 was still on the last burst
+// Writes stream from core 1's capture to core 0's decoder through a ring
+// (CaptureStream, write_burst.h): the DMA fills it, core 1 marks where each
+// burst starts and ends and how far the DMA has got, core 0 decodes behind.
+static uint8_t g_capture_ring[cfg::CAPTURE_RING_BYTES] __attribute__((aligned(cfg::CAPTURE_RING_BYTES)));
+static SpscRing<CaptureStream::Mark, 16> g_capture_marks;
+static std::atomic<uint32_t> g_capture_produced{0};
+static std::atomic<uint32_t> g_bursts_dropped{0};  // WGATE with no room for its marks
 
 void setup1() {
     setUpInputs();
@@ -158,7 +158,7 @@ void setup1() {
     while (!g_loader.load(std::memory_order_acquire)) tight_loop_contents();
     const ibm::Format* fmt = g_format.load();
     rdata_pio::begin(g_cylinder_slots, fmt->track_bytes, fmt->dataRate());
-    wdata_pio::begin(fmt->dataRate());
+    wdata_pio::begin(g_capture_ring, cfg::CAPTURE_RING_BYTES, fmt->dataRate());
 }
 
 void loop1() {
@@ -177,7 +177,7 @@ void loop1() {
     bool index_was = false;
     bool streaming = false;
     WriteGate write_gate;
-    g_burst.intervals = g_capture;
+    WriteBurst burst{};
     for (;;) {
         uint32_t now = time_us_32();
         uint32_t pins = pinsAsSample();
@@ -235,17 +235,18 @@ void loop1() {
             streaming = stream;
         }
 
-        // Writes: capture WDATA from WGATE asserted to released, then hand
-        // the burst to core 0 (write_burst.h).
-        bool buffer_free = g_burst_state.load(std::memory_order_acquire) == BURST_FREE;
-        switch (write_gate.onSample(now, pins, d, buffer_free, data_rate, g_burst)) {
+        // Writes: run the capture from WGATE asserted to released, marking
+        // each burst's start and end in the stream for core 0 (write_burst.h).
+        // A burst needs room for both its marks.
+        bool room = g_capture_marks.size() + 2 <= 16;
+        switch (write_gate.onSample(now, pins, d, room, data_rate, burst)) {
             case WriteGate::Action::Start:
-                g_burst_state.store(BURST_CAPTURING, std::memory_order_relaxed);
-                wdata_pio::start(g_capture, sizeof g_capture);
+                g_capture_marks.push(CaptureStream::Mark{true, wdata_pio::produced(), burst});
+                wdata_pio::start();
                 break;
             case WriteGate::Action::Stop:
-                g_burst.count = wdata_pio::stop();
-                g_burst_state.store(BURST_READY, std::memory_order_release);
+                wdata_pio::stop();
+                g_capture_marks.push(CaptureStream::Mark{false, wdata_pio::produced(), WriteBurst{}});
                 break;
             case WriteGate::Action::Missed:
                 g_bursts_dropped.fetch_add(1, std::memory_order_relaxed);
@@ -253,6 +254,7 @@ void loop1() {
             case WriteGate::Action::None:
                 break;
         }
+        g_capture_produced.store(wdata_pio::produced(), std::memory_order_release);
     }
 }
 
@@ -270,21 +272,19 @@ static uint32_t g_encode_us_max = 0;  // slowest track encode
 // Decoding writes: a full track's data fields, plus room for strays.
 static uint8_t g_write_store[12 * 1024];
 static mfm::Field g_write_fields[64];
-static BurstWriter* g_writer = nullptr;
+static CaptureStream* g_capture = nullptr;
 static uint32_t g_sectors_written = 0;  // console `s`
 static uint32_t g_write_bad_crc = 0;
 static uint32_t g_write_unplaced = 0;
-static uint32_t g_write_us_max = 0;
+static uint32_t g_write_us_max = 0;  // the longest chunk of decoding
 
 // The FDD Synth: the card's sample pack, in RAM, played by the mixer.
-static int16_t g_sample_pool[cfg::SAMPLE_POOL_BYTES / 2];
 static synth::Pack g_pack;
 static synth::Mixer* g_mixer = nullptr;
 static char g_pack_name[ImageList::NAME] = "";
 
 static void startSynth(bool card) {
-    if (!card || !sd_image::loadPack(g_pack, g_sample_pool, sizeof g_sample_pool / 2, g_pack_name,
-                                     sizeof g_pack_name))
+    if (!card || !sd_image::loadPack(g_pack, cfg::SAMPLE_POOL_MAX_BYTES, g_pack_name, sizeof g_pack_name))
         return;  // no pack: the drive works, silently
     static synth::Mixer mixer(g_pack);
     g_mixer = &mixer;
@@ -300,7 +300,10 @@ static void chooseDisk() {
     g_slot = &slot;
     static CylinderLoader loader(slot, g_cylinder_slots, g_track_scratch, g_track_data[0], g_track_data[1]);
     static BurstWriter writer(slot, loader, g_write_store, sizeof g_write_store, g_write_fields, 64);
-    g_writer = &writer;
+    static CaptureStream stream(g_capture_ring, cfg::CAPTURE_RING_BYTES, writer);
+    stream.ticks_per_cell = wdata_pio::ticksPerCell();
+    stream.edge_ticks = wdata_pio::edgeTicks();
+    g_capture = &stream;
     while (loader.service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
     g_format.store(&slot.format());
     g_writable.store(slot.writable());
@@ -333,7 +336,7 @@ static void serviceSwap() {
     if (!g_ejected_ms) g_ejected_ms = millis() | 1;
     // Wait out the eject, and any write burst still being decoded: it
     // belongs to the old disk.
-    if (millis() - g_ejected_ms < SWAP_EJECTED_MS || g_burst_state.load() != BURST_FREE) return;
+    if (millis() - g_ejected_ms < SWAP_EJECTED_MS || g_capture->inBurst() || g_capture_marks.size()) return;
     TrackSource* image = sd_image::open(g_image_index);
     if (!image) {
         Serial.printf("# can't open %s; keeping the last disk out\n", sd_image::images().name(g_image_index));
@@ -350,16 +353,21 @@ static void serviceSwap() {
     g_swap.store(SWAP_INSERT, std::memory_order_release);
 }
 
+// Decodes what the capture has brought, up to a chunk per call, so audio
+// and the rest of core 0 get a turn between chunks.
+constexpr size_t WRITE_CHUNK_BYTES = 2048;
+
 static void serviceWrites() {
-    if (g_burst_state.load(std::memory_order_acquire) != BURST_READY) return;
     uint32_t started = time_us_32();
-    BurstResult r = g_writer->apply(g_burst, wdata_pio::ticksPerCell(), wdata_pio::edgeTicks());
+    BurstResult r;
+    auto next_mark = [](CaptureStream::Mark& m) { return g_capture_marks.pop(m); };
+    if (g_capture->service(g_capture_produced.load(std::memory_order_acquire), WRITE_CHUNK_BYTES, next_mark, r)) {
+        g_sectors_written += r.persisted;
+        g_write_bad_crc += r.decoded.bad_crc;
+        g_write_unplaced += r.decoded.unplaced;
+    }
     uint32_t took = time_us_32() - started;
     if (took > g_write_us_max) g_write_us_max = took;
-    g_sectors_written += r.persisted;
-    g_write_bad_crc += r.decoded.bad_crc;
-    g_write_unplaced += r.decoded.unplaced;
-    g_burst_state.store(BURST_FREE, std::memory_order_release);
 }
 
 static void serviceLoader() {
@@ -459,10 +467,11 @@ static void printStats() {
     Serial.printf(" ready=%d loads=%lu restarts=%lu read_us_max=%lu encode_us_max=%lu", loader.ready(),
                   (unsigned long)loader.loads(), (unsigned long)loader.restarts(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
-    Serial.printf(" writable=%d written=%lu write_bad_crc=%lu write_unplaced=%lu bursts_dropped=%lu write_us_max=%lu",
+    Serial.printf(" writable=%d written=%lu write_bad_crc=%lu write_unplaced=%lu bursts_dropped=%lu "
+                  "capture_overruns=%lu write_us_max=%lu",
                   (int)g_writable.load(), (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
-                  (unsigned long)g_write_us_max);
+                  (unsigned long)g_capture->overruns(), (unsigned long)g_write_us_max);
     Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_mixer ? g_pack_name : "none",
                   (unsigned long)audio::underruns(), (unsigned long)(g_mixer ? g_mixer->voicesStolen() : 0));
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),

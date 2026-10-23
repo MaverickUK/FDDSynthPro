@@ -52,9 +52,14 @@ constexpr unsigned PIN_SD_DAT0 = 34;  // DAT0-DAT3 on GPIO 34-37
 constexpr unsigned PIN_I2S_DATA = 26;
 constexpr unsigned PIN_I2S_BCLK = 27;  // LRCLK is BCLK + 1 = GPIO 28
 
-// The sample pack lives in RAM: FDD sounds are short. 160 KB holds the
-// stand-in pack (152 KB) with a little room; longer samples are cut short.
-constexpr size_t SAMPLE_POOL_BYTES = 160 * 1024;
+// The sample pack lives in RAM (FDD sounds are short), in one allocation
+// sized to the pack. Up to 160 KB: the stand-in pack is 152 KB; longer
+// samples are cut short.
+constexpr size_t SAMPLE_POOL_MAX_BYTES = 160 * 1024;
+
+// The WDATA capture ring: 16 KB is 44 ms of writing at 1.44 MB, far longer
+// than core 0 goes between chunks of decoding.
+constexpr size_t CAPTURE_RING_BYTES = 16 * 1024;
 constexpr size_t WAV_HEADER_BYTES = 4096;  // a WAV's data must start within this (HDDSynth_Native's rule)
 
 // Mixing on core 0: blocks of 128 frames (5.8 ms at 22.05 kHz), 8 of them

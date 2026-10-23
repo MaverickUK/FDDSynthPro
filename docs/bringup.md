@@ -117,7 +117,7 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Set the FeatherWing's write switch to **WR**.
 - [ ] Copy a fresh test image to the card (not marked read-only). Type `i`: `writable=1`.
 - [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice5`. It writes random tracks with `gw write`, reads each back, checks one survives a seek away and back, and puts the originals back. `FDDPRO_WRITE_CYCLES=100` gives the plan's 100 cycles.
-- [ ] Check `s`: `write_bad_crc=0`, `bursts_dropped=0`, and `write_us_max` (a whole-track write is the slowest).
+- [ ] Check `s`: `write_bad_crc=0`, `bursts_dropped=0`, `capture_overruns=0`, and `write_us_max` (the longest chunk of decoding, which should stay well under the 46 ms audio queue).
 - [ ] **Power cycle:** write a track, unplug the BB48 (Feather first), plug it back and read the track: the card kept it.
 - [ ] Afterwards, copy the image back to the Mac and compare it with the local copy: identical, since the tests restored every track.
 

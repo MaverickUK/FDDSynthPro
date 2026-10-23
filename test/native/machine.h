@@ -67,6 +67,8 @@ class Machine {
     std::vector<uint8_t> data0_, data1_;
     std::vector<uint8_t> store_;
     std::vector<mfm::Field> fields_;
+    // The WDATA capture ring, as on the board (16 KB).
+    std::vector<uint8_t> ring_ = std::vector<uint8_t>(16384);
 
 public:
     explicit Machine(const ibm::Format& fmt = ibm::HD_1440, Core0Costs costs = {}, uint8_t start_cylinder = 0,
@@ -82,7 +84,8 @@ public:
           source(fmt),
           slot(source),
           loader(slot, slots_.data(), scratch_.data(), data0_.data(), data1_.data()),
-          writer(slot, loader, store_.data(), store_.size(), fields_.data(), fields_.size()) {
+          writer(slot, loader, store_.data(), store_.size(), fields_.data(), fields_.size()),
+          stream(ring_.data(), uint32_t(ring_.size()), writer) {
         source.writable_ = writable;
         // As at power-on: cylinder 0 is loaded before the host can ask.
         while (loader.service() != CylinderLoader::Step::Idle) {}
@@ -118,6 +121,10 @@ public:
     // Core 0's background work, up to `now`: one loader step at a time, each
     // taking its cost. The loader sees the head's cylinder as each step starts.
     void runCore0(uint32_t now) {
+        // Writes first, as on the board: decode whatever has arrived.
+        BurstResult r;
+        while (stream.service(produced_, SIZE_MAX, [this](CaptureStream::Mark& m) { return nextMark(m); }, r))
+            writes.push_back(r);
         while (int32_t(now - core0_us_) > 0) {
             loader.request(d.head().cylinder());
             CylinderLoader::Step s = loader.service();
@@ -141,10 +148,12 @@ public:
     }
 
     // The WDATA capture: intervals the host writes, as the PIO program
-    // delivers them (ticks less the edge ticks, 8 bits). Kept only while a
-    // capture is running, as on the board.
+    // delivers them (ticks less the edge ticks, 8 bits), into the ring. Kept
+    // only while a capture is running, as on the board.
     void captureInterval(uint32_t ticks) {
-        if (gate.capturing()) capture_.push_back(uint8_t(ticks - EDGE_TICKS));
+        if (!gate.capturing()) return;
+        ring_[produced_ % ring_.size()] = uint8_t(ticks - EDGE_TICKS);
+        ++produced_;
     }
 
     static constexpr uint32_t TICKS_PER_CELL = 16;
@@ -155,6 +164,7 @@ public:
     DiskSlot slot;        // whichever disk is in now
     CylinderLoader loader;
     BurstWriter writer;
+    CaptureStream stream;
     WriteGate gate;
     activity::Tracker tracker;
     std::vector<BurstResult> writes;      // every burst core 0 decoded
@@ -173,15 +183,15 @@ private:
         for (unsigned i = 0; i < n; ++i) tracker.onDriveEvent(out[i]);
         drainSounds();
 
+        // Core 1 marks where each burst starts and ends in the stream; core 0
+        // decodes it from the ring as it arrives (runCore0).
         switch (gate.onSample(now, pins, d, true, format().dataRate(), burst_)) {
             case WriteGate::Action::Start:
-                capture_.clear();
+                marks_.push_back(CaptureStream::Mark{true, produced_, burst_});
                 break;
             case WriteGate::Action::Stop:
-                // Core 0 decodes it straight away (it's idle during writes).
-                burst_.intervals = capture_.data();
-                burst_.count = capture_.size();
-                writes.push_back(writer.apply(burst_, TICKS_PER_CELL, EDGE_TICKS));
+                marks_.push_back(CaptureStream::Mark{false, produced_, WriteBurst{}});
+                runCore0(now);  // core 0 is otherwise idle during a write
                 break;
             default:
                 break;
@@ -193,8 +203,16 @@ private:
         while (tracker.pop(ev)) sounds.push_back(ev);
     }
 
+    bool nextMark(CaptureStream::Mark& m) {
+        if (next_mark_ == marks_.size()) return false;
+        m = marks_[next_mark_++];
+        return true;
+    }
+
     VirtualHost* host_ = nullptr;
-    std::vector<uint8_t> capture_;
+    uint32_t produced_ = 0;
+    std::vector<CaptureStream::Mark> marks_;
+    size_t next_mark_ = 0;
     WriteBurst burst_{};
     activity::DriveObserver observer_;
     uint32_t core0_us_ = 0;

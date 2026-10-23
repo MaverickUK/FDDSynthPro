@@ -30,9 +30,10 @@ bool contiguous();
 // Loads the FDD Synth's sample pack: the first folder under /samples, in
 // name order, holding spinup.wav, spin.wav, spindown.wav, step.wav,
 // seek.wav, bump.wav (and optionally insert.wav, eject.wav): mono, 16-bit,
-// one rate. The samples go into `pool`; a pack too big for it is cut short.
-// Returns true if the pack is complete (synth::Pack::complete). Call after
-// mount().
-bool loadPack(synth::Pack& pack, int16_t* pool, size_t pool_samples, char* name, size_t name_len);
+// one rate. The samples go into one allocation sized to the pack, up to
+// `max_bytes`; a pack bigger than that is cut short. Returns true if the
+// pack is complete (synth::Pack::complete). Call once, after mount(): the
+// memory is never freed.
+bool loadPack(synth::Pack& pack, size_t max_bytes, char* name, size_t name_len);
 
 }  // namespace sd_image

@@ -79,9 +79,12 @@ At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, el
 
 ## Writes
 
-Core 1 starts `wdata_pio` when WGATE is asserted, and the drive is selected, has a disk and isn't write-protected. It notes the track position (`start_byte`, from the spindle's phase) and hands the burst to core 0 when WGATE is released. There's one burst buffer: a burst that finds it busy is dropped and counted (`bursts_dropped`).
+The capture streams through a 16 KB ring (`cfg::CAPTURE_RING_BYTES`). An endless DMA fills it, and `fdd_wdata` runs only while WGATE is asserted and the drive is selected, has a disk and isn't write-protected.
+- **Core 1** marks each burst's start (with its cylinder, head and track position, `start_byte` from the spindle's phase) and end on `g_capture_marks`. Every pass it publishes `wdata_pio::produced()`, the DMA's free-running position.
+- **Core 0's `CaptureStream`** feeds each burst to a `BurstWriter` in chunks (`WRITE_CHUNK_BYTES`) as it arrives, so nothing waits for a whole burst and audio gets a turn between chunks.
+- **If core 0 falls a whole ring behind,** that burst is abandoned and counted (`capture_overruns`), never decoded from overwritten bytes. A burst with no room for its marks is dropped (`bursts_dropped`).
 
-Core 0's `BurstWriter` runs the burst through `mfm::DataSeparator`, `mfm::FieldScanner` and `track_write::interpret`. It then patches each sector into the loader's track (`CylinderLoader::writeSector` re-encodes that head in place; unchanged cells are rewritten with the same values, so RDATA stays valid) and writes it through to the `TrackSource`.
+`BurstWriter` (`begin`/`feed`/`finish`, or `apply` for a whole burst) runs the intervals through `mfm::DataSeparator`, `mfm::FieldScanner` and `track_write::interpret`. It then patches each sector into the loader's track (`CylinderLoader::writeSector` re-encodes that head in place; unchanged cells are rewritten with the same values, so RDATA stays valid) and writes it through to the `TrackSource`.
 - `fdd_wdata.pio` doesn't count `EDGE_TICKS` (2) at each edge; the reader adds them back. Its 8-bit counts wrap after about 16 cells, which only the first interval can reach.
 - The data separator uses Greaseweazle's gains (60% phase, 5% period). Lower gains take more jitter but follow speed errors worse; `test/native/test_write_decode.cpp` measures both.
 - **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
