@@ -11,11 +11,13 @@ ffmpeg, and Pillow (python3 -m pip install pillow).
 """
 from __future__ import annotations
 
+import array
 import math
 import random
 import subprocess
 import sys
 import tempfile
+import wave
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -121,6 +123,62 @@ def draw_controls(d: ImageDraw.ImageDraw, knob_angle: float, knob_lit: float, bu
     d.text((bx, by + br + 22), "ACTION" + (" (held)" if held else ""), font=LABEL_FONT, fill=DIM, anchor="mm")
 
 
+# What the mixer plays for each sound event (src/synth.h).
+SAMPLES = {
+    "MOTOR_ON": "spinup, then the spin loop",
+    "MOTOR_OFF": "spindown",
+    "STEP": "step",
+    "SEEK_START": "seek loop",
+    "SEEK_END": "seek loop ends",
+    "BUMP": "bump",
+    "INSERT": "insert",
+    "EJECT": "eject",
+}
+
+
+def read_sounds(path: Path) -> list[tuple[float, str]]:
+    out = []
+    for line in path.read_text().splitlines():
+        ms, name = line.split()
+        out.append((int(ms) / 1000, name))
+    return out
+
+
+def levels(path: Path, n: int) -> list[float]:
+    """The audio's level in each video frame, in dBFS (RMS)."""
+    with wave.open(str(path)) as w:
+        rate = w.getframerate()
+        a = array.array("h", w.readframes(w.getnframes()))
+    per = rate / FPS
+    out = []
+    for i in range(n):
+        seg = a[int(i * per):int((i + 1) * per)]
+        rms = math.sqrt(sum(x * x for x in seg) / len(seg)) if seg else 0
+        out.append(20 * math.log10(rms / 32768) if rms > 0 else -90.0)
+    return out
+
+
+def draw_sound(d: ImageDraw.ImageDraw, now: float, level_db: float, peak_db: float, sounds: list[tuple[float, str]]):
+    """The level meter, and the sound events as the mixer gets them, newest first."""
+    x0, x1, y = 900, 1240, 500
+    d.text((x0, y), "OUTPUT", font=LABEL_FONT, fill=DIM)
+    bar = lambda db: x0 + (x1 - x0) * max(0.0, min(1.0, (db + 60) / 60))
+    d.rounded_rectangle([x0, y + 28, x1, y + 44], 4, fill=BEZEL)
+    if level_db > -60:
+        d.rounded_rectangle([x0, y + 28, bar(level_db), y + 44], 4, fill=ACCENT)
+    d.line([bar(peak_db), y + 26, bar(peak_db), y + 46], fill=TEXT, width=2)
+
+    d.text((x0, y + 62), "SOUND EVENTS  ->  SAMPLES PLAYED", font=LABEL_FONT, fill=DIM)
+    shown = [e for e in sounds if e[0] <= now][-5:][::-1]
+    for i, (t, name) in enumerate(shown):
+        age = now - t
+        fresh = max(0.0, 1 - age / 0.6) if i == 0 else 0.0
+        colour = tuple(int(DIM[k] + (ACCENT[k] - DIM[k]) * fresh) for k in range(3)) if i else \
+            (ACCENT if fresh > 0 else TEXT)
+        row = y + 92 + i * 24
+        d.text((x0, row), f"{t:5.1f}s {name:<10} {SAMPLES.get(name, '')}", font=LOG_FONT, fill=colour)
+
+
 def main() -> int:
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "media/showreel.mp4"
     if not TOOL.exists():
@@ -136,11 +194,14 @@ def main() -> int:
         frames = (tmp / "frames.raw").read_bytes()
         n = len(frames) // (OLED_W * OLED_H)
         script = read_script(tmp / "script.txt")
+        sounds = read_sounds(tmp / "sounds.txt")
+        level = levels(tmp / "audio.wav", n * PER_FRAME)
+        peak = -90.0
 
         encoder = subprocess.Popen(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
              "-r", str(FPS), "-i", "-", "-i", str(tmp / "audio.wav"), "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             "-crf", "18", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(out)],
+             "-crf", "18", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)],
             stdin=subprocess.PIPE)
 
         caption, log = "", []
@@ -182,6 +243,9 @@ def main() -> int:
                 lit = lambda until: max(0.0, min(1.0, (until - t) / 3))
                 held = any(a <= t < b for a, b in holds)
                 draw_controls(d, knob_angle, lit(knob_until), 1.0 if held else lit(button_until), held)
+                v = f * PER_FRAME + sub
+                peak = max(level[v], peak - 1.0)  # falls 30 dB a second
+                draw_sound(d, t / 10, level[v], peak, sounds)
                 d.text((64, 540), caption, font=CAPTION_FONT, fill=TEXT)
                 for i, line in enumerate(log[-4:]):
                     d.text((64, 596 + i * 26), line, font=LOG_FONT, fill=DIM if i < len(log[-4:]) - 1 else ACCENT)

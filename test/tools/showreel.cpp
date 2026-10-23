@@ -10,6 +10,7 @@
 //   frames.raw  the OLED every 100 ms of simulated time (the panel's frame
 //               rate): 128 x 64 bytes per frame, 0 or 1 per pixel
 //   audio.wav   the mixer's output, the volume following the encoder
+//   sounds.txt  each sound event the mixer was given: "<ms from the start> <NAME>"
 //   script.txt  what happened when, for the captions: "<frame> CAPTION|LOG|INPUT <text>"
 #include <cstdio>
 #include <cstring>
@@ -276,6 +277,7 @@ int main(int argc, char** argv) {
 
     panel.caption("Power on: the card's first disk is in");
     panel.log("FDDSynthPro 0.7.0 drive, sample pack Placeholder");
+    panel.turn(pc.now + S, 5);  // 75% (the power-on volume) up to 100%
     pc.run(2 * S);
 
     panel.caption("Choose another disk: press, turn, press");
@@ -332,7 +334,7 @@ int main(int argc, char** argv) {
     };
 
     panel.caption("Reading a game, and turning the volume down");
-    panel.turn(pc.now + S, -7);
+    panel.turn(pc.now + S, -8);  // 100% down to 60%
     readFile("GAME.EXE");
     pc.run(S / 2);
 
@@ -355,7 +357,7 @@ int main(int argc, char** argv) {
     pc.run(S / 2);
 
     panel.caption("Saving a game, with the volume back up");
-    panel.turn(pc.now + S / 2, 12, 90000);  // up to 100%
+    panel.turn(pc.now + S / 2, 8, 90000);  // back up to 100%
     std::vector<uint8_t> save(24 * 1024);
     for (size_t i = 0; i < save.size(); ++i) save[i] = uint8_t(i * 31 + 7);
     panel.log("A:\\> COPY CON SAVE1.DAT");
@@ -379,6 +381,10 @@ int main(int argc, char** argv) {
 
     std::vector<int16_t> audio = mix(pack, m.sounds, panel.volumes(), panel.t0(), panel.frames());
     writeWav(out + "/audio.wav", audio, pack.pack.rate);
+    std::ofstream sounds(out + "/sounds.txt");
+    for (const activity::Event& e : m.sounds)
+        if (int32_t(e.time_us - panel.t0()) >= 0)
+            sounds << (e.time_us - panel.t0()) / 1000 << " " << activity::soundName(e.sound) << "\n";
     std::printf("SHOWREEL frames=%u seconds=%.1f retries=%u sectors_read=%u written=%u\n", panel.frames(),
                 panel.frames() / 10.0, pc.retries, dos.sectorsRead, dos.sectorsWritten);
     return pc.retries == 0 ? 0 : 1;
