@@ -5,9 +5,12 @@
 //               records select, motor, side, write gate and density changes,
 //               and every step. Every pin stays an input; the SN7407 outputs
 //               stay released.
-//   bb48_drive  slice 1, the drive: core 1 also runs the drive model
+//   bb48_drive  slices 1-2, the drive: core 1 also runs the drive model
 //               (drive.h) and puts INDEX, TRK00, WPT and DSKCHG on the
-//               SN7407. A read-only disk is in from power-on.
+//               SN7407, and the RDATA streamer (rdata_pio.h) sends the
+//               current cylinder of the generated 1.44 MB disk, which core 0
+//               builds whenever the head moves. A read-only disk is in from
+//               power-on.
 // In both, core 1 records events into the trace ring and core 0 owns USB
 // serial: it prints the trace and runs the console.
 #include <Arduino.h>
@@ -25,6 +28,13 @@
 #include "spsc_ring.h"
 #include "trace_format.h"
 #include "version.h"
+
+#if FIRMWARE_SLICE != 0
+#include "gen_disk.h"
+#include "ibm_track.h"
+#include "rdata_pio.h"
+#include "rdata_stream.h"
+#endif
 
 static SpscRing<TraceEvent, cfg::TRACE_RING_EVENTS> g_trace;
 static std::atomic<uint32_t> g_events{0};   // recorded by core 1
@@ -91,6 +101,12 @@ static std::atomic<int> g_disk_request{0};       // console `d`: +1 insert, -1 e
 
 constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
 
+// The disk's format, and the cylinder the RDATA streamer sends: both heads,
+// interleaved (rdata_stream.h). Core 0 rebuilds it in place when the head
+// moves; the DMA reads it all the time.
+static const ibm::Format& FORMAT = ibm::HD_1440;
+static uint32_t g_cylinder_slots[ibm::HD_1440.track_bytes];
+
 void setup1() {
     setUpInputs();
     // Outputs released (high) before they become outputs, so the cable never
@@ -98,6 +114,8 @@ void setup1() {
     gpio_init_mask(OUTPUT_GPIO_MASK);
     gpio_put_masked(OUTPUT_GPIO_MASK, OUTPUT_GPIO_MASK);
     gpio_set_dir_out_masked(OUTPUT_GPIO_MASK);
+    // RDATA then moves to the PIO, held released until the drive is ready.
+    rdata_pio::begin(g_cylinder_slots, FORMAT.track_bytes, FORMAT.dataRate());
 }
 
 void loop1() {
@@ -108,6 +126,8 @@ void loop1() {
     d.insertDisk(true);  // read-only until slice 5
     g_disk_in.store(true);
     PinWatch w(pinsAsSample());
+    bool index_was = false;
+    bool streaming = false;
     for (;;) {
         uint32_t now = time_us_32();
         uint32_t pins = pinsAsSample();
@@ -128,7 +148,36 @@ void loop1() {
         if (request) g_disk_in.store(d.diskPresent(), std::memory_order_relaxed);
 
         gpio_put_masked(OUTPUT_GPIO_MASK, drive::outputPins(d.outputs(now)) << cfg::BUS_FIRST_PIN);
+
+        // The track starts at each index pulse, and RDATA only carries it
+        // while the host could be reading.
+        bool index = d.spindle().index(now);
+        if (index && !index_was) rdata_pio::restartAtIndex();
+        index_was = index;
+        bool stream = d.selected() && d.diskPresent() && d.spindle().atSpeed(now);
+        if (stream != streaming) {
+            rdata_pio::enable(stream);
+            streaming = stream;
+        }
     }
+}
+
+// Core 0's share of the drive: rebuild the cylinder buffer when the head
+// moves. The host waits for the head to settle (15 ms or more) before it
+// reads, which covers the build.
+static uint8_t g_track_data[2][ibm::HD_1440.sectors * gen_disk::SECTOR_BYTES];
+static uint16_t g_track_scratch[ibm::HD_1440.track_bytes];
+static int g_built_cylinder = -1;
+static uint32_t g_build_us = 0;  // the last build's duration (console `s`)
+
+static void buildCylinderIfMoved() {
+    uint8_t cyl = g_cylinder.load(std::memory_order_relaxed);
+    if (cyl == g_built_cylinder) return;
+    uint32_t started = time_us_32();
+    for (uint8_t head = 0; head < 2; ++head) gen_disk::track(FORMAT, cyl, head, g_track_data[head]);
+    rdata::buildCylinder(FORMAT, cyl, g_track_data[0], g_track_data[1], g_track_scratch, g_cylinder_slots);
+    g_build_us = time_us_32() - started;
+    g_built_cylinder = cyl;
 }
 
 #endif
@@ -163,10 +212,10 @@ static void printStats() {
     Serial.printf("STATS events=%lu dropped=%lu steps=%lu ring=%u", (unsigned long)g_events.load(),
                   (unsigned long)g_dropped.load(), (unsigned long)g_steps.load(), (unsigned)g_trace.size());
 #if FIRMWARE_SLICE != 0
-    Serial.printf(" cyl=%u side=%u selected=%d disk=%d outer_knocks=%lu inner_knocks=%lu",
+    Serial.printf(" cyl=%u side=%u selected=%d disk=%d outer_knocks=%lu inner_knocks=%lu built=%d build_us=%lu",
                   (unsigned)g_cylinder.load(), (unsigned)g_side.load(), (int)g_selected.load(),
                   (int)g_disk_in.load(), (unsigned long)g_outer_knocks.load(),
-                  (unsigned long)g_inner_knocks.load());
+                  (unsigned long)g_inner_knocks.load(), g_built_cylinder, (unsigned long)g_build_us);
 #endif
     Serial.print("\n");
 }
@@ -269,10 +318,16 @@ static void handleConsole() {
 
 void setup() {
     Serial.begin(115200);
+#if FIRMWARE_SLICE != 0
+    buildCylinderIfMoved();  // cylinder 0, before the host can ask
+#endif
     printReady();
 }
 
 void loop() {
+#if FIRMWARE_SLICE != 0
+    buildCylinderIfMoved();
+#endif
     handleConsole();
 
     // Print what core 1 recorded; a bounded batch so the console stays

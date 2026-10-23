@@ -1,0 +1,38 @@
+; The RDATA streamer: sends the current cylinder's MFM cells as flux pulses.
+;
+; Each 32-bit word from the TX FIFO holds 16 cell slots, first slot in the
+; top bits. A slot is two bits: head 0's cell, then head 1's. Every slot the
+; program reads SIDE1 (the jmp pin, active low) and sends the cell of the
+; head the host has chosen, so a head switch takes effect on the very next
+; cell, in step with the rotation.
+;
+; A 1 cell is a low pulse on RDATA (side-set; the SN7407 then pulls the cable
+; low) PULSE_CYCLES long, starting PULSE_START cycles into the slot. A 0 cell
+; leaves RDATA released. Every slot takes exactly CELL_CYCLES cycles; the
+; clock divider sets the cell rate (rdata.h).
+;
+; Configure: side-set base = RDATA, jmp pin = SIDE1, OUT shifting left with
+; autopull at 32, TX FIFO joined.
+
+.program fdd_rdata
+.side_set 1
+
+.define public CELL_CYCLES 16
+.define public PULSE_CYCLES 6
+.define public PULSE_START 5
+
+.wrap_target
+slot:
+    out x, 1            side 1      ; head 0's cell
+    out y, 1            side 1      ; head 1's cell
+    jmp pin, head0      side 1      ; SIDE1 released: head 0
+    mov x, y            side 1      ; SIDE1 asserted: head 1's cell instead
+send:
+    jmp !x, no_flux     side 1
+    nop                 side 0 [PULSE_CYCLES - 1]
+    jmp slot            side 1 [CELL_CYCLES - PULSE_START - PULSE_CYCLES - 1]
+head0:
+    jmp send            side 1
+no_flux:
+    jmp slot            side 1 [CELL_CYCLES - PULSE_START - 1]
+.wrap

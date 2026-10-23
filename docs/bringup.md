@@ -74,6 +74,16 @@ Note the numbers in `docs/plan.md`, under the open questions.
   - DSKCHG, if the Greaseweazle can read pin 34.
 - [ ] If the Greaseweazle needs `--drive A` with your cable, change `select_pin` and `motor_pin` in `drive::Config` instead.
 
+## 8. Slice 2: reading
+
+- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice2`. The checks:
+  - ten full `gw read`s of the generated disk, byte for byte;
+  - 20 random single tracks;
+  - every cylinder build within the 15 ms settle time;
+  - 300 RPM still.
+- [ ] Measure on the board, now that it exists: the `build_us` in `s` after a seek, and the RDATA pulse width with the logic analyser (375 ns expected at HD).
+- [ ] If reads fail but slice 1 passed, capture flux with `gw read --raw flux.scp` and look at its histogram (`gw convert` or HxC). Peaks should be clean at 2, 3 and 4 µs.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the Greaseweazle transcript.

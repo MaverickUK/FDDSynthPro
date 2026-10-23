@@ -10,6 +10,7 @@
 #include "gen_disk.h"
 #include "ibm_track.h"
 #include "mfm.h"
+#include "rdata_stream.h"
 
 // ---- CRC-16 ------------------------------------------------------------------
 
@@ -227,6 +228,61 @@ TEST(test_gen_disk_track_order) {
     CHECK_EQ(t[17 * 512], 53);    // sector 18 names LBA 53
 }
 
+// ---- The RDATA stream ----------------------------------------------------------
+
+TEST(test_interleave) {
+    // Head 0's cell first in each slot, first slot in the top bits.
+    CHECK_EQ(rdata::interleave(0x8000, 0x0000), 0x80000000u);
+    CHECK_EQ(rdata::interleave(0x0000, 0x8000), 0x40000000u);
+    CHECK_EQ(rdata::interleave(0x0001, 0x0001), 0x00000003u);
+    CHECK_EQ(rdata::interleave(0xFFFF, 0x0000), 0xAAAAAAAAu);
+    bool ok = true;
+    for (uint32_t i = 0; i < 70000; i += 7) {
+        uint16_t a = uint16_t(i * 2654435761u >> 16), b = uint16_t(i * 40503u);
+        uint32_t s = rdata::interleave(a, b);
+        ok = ok && rdata::headCells(s, 0) == a && rdata::headCells(s, 1) == b;
+    }
+    CHECK(ok);
+}
+
+TEST(test_build_cylinder) {
+    const ibm::Format& fmt = ibm::HD_1440;
+    std::vector<uint8_t> d0(fmt.trackDataBytes()), d1(fmt.trackDataBytes());
+    gen_disk::track(fmt, 7, 0, d0.data());
+    gen_disk::track(fmt, 7, 1, d1.data());
+    std::vector<uint16_t> scratch(fmt.track_bytes), t0(fmt.track_bytes), t1(fmt.track_bytes);
+    std::vector<uint32_t> cyl(fmt.track_bytes);
+    CHECK(rdata::buildCylinder(fmt, 7, d0.data(), d1.data(), scratch.data(), cyl.data()));
+    ibm::buildTrack(fmt, 7, 0, d0.data(), t0.data());
+    ibm::buildTrack(fmt, 7, 1, d1.data(), t1.data());
+    bool same = true;
+    for (uint32_t i = 0; i < fmt.track_bytes; ++i)
+        same = same && rdata::headCells(cyl[i], 0) == t0[i] && rdata::headCells(cyl[i], 1) == t1[i];
+    CHECK(same);
+}
+
+TEST(test_clock_divider) {
+    CHECK_EQ(ibm::HD_1440.dataRate(), 500000u);
+    CHECK_EQ(ibm::DD_720.dataRate(), 250000u);
+    // 150 MHz: 9.375 for HD (16 MHz, 1 us cells), 18.75 for DD; both exact.
+    rdata::Divider d = rdata::clockDivider(150000000, 500000);
+    CHECK_EQ(d.integer, 9);
+    CHECK_EQ(d.frac, 96);
+    CHECK(d.exact);
+    d = rdata::clockDivider(150000000, 250000);
+    CHECK_EQ(d.integer, 18);
+    CHECK_EQ(d.frac, 192);
+    CHECK(d.exact);
+    d = rdata::clockDivider(200000000, 500000);  // overclocked: 12.5
+    CHECK_EQ(d.integer, 12);
+    CHECK_EQ(d.frac, 128);
+    CHECK(d.exact);
+    d = rdata::clockDivider(133000000, 500000);  // 8.3125
+    CHECK(d.exact);
+    d = rdata::clockDivider(125000000, 300000);
+    CHECK(!d.exact);
+}
+
 void runTrackTests() {
     RUN(test_crc16_check_values);
     RUN(test_mfm_known_words);
@@ -238,4 +294,7 @@ void runTrackTests() {
     RUN(test_track_crc_catches_a_flipped_bit);
     RUN(test_gen_disk_known_answers);
     RUN(test_gen_disk_track_order);
+    RUN(test_interleave);
+    RUN(test_build_cylinder);
+    RUN(test_clock_divider);
 }

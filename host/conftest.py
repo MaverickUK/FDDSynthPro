@@ -2,19 +2,22 @@
 
   drive    the drive's serial log (opened once per session, waits for READY)
   gw       the host side: a Greaseweazle, driven through `gw`
+  assemble assembles a src/*.pio program for the PIO simulator
   run_dir  a timestamped folder under host/runs/ for this test's evidence;
            on failure the drive log and the Greaseweazle transcript land there too
 """
 from __future__ import annotations
 
 import sys
+import os
 from datetime import datetime
 
 import pytest
 
+from fddproto import pio_sim
 from fddproto.drive_log import DriveLog
 from fddproto.greaseweazle import Greaseweazle
-from fddproto.paths import RUNS
+from fddproto.paths import REPO, RUNS
 
 
 def pytest_addoption(parser):
@@ -27,6 +30,19 @@ def pytest_runtest_makereport(item, call):
     report = yield
     setattr(item, f"report_{report.when}", report)
     return report
+
+
+@pytest.fixture(scope="session")
+def assemble():
+    """Assembles src/<name>.pio with the real pioasm. Skips without pioasm,
+    except in CI, where a missing pioasm must not hide these tests."""
+    pioasm = pio_sim.find_pioasm()
+    if not pioasm:
+        message = "pioasm not found (build once with `pio run`, or set PIOASM)"
+        if os.environ.get("CI"):
+            pytest.fail(message)
+        pytest.skip(message)
+    return lambda name: pio_sim.assemble(REPO / "src" / f"{name}.pio", pioasm)
 
 
 @pytest.fixture(scope="session")
@@ -46,7 +62,7 @@ def drive(session_stamp):
 
 @pytest.fixture
 def firmware_slice(drive) -> int:
-    """Which build the board runs: 0 = listen only, 1 = the drive (slice 1)."""
+    """Which build the board runs: 0 = listen only, 2 = the drive (slices 1-2)."""
     return int(drive.ready.split()[-1].removeprefix("slice"))
 
 

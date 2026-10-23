@@ -23,11 +23,11 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 - **Build:** `pio run` (PlatformIO lives in `~/.platformio-venv/bin/pio` on the dev Mac). The board is `olimex_pico2bb48`. There are two builds, selected by `FIRMWARE_SLICE`:
   - `bb48` (0): listen only;
-  - `bb48_drive` (1): the drive.
+  - `bb48_drive` (2): the drive, slices 1-2.
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track` and `gen_disk` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream` and `gen_disk` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -39,6 +39,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
     `ibm::HD_1440` and `ibm::DD_720` copy its `ibm.1440` and `ibm.720` definitions (gap3 108 and 84).
   - `run_native_tests.sh` also builds the tools in `test/tools/` that the Python tests run.
+  - `host/fddproto/pio_sim.py` simulates the PIO instructions the programs use and runs the real `pioasm` output. Extend it when a program uses a new instruction, rather than letting it guess. Tests read a program's `.define public` values from `program.defines`.
   - The Greaseweazle tools aren't on PyPI; `requirements.txt` pins a tag from GitHub.
 - **On the rig:** `scripts/rig.sh -m sliceN` runs the unit tests, builds, flashes and runs the rig tests.
   - Evidence goes to `host/runs/` (git-ignored); reference traces live in `host/reference/`.
@@ -56,6 +57,13 @@ Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSamp
 ## Tracks
 
 A track is an array of 16-bit cell words, one per encoded byte, first cell in the top bit: the order RDATA sends them. HD is 12,500 words (200,000 cells of 1 µs), DD 6,250 (cells of 2 µs). `ibm::buildTrack` fills one from the track's sector data in IMG order; `gen_disk::track` supplies that data for the generated disk.
+
+## RDATA
+
+`src/fdd_rdata.pio` streams the current cylinder: 16 PIO cycles per cell slot, a 6-cycle low pulse for a 1 cell. Each slot carries both heads' cells, and the program picks one by reading SIDE1 (the jmp pin). `rdata_pio` (SDK side) loops two DMA channels over the buffer. It restarts the stream at each index pulse, and holds RDATA released with a GPIO output override when the drive shouldn't be sending.
+- Keep `rdata::CELL_CYCLES` and the program's `CELL_CYCLES` equal; a `static_assert` checks.
+- `gpio_set_function` (inside `pio_gpio_init`) clears a pin's overrides, so set overrides after it.
+- Core 0 rebuilds the buffer in place when the head moves, within the host's settle time.
 
 ## Trace format
 

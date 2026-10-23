@@ -32,6 +32,8 @@ struct Format {
 
     uint32_t sectorBytes() const { return 128u << size_code; }
     uint32_t trackDataBytes() const { return sectors * sectorBytes(); }
+    // Data bits per second: a track is one 200 ms revolution.
+    uint32_t dataRate() const { return uint32_t(track_bytes) * 8 * 5; }
     // The bytes the layout uses before gap 4b.
     uint32_t usedBytes() const;
 };

@@ -2,18 +2,27 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-23
 
 ### Added
-- **Slice 2's track encoder, tested on the Mac** (not yet in the firmware):
+- **Slice 2, RDATA (`bb48_drive` build, now `FIRMWARE_SLICE` 2).** The drive streams the generated 1.44 MB disk:
+  - `fdd_rdata.pio` sends one flux pulse per 1 cell: 375 ns low, in a 1 µs slot (HD).
+  - Both heads of the cylinder are interleaved in one stream. The program reads SIDE1 on every cell, so a head switch takes effect on the next cell, in step with the rotation.
+  - Two DMA channels loop over the 50 KB cylinder buffer. The stream restarts from the first cell at each index pulse.
+  - RDATA is held released unless the drive is selected, has a disk and is at speed.
+  - Core 0 rebuilds the buffer in place when the head moves; `s` shows the cylinder built and how long the build took.
+- The track encoder, all pure C++:
   - `crc16`: CRC-16-CCITT as IBM formats use it;
   - `mfm`: MFM encoding, with the A1 and C2 sync words;
   - `ibm_track`: one track of a 1.44 MB or 720 KB disk, in Greaseweazle's `ibm.1440` and `ibm.720` layouts;
+  - `rdata_stream`: the interleaved cylinder, and the PIO clock divider for a data rate;
   - `gen_disk`: the generated test disk, with the same pattern and known answers as HDDSynthPro's, and a Python twin.
-- `test/tools/build_track` writes every track of a disk, generated or from an IMG file.
-- `host/tests/test_track_encoder.py` (`-m sim`) checks every track of four disks (generated and random, both formats) against Greaseweazle:
-  - its encoder produces the same cells;
-  - its decoder, the one `gw read` uses, reads ours back to the original data.
+- `test/tools/build_track` writes every track of a disk (generated or from an IMG file), or one cylinder as the streamer is fed it.
+- Tests with no hardware (`-m sim`):
+  - `test_track_encoder.py` checks every track of four disks (generated and random, both formats) against Greaseweazle: its encoder produces the same cells, and its decoder reads ours back to the original data.
+  - `test_rdata_sim.py` runs the real PIO program in the simulator. It checks that every pulse lands on the right cell for either head, and that a head switch keeps the phase. It also checks that Greaseweazle decodes sectors from the pulse timings alone, and that a starved FIFO leaves RDATA released.
+  - `pio_sim.py`, copied from HDDSynthPro, gains left shifts, autopull and the programs' `.define public` values.
+- Rig tests for slice 2 (`-m slice2`): ten full reads, random single tracks, the cylinder build time against the settle time, and RPM.
 
 ## [0.2.0] - 2026-10-23
 
