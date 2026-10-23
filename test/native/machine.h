@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -121,7 +122,12 @@ public:
     void tick(uint32_t now) {
         if (host_) sample(now, host_->pins(), drive::StepEvent{});
         runCore0(now);
+        if (on_tick) on_tick(now);
     }
+
+    // Called after every tick: for watching the drive as time passes (the
+    // showreel draws the front panel from it).
+    std::function<void(uint32_t now)> on_tick;
 
     // Core 0's background work, up to `now`: one loader step at a time, each
     // taking its cost. The loader sees the head's cylinder as each step starts.

@@ -4,7 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+- **A showreel** (`scripts/make_showreel.py`, `test/tools/showreel.cpp`): a 36-second video of a virtual PC using a real FAT12 disk while the front panel is worked. A swap from the panel, boot and `DIR`, reads with the volume turned down, the head trace across a long seek, the sounds and stats screens, a save with the volume back up, motor off and an eject. The OLED frames and the audio come from the firmware's own screens and mixer, in simulated real time.
+
 ### Fixed
+- The swap screen named the new disk while the old one was coming out ("EJECTING GAMES.IMG" when DOS622 was ejecting). It names the disk going out, then the one going in.
 - **A write could be decoded from bytes the DMA was overwriting.** The capture stream checked for an overrun once, then read; if core 0 was nearly a whole ring behind, the DMA could lap the bytes as they were read. It now gives up a quarter ring early, before reading any of it.
 - **A swap to an image that won't open left a closed file in the drive.** Opening the new image closes the old one, so a later insert served stale or blank tracks. The old image is now reopened and put back; if that fails too, the drive stays empty and refuses an insert until a swap works.
 - An eject or insert (console `d`, or holding the action button) during a swap could put the old disk back mid-swap, and a write then landed in the new image. It's now refused while a swap runs.

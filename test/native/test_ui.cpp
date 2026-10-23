@@ -191,6 +191,13 @@ TEST(test_screen_swap) {
     k.s.disk_in = false;
     screens::swap(c, k.s, 2);
     preview(c, "swap_ejecting");
+    // The disk coming out is named while it does: GAMES, not MONKEY1.
+    Canvas want;
+    want.text(48, 36, "GAMES.IMG");
+    bool same = true;
+    for (int y = 36; y < 43; ++y)
+        for (int x = 48; x < 128; ++x) same = same && c.get(x, y) == want.get(x, y);
+    CHECK(same);
     k.s.disk_in = true;
     c.clear();
     screens::swap(c, k.s, 2);

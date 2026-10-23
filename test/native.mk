@@ -25,13 +25,15 @@ TOOL_FLAGS := -std=c++17 -O2 -Wall -Wextra -Isrc -Itest/native -MMD -MP
 
 obj = $(patsubst %.cpp,$(1)/%.o,$(2))
 
-TOOLS := build_track decode_write render_events dos_session
+TOOLS := build_track decode_write render_events dos_session showreel
 build_track_SRC := test/tools/build_track.cpp src/ibm_track.cpp src/rdata_stream.cpp
 decode_write_SRC := test/tools/decode_write.cpp src/ibm_track.cpp src/mfm_decode.cpp src/track_write.cpp
 render_events_SRC := test/tools/render_events.cpp src/synth.cpp src/wav.cpp
 dos_session_SRC := test/tools/dos_session.cpp src/fdd_signals.cpp src/head.cpp src/rotation.cpp src/drive.cpp \
                    src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp src/activity.cpp \
                    src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp
+showreel_SRC := $(subst test/tools/dos_session.cpp,test/tools/showreel.cpp,$(dos_session_SRC)) \
+                src/synth.cpp src/wav.cpp src/ui.cpp src/screens.cpp src/canvas.cpp
 
 .PHONY: all
 all: $(TEST_OBJ)/run_tests $(addprefix $(OUT)/,$(TOOLS))

@@ -192,8 +192,10 @@ void swap(Canvas& c, const ui::Status& s, size_t to) {
         c.hLine(ax - i, y, 2 * i + 1);
     }
     c.text(48, 24, out ? "EJECTING" : "INSERTING");
+    // Out: the disk that came out (still image_name). In: the new one.
     char name[14];
-    std::strncpy(name, s.images && to < s.images->count() ? s.images->name(to) : "", 13);
+    const char* shown = out ? s.image_name : s.images && to < s.images->count() ? s.images->name(to) : "";
+    std::strncpy(name, shown, 13);
     name[13] = 0;
     c.text(48, 36, name);
 }
