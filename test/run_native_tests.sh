@@ -8,7 +8,8 @@ CXX="${CXX:-c++}"
 mkdir -p .pio/native-tests
 SANITIZE="${SANITIZE:-address,undefined}"
 "$CXX" -std=c++17 -O2 -g -Wall -Wextra -pthread -fsanitize="$SANITIZE" \
-    -Isrc test/native/test_main.cpp test/native/test_short_test.cpp \
+    -Isrc test/native/test_main.cpp test/native/test_short_test.cpp test/native/test_drive.cpp \
     src/fdd_signals.cpp src/trace_format.cpp src/short_test.cpp \
+    src/head.cpp src/rotation.cpp src/drive.cpp \
     -o .pio/native-tests/run_tests
 .pio/native-tests/run_tests "$@"

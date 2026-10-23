@@ -1,11 +1,15 @@
 // FDDSynthPro floppy drive emulator prototype.
 //
-// One build so far (FIRMWARE_SLICE, set in platformio.ini):
-//   bb48  slice 0, listen only: core 1 polls the interface pins and records
-//         select, motor, side, write gate and density changes, and every
-//         step. Every pin stays an input; the SN7407 outputs stay released.
-// Core 1 records events into the trace ring and core 0 owns USB serial: it
-// prints the trace and runs the console.
+// Two builds (FIRMWARE_SLICE, set in platformio.ini):
+//   bb48        slice 0, listen only: core 1 polls the interface pins and
+//               records select, motor, side, write gate and density changes,
+//               and every step. Every pin stays an input; the SN7407 outputs
+//               stay released.
+//   bb48_drive  slice 1, the drive: core 1 also runs the drive model
+//               (drive.h) and puts INDEX, TRK00, WPT and DSKCHG on the
+//               SN7407. A read-only disk is in from power-on.
+// In both, core 1 records events into the trace ring and core 0 owns USB
+// serial: it prints the trace and runs the console.
 #include <Arduino.h>
 
 #include <hardware/gpio.h>
@@ -14,6 +18,7 @@
 #include <cstdio>
 
 #include "config.h"
+#include "drive.h"
 #include "fdd_signals.h"
 #include "pin_watch.h"
 #include "short_test.h"
@@ -34,13 +39,29 @@ static void record(const TraceEvent& e) {
     if (!g_trace.push(e)) g_dropped.fetch_add(1, std::memory_order_relaxed);
 }
 
-// ---- Core 1: slice 0, listen only ---------------------------------------------
+// ---- Core 1 ---------------------------------------------------------------------
 
-void setup1() {
+static void setUpInputs() {
     for (unsigned pin = cfg::FIRST_INPUT_PIN; pin <= cfg::LAST_INPUT_PIN; ++pin) {
         gpio_init(pin);           // SIO input
         gpio_disable_pulls(pin);  // the 1k pull-ups are on the board
     }
+}
+
+// Records what the pin watcher saw: select/motor/side changes and steps.
+static void watch(PinWatch& w, uint32_t now, uint32_t pins) {
+    TraceEvent out[2];
+    unsigned n = w.onSample(now, pins, out);
+    for (unsigned i = 0; i < n; ++i) {
+        if (out[i].kind == TraceKind::Step) g_steps.fetch_add(1, std::memory_order_relaxed);
+        record(out[i]);
+    }
+}
+
+#if FIRMWARE_SLICE == 0
+
+void setup1() {
+    setUpInputs();
     for (unsigned pin = cfg::FIRST_OUTPUT_PIN; pin <= cfg::LAST_OUTPUT_PIN; ++pin) {
         // Inputs too in slice 0. The pull-up holds the SN7407's input high,
         // so its output stays released. Never pull-downs (erratum E9).
@@ -52,16 +73,65 @@ void setup1() {
 void loop1() {
     // Never returns: one tight polling loop. A pass takes well under a
     // microsecond, and the shortest pulse watched (STEP) lasts at least one.
-    PinWatch watch(pinsAsSample());
+    PinWatch w(pinsAsSample());
+    for (;;) watch(w, time_us_32(), pinsAsSample());
+}
+
+#else
+
+// Shared with core 0 for the console: written by core 1 only, except the
+// disk request, which core 0 sets and core 1 takes.
+static std::atomic<uint8_t> g_cylinder{0};
+static std::atomic<uint8_t> g_side{0};
+static std::atomic<bool> g_selected{false};
+static std::atomic<bool> g_disk_in{false};
+static std::atomic<uint32_t> g_outer_knocks{0};  // steps out at cylinder 0
+static std::atomic<uint32_t> g_inner_knocks{0};  // steps in at the last cylinder
+static std::atomic<int> g_disk_request{0};       // console `d`: +1 insert, -1 eject
+
+constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
+
+void setup1() {
+    setUpInputs();
+    // Outputs released (high) before they become outputs, so the cable never
+    // sees a glitch. They only ever drive the SN7407's inputs.
+    gpio_init_mask(OUTPUT_GPIO_MASK);
+    gpio_put_masked(OUTPUT_GPIO_MASK, OUTPUT_GPIO_MASK);
+    gpio_set_dir_out_masked(OUTPUT_GPIO_MASK);
+}
+
+void loop1() {
+    // Never returns. Each pass: sample the inputs, update the drive, put its
+    // outputs on the pins. The index pulse is timed from this loop, so its
+    // edges are late by at most one pass (well under a microsecond).
+    static drive::Drive d;
+    d.insertDisk(true);  // read-only until slice 5
+    g_disk_in.store(true);
+    PinWatch w(pinsAsSample());
     for (;;) {
-        TraceEvent out[2];
-        unsigned n = watch.onSample(time_us_32(), pinsAsSample(), out);
-        for (unsigned i = 0; i < n; ++i) {
-            if (out[i].kind == TraceKind::Step) g_steps.fetch_add(1, std::memory_order_relaxed);
-            record(out[i]);
+        uint32_t now = time_us_32();
+        uint32_t pins = pinsAsSample();
+        watch(w, now, pins);
+
+        drive::StepEvent e = d.onSample(now, pins);
+        if (e.stepped) {
+            g_cylinder.store(e.cylinder, std::memory_order_relaxed);
+            if (e.outcome == head::Step::AtOuterStop) g_outer_knocks.fetch_add(1, std::memory_order_relaxed);
+            if (e.outcome == head::Step::AtInnerStop) g_inner_knocks.fetch_add(1, std::memory_order_relaxed);
         }
+        g_side.store(d.side(), std::memory_order_relaxed);
+        g_selected.store(d.selected(), std::memory_order_relaxed);
+
+        int request = g_disk_request.exchange(0, std::memory_order_relaxed);
+        if (request > 0) d.insertDisk(true);
+        if (request < 0) d.ejectDisk();
+        if (request) g_disk_in.store(d.diskPresent(), std::memory_order_relaxed);
+
+        gpio_put_masked(OUTPUT_GPIO_MASK, drive::outputPins(d.outputs(now)) << cfg::BUS_FIRST_PIN);
     }
 }
+
+#endif
 
 // ---- Core 0 ---------------------------------------------------------------------
 
@@ -90,8 +160,15 @@ static void printPins() {
 }
 
 static void printStats() {
-    Serial.printf("STATS events=%lu dropped=%lu steps=%lu ring=%u\n", (unsigned long)g_events.load(),
+    Serial.printf("STATS events=%lu dropped=%lu steps=%lu ring=%u", (unsigned long)g_events.load(),
                   (unsigned long)g_dropped.load(), (unsigned long)g_steps.load(), (unsigned)g_trace.size());
+#if FIRMWARE_SLICE != 0
+    Serial.printf(" cyl=%u side=%u selected=%d disk=%d outer_knocks=%lu inner_knocks=%lu",
+                  (unsigned)g_cylinder.load(), (unsigned)g_side.load(), (int)g_selected.load(),
+                  (int)g_disk_in.load(), (unsigned long)g_outer_knocks.load(),
+                  (unsigned long)g_inner_knocks.load());
+#endif
+    Serial.print("\n");
 }
 
 // ---- Solder-bridge test (console `x`, then `Y`) -----------------------------
@@ -147,8 +224,13 @@ static void handleConsole() {
         switch (c) {
             case 'h':
                 printReady();
+#if FIRMWARE_SLICE == 0
                 Serial.println("# h help, p pins, s stats, m mark, x short test (cable unplugged), "
                                "b reboot to bootloader");
+#else
+                Serial.println("# h help, p pins, s stats, d disk in/out, m mark, "
+                               "x short test (cable unplugged), b reboot to bootloader");
+#endif
                 break;
             case 'p': printPins(); break;
             case 's': printStats(); break;
@@ -166,6 +248,14 @@ static void handleConsole() {
                 }
                 Serial.println("# short test not armed: type x first");
                 break;
+#if FIRMWARE_SLICE != 0
+            case 'd': {  // the rig's way to eject and insert, for DSKCHG
+                bool insert = !g_disk_in.load();
+                g_disk_request.store(insert ? 1 : -1);
+                Serial.printf("# disk %s\n", insert ? "inserted" : "ejected");
+                break;
+            }
+#endif
             case 'b':
                 Serial.println("# rebooting to bootloader");
                 Serial.flush();

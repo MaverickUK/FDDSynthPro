@@ -27,7 +27,7 @@ jobs:
       - run: pip install platformio -r host/requirements.txt
 
       # Builds first, so a broken build fails fast.
-      - run: pio run -e bb48
+      - run: pio run -e bb48 -e bb48_drive
       - name: C++ unit tests
         run: test/run_native_tests.sh
       - name: Simulator and parser tests
@@ -53,6 +53,7 @@ jobs:
         run: |
           mkdir dist
           cp .pio/build/bb48/firmware.uf2 "dist/fddsynthpro-bb48-listen-v${{ steps.version.outputs.version }}.uf2"
+          cp .pio/build/bb48_drive/firmware.uf2 "dist/fddsynthpro-bb48-drive-v${{ steps.version.outputs.version }}.uf2"
       - uses: actions/upload-artifact@v7
         with:
           name: firmware-v${{ steps.version.outputs.version }}

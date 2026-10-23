@@ -120,7 +120,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - Every pin is an input; the SN7407's outputs stay released. Core 1 polls the inputs and records select, motor, side, density and write gate changes, and every step.
   - *Before hardware:* the pin watcher, trace format and coalescer (done, in `test/native`); the trace parser (done, `-m sim`).
   - **Exit:** clean, repeatable traces of `gw seek` and `gw rpm`, saved with `--save-reference`, and the pins each drive letter uses.
-- **Slice 1: head, index and status lines.**
+- **Slice 1: head, index and status lines.** *Logic and firmware done (0.2.0), tested against a virtual Greaseweazle; waiting for hardware.*
   - Answer on one select/motor pair. Track the cylinder (0–83), assert TRK00 on cylinder 0, ignore steps outwards past 0 (but record them: that's the head hitting its stop). Index pulses every 200 ms while selected with the motor on. WPT asserted (read-only for now). DSKCHG as a PC expects: asserted at power-on, cleared by a step with a disk present.
   - *Before hardware:* `head` and `rotation` host tests, including a virtual host that recalibrates the way the slice 0 trace shows.
   - **Exit:** `gw seek` to every cylinder and back, 20 times, with the trace agreeing on the position; `gw rpm` reports 300 RPM.
@@ -164,8 +164,13 @@ Each slice ends in a passing automated test before the next starts. Each one als
 | RDATA pulse width and jitter the controller won't accept | Match the reference drive (measured with the logic analyser), and check `gw read` margins with its flux histogram |
 | SD reads slower than the settle time | Measure in slice 3; the host retries on the next revolution, and a second cylinder buffer can prefetch neighbours |
 
+**Answered from the Greaseweazle firmware source (`floppy.c`, 23 Oct 2026):**
+- On the IBM PC bus, `--drive A` uses pins 14 (select) and 10 (motor); `--drive B` uses 12 and 16. Slice 0 confirms it on the cable.
+- Steps: DIR is set 10 µs before, STEP is asserted for 15 µs, then the step delay (10 ms by default). The first seek checks TRK00 before each step out, up to 256 steps, then waits 15 ms to settle. It never steps out past a TRK00 it can see.
+- It waits 750 ms after turning a motor on, and deselects everything after 10 s of no commands.
+- `gw pin get` reads pins 8, 26 and 28 on every model, and other pins (such as 34) where the board supports them.
+
 **Open questions:**
-- Which pins does `gw --drive A`/`B` assert? Slice 0 answers this.
 - How long is a real drive's index pulse, and how soon after a step does it update TRK00? The reference drive and the logic analyser answer these before slice 1.
 - Does the Greaseweazle look at DSKCHG (pin 34) at all? If not, DSKCHG waits for the real-PC tests in slice 6.
 - Does the BB48 in the rig have the A2 or A4 stepping?

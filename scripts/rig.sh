@@ -7,9 +7,10 @@
 #   scripts/rig.sh -m "slice0 or slice1"        # a slice plus its predecessors
 #   scripts/rig.sh -m slice0 --save-reference   # keep these traces as the references
 #   NO_FLASH=1 scripts/rig.sh -m slice0         # test the firmware already on the board
+#   PIO_ENV=bb48_drive scripts/rig.sh -m slice1 # the drive build
 #
-# PIO_ENV picks the build: bb48 (default, listen only) for slice 0. Tests that
-# need another build skip themselves.
+# PIO_ENV picks the build: bb48 (default, listen only) for slice 0,
+# bb48_drive for slice 1. Tests that need the other build skip themselves.
 # Rig settings (which drive letter the Greaseweazle uses, ports) come from
 # host/rig.env if it exists: see host/rig.env.example.
 set -euo pipefail

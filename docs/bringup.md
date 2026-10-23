@@ -62,6 +62,18 @@ With the reference drive on the Greaseweazle and the logic analyser on the cable
 
 Note the numbers in `docs/plan.md`, under the open questions.
 
+## 7. Slice 1: the drive build
+
+- [ ] Set `index_pulse_us` in `rotation::Config` to the width measured in step 6, if it differs from 2 ms.
+- [ ] Run `PIO_ENV=bb48_drive scripts/rig.sh -m slice1`. The checks:
+  - seeks to every cylinder and back, each agreeing with the drive's `cyl`;
+  - 20 full sweeps;
+  - TRK00 and WPT through `gw pin get`;
+  - `gw rpm` within 0.1 of 300;
+  - no index without a disk;
+  - DSKCHG, if the Greaseweazle can read pin 34.
+- [ ] If the Greaseweazle needs `--drive A` with your cable, change `select_pin` and `motor_pin` in `drive::Config` instead.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the Greaseweazle transcript.

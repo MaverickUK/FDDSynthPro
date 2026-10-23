@@ -1,0 +1,448 @@
+// Tests for slice 1's logic: the head carriage, the spindle and the drive
+// model, finished off by a virtual Greaseweazle that seeks and measures RPM
+// the way its firmware does (greaseweazle-firmware src/floppy.c).
+#include <cstdint>
+#include <initializer_list>
+#include <vector>
+
+#include "check.h"
+#include "drive.h"
+#include "fdd_signals.h"
+#include "head.h"
+#include "rotation.h"
+
+// ---- Head -----------------------------------------------------------------
+
+TEST(test_head_steps_and_stops) {
+    head::Head h(83);
+    CHECK(h.atTrack0());
+    CHECK(h.step(false) == head::Step::AtOuterStop);
+    CHECK_EQ(h.cylinder(), 0);
+    CHECK(h.step(true) == head::Step::In);
+    CHECK_EQ(h.cylinder(), 1);
+    CHECK(!h.atTrack0());
+    CHECK(h.step(false) == head::Step::Out);
+    CHECK(h.atTrack0());
+    for (int i = 0; i < 83; ++i) CHECK(h.step(true) == head::Step::In);
+    CHECK_EQ(h.cylinder(), 83);
+    CHECK(h.step(true) == head::Step::AtInnerStop);
+    CHECK_EQ(h.cylinder(), 83);
+}
+
+TEST(test_head_start_position) {
+    CHECK_EQ(head::Head(83, 40).cylinder(), 40);
+    CHECK_EQ(head::Head(83, 200).cylinder(), 83);  // clamped to the inner stop
+    CHECK_STR(head::stepName(head::Step::AtOuterStop), "OUTER_STOP");
+}
+
+// ---- Spindle ----------------------------------------------------------------
+
+TEST(test_spindle_off_has_no_index) {
+    rotation::Spindle s;
+    CHECK(!s.motorOn());
+    CHECK(!s.index(0));
+    CHECK(!s.index(123456));
+    CHECK_EQ(s.phaseUs(5000), 0u);
+}
+
+TEST(test_spindle_index_timing) {
+    rotation::Spindle s;  // 200 ms period, 2 ms pulse, no spin-up
+    s.setMotor(true, 1000);
+    CHECK(s.index(1000));
+    CHECK(s.index(2999));
+    CHECK(!s.index(3000));
+    CHECK(!s.index(200999));
+    CHECK(s.index(201000));
+    CHECK_EQ(s.phaseUs(201000 + 12345), 12345u);
+    // Many revolutions later, still locked to the same phase.
+    CHECK_EQ(s.phaseUs(1000 + 50 * 200000 + 7), 7u);
+    // Setting the motor on again does not restart the revolution.
+    s.setMotor(true, 1000 + 50 * 200000 + 100);
+    CHECK_EQ(s.phaseUs(1000 + 50 * 200000 + 200), 200u);
+}
+
+TEST(test_spindle_spin_up_and_stop) {
+    rotation::Config c;
+    c.spin_up_us = 400000;
+    rotation::Spindle s(c);
+    s.setMotor(true, 0);
+    CHECK(s.motorOn());
+    CHECK(!s.atSpeed(399999));
+    CHECK(!s.index(399999));
+    CHECK(s.atSpeed(400000));
+    CHECK(s.index(400000));
+    s.setMotor(false, 500000);
+    CHECK(!s.index(600000));
+    // On again: a new spin-up, and the revolution starts afresh.
+    s.setMotor(true, 700000);
+    CHECK(!s.atSpeed(1099999));
+    CHECK(s.index(1100000));
+    CHECK_EQ(s.phaseUs(1100000 + 3000), 3000u);
+}
+
+TEST(test_spindle_across_the_timer_wrap) {
+    rotation::Spindle s;
+    uint32_t start = 0xFFFFFFFFu - 1000000u;  // a second before the 32-bit counter wraps
+    s.setMotor(true, start);
+    bool steady = true;
+    // Two seconds in 50 ms steps, through the wrap.
+    for (uint32_t i = 1; i <= 40; ++i) {
+        uint32_t now = start + i * 50000u;
+        if (s.phaseUs(now) != (i * 50000u) % 200000u) steady = false;
+    }
+    CHECK(steady);
+}
+
+TEST(test_spindle_runs_longer_than_the_timer) {
+    // 75 minutes of motor-on, longer than the 71.6 minutes the 32-bit
+    // counter covers, checked every 50 ms as the loop would (far more often).
+    rotation::Spindle s;
+    s.setMotor(true, 0);
+    bool steady = true;
+    uint64_t t = 0;
+    for (uint32_t i = 0; i < 75u * 60u * 20u; ++i) {
+        t += 50000;
+        if (s.phaseUs(uint32_t(t)) != t % 200000u) steady = false;
+    }
+    CHECK(steady);
+}
+
+// ---- Drive ----------------------------------------------------------------
+
+static uint32_t sample(std::initializer_list<unsigned> asserted_pins) {
+    uint32_t s = fdd::INPUT_MASK;
+    for (unsigned pin : asserted_pins) s &= ~fdd::maskOf(pin);
+    return s;
+}
+
+TEST(test_drive_power_on_state) {
+    drive::Drive d;
+    d.onSample(0, sample({}));
+    CHECK(!d.selected());
+    CHECK(d.outputs(0) == drive::Outputs{});  // deselected: every line released
+    d.onSample(10, sample({cfg::PIN_DRVSB}));
+    drive::Outputs o = d.outputs(10);
+    CHECK(o.trk00);
+    CHECK(o.dskchg);
+    CHECK(o.wpt);  // no disk
+    CHECK(!o.index);
+}
+
+TEST(test_drive_answers_on_its_own_select_only) {
+    drive::Drive d;
+    d.onSample(0, sample({cfg::PIN_DRVSA, cfg::PIN_MOTEA}));
+    CHECK(!d.selected());
+    CHECK(!d.spindle().motorOn());
+    drive::Config c;
+    c.select_pin = cfg::PIN_DRVSA;
+    c.motor_pin = cfg::PIN_MOTEA;
+    drive::Drive a(c);
+    a.onSample(0, sample({cfg::PIN_DRVSA, cfg::PIN_MOTEA}));
+    CHECK(a.selected());
+    CHECK(a.spindle().motorOn());
+}
+
+TEST(test_drive_steps_once_per_assertion_and_only_when_selected) {
+    drive::Drive d;
+    // Not selected: ignored.
+    CHECK(!d.onSample(0, sample({cfg::PIN_STEP, cfg::PIN_DIR})).stepped);
+    d.onSample(10, sample({}));
+    // Selected, DIR asserted: one step in, however long STEP is held.
+    drive::StepEvent e = d.onSample(20, sample({cfg::PIN_DRVSB, cfg::PIN_DIR, cfg::PIN_STEP}));
+    CHECK(e.stepped);
+    CHECK(e.outcome == head::Step::In);
+    CHECK_EQ(e.cylinder, 1);
+    CHECK(!d.onSample(25, sample({cfg::PIN_DRVSB, cfg::PIN_DIR, cfg::PIN_STEP})).stepped);
+    d.onSample(35, sample({cfg::PIN_DRVSB, cfg::PIN_DIR}));
+    CHECK(!d.outputs(35).trk00);
+    // DIR released: outwards.
+    e = d.onSample(50, sample({cfg::PIN_DRVSB, cfg::PIN_STEP}));
+    CHECK(e.outcome == head::Step::Out);
+    CHECK(d.outputs(50).trk00);
+    // Selecting while STEP is already held is not a step.
+    drive::Drive d2;
+    d2.onSample(0, sample({cfg::PIN_STEP}));
+    CHECK(!d2.onSample(5, sample({cfg::PIN_DRVSB, cfg::PIN_STEP})).stepped);
+}
+
+TEST(test_drive_side) {
+    drive::Drive d;
+    d.onSample(0, sample({cfg::PIN_DRVSB}));
+    CHECK_EQ(d.side(), 0);
+    d.onSample(1, sample({cfg::PIN_DRVSB, cfg::PIN_SIDE1}));
+    CHECK_EQ(d.side(), 1);
+}
+
+TEST(test_drive_disk_change) {
+    drive::Drive d;
+    uint32_t sel = sample({cfg::PIN_DRVSB});
+    uint32_t step = sample({cfg::PIN_DRVSB, cfg::PIN_STEP});
+    d.onSample(0, sel);
+    // No disk: a step doesn't clear it.
+    d.onSample(10, step);
+    d.onSample(20, sel);
+    CHECK(d.outputs(20).dskchg);
+    // Disk in: still set until the next step.
+    d.insertDisk(true);
+    CHECK(d.outputs(30).dskchg);
+    d.onSample(40, step);
+    d.onSample(50, sel);
+    CHECK(!d.outputs(50).dskchg);
+    CHECK(d.outputs(50).wpt);
+    // Eject: set again, and WPT asserted with no disk.
+    d.ejectDisk();
+    CHECK(d.outputs(60).dskchg);
+    d.insertDisk(false);
+    CHECK(!d.outputs(70).wpt);
+}
+
+TEST(test_drive_index_needs_motor_disk_and_select) {
+    drive::Drive d;
+    d.insertDisk(true);
+    // Motor on while deselected: the spindle turns, but the line is released.
+    d.onSample(1000, sample({cfg::PIN_MOTEB}));
+    CHECK(d.spindle().motorOn());
+    CHECK(!d.outputs(1000).index);
+    d.onSample(200500, sample({cfg::PIN_MOTEB, cfg::PIN_DRVSB}));
+    CHECK(d.outputs(201000).index);   // the next revolution's pulse
+    CHECK(!d.outputs(204000).index);
+    d.ejectDisk();
+    CHECK(!d.outputs(401000).index);  // no disk, no index hole
+    d.insertDisk(true);
+    d.onSample(500000, sample({cfg::PIN_DRVSB}));  // motor off
+    CHECK(!d.outputs(601000).index);
+}
+
+TEST(test_output_pins_are_active_low) {
+    CHECK_EQ(drive::outputPins(drive::Outputs{}), fdd::OUTPUT_MASK);  // all released
+    drive::Outputs o;
+    o.trk00 = true;
+    o.dskchg = true;
+    uint32_t s = drive::outputPins(o);
+    CHECK(fdd::asserted(s, cfg::PIN_TRK00));
+    CHECK(fdd::asserted(s, cfg::PIN_DSKCHG));
+    CHECK(!fdd::asserted(s, cfg::PIN_INDEX));
+    CHECK(!fdd::asserted(s, cfg::PIN_WPT));
+    CHECK(!fdd::asserted(s, cfg::PIN_RDATA));
+    CHECK_EQ(s & ~fdd::OUTPUT_MASK, 0u);
+}
+
+// ---- A virtual Greaseweazle -------------------------------------------------
+//
+// Follows greaseweazle-firmware's src/floppy.c (factory delays) on the IBM PC
+// bus: drive A is pins 14/10, drive B pins 12/16. DIR is set 10 us before a
+// step, STEP is asserted for 15 us, then the step delay (10 ms) passes. The
+// first seek looks for track 0 by checking TRK00 before each step outwards,
+// up to 256 steps.
+
+class VirtualGreaseweazle {
+public:
+    explicit VirtualGreaseweazle(drive::Drive& d, unsigned select_pin = cfg::PIN_DRVSB,
+                                 unsigned motor_pin = cfg::PIN_MOTEB)
+        : d_(d), select_(select_pin), motor_(motor_pin) {
+        d_.onSample(now, pins_);
+    }
+
+    uint32_t now = 1000;
+    std::vector<drive::StepEvent> steps;  // every step the drive saw
+    int cylinder = -1;                    // where the Greaseweazle thinks the head is (-1: unknown)
+
+    static constexpr uint32_t STEP_DELAY_US = 10000;
+    static constexpr uint32_t SETTLE_US = 15000;
+    static constexpr uint32_t MOTOR_DELAY_US = 750000;
+
+    void select(bool on) {
+        set(select_, on);
+        wait(10);
+    }
+    void motor(bool on) {
+        set(motor_, on);
+        if (on) wait(MOTOR_DELAY_US);
+    }
+    bool trk0() { return d_.outputs(now).trk00; }
+    bool index() { return d_.outputs(now).index; }
+
+    // floppy_seek(): returns false where the firmware returns ACK_NO_TRK0.
+    bool seek(int cyl) {
+        if (cylinder < 0) {
+            dir(false);
+            int nr = 0;
+            for (; nr < 256 && !trk0(); ++nr) stepOnce();
+            wait(SETTLE_US);
+            if (!trk0()) return false;
+            cylinder = 0;
+        }
+        if (cyl == cylinder) return true;
+        dir(cyl > cylinder);
+        for (int nr = cyl > cylinder ? cyl - cylinder : cylinder - cyl; nr > 0; --nr) stepOnce();
+        wait(SETTLE_US);
+        cylinder = cyl;
+        return true;
+    }
+
+    // floppy_noclick_step(): seek to 0, step out once, and step back in if
+    // TRK00 went away (a drive that really moved).
+    void noclickStep() {
+        seek(0);
+        dir(false);
+        stepOnce();
+        if (!trk0()) {
+            wait(SETTLE_US);
+            dir(true);
+            stepOnce();
+            wait(SETTLE_US);
+        }
+    }
+
+    // The time between index pulses, as `gw rpm` measures it, sampled every
+    // 10 us for `revolutions` + 1 pulses. Empty if no pulses came.
+    std::vector<uint32_t> indexPeriods(int revolutions) {
+        std::vector<uint32_t> starts;
+        bool was = index();
+        for (uint32_t t = 0; t < uint32_t(revolutions + 2) * 220000u && int(starts.size()) <= revolutions;
+             t += 10) {
+            wait(10);
+            bool is = index();
+            if (is && !was) starts.push_back(now);
+            was = is;
+        }
+        std::vector<uint32_t> periods;
+        for (size_t i = 1; i < starts.size(); ++i) periods.push_back(starts[i] - starts[i - 1]);
+        return periods;
+    }
+
+private:
+    void set(unsigned pin, bool asserted) {
+        if (asserted)
+            pins_ &= ~fdd::maskOf(pin);
+        else
+            pins_ |= fdd::maskOf(pin);
+        drive::StepEvent e = d_.onSample(now, pins_);
+        if (e.stepped) steps.push_back(e);
+    }
+    void wait(uint32_t us) { now += us; }
+    void dir(bool in) {
+        set(cfg::PIN_DIR, in);
+        wait(10);
+    }
+    void stepOnce() {
+        set(cfg::PIN_STEP, true);
+        wait(15);
+        set(cfg::PIN_STEP, false);
+        wait(STEP_DELAY_US);
+    }
+
+    drive::Drive& d_;
+    unsigned select_, motor_;
+    uint32_t pins_ = fdd::INPUT_MASK;
+};
+
+static unsigned count(const std::vector<drive::StepEvent>& steps, head::Step outcome) {
+    unsigned n = 0;
+    for (const auto& e : steps) n += e.outcome == outcome;
+    return n;
+}
+
+TEST(test_gw_first_seek_from_track0) {
+    drive::Drive d;
+    VirtualGreaseweazle gw(d);
+    gw.select(true);
+    CHECK(gw.seek(2));
+    CHECK_EQ(d.head().cylinder(), 2);
+    CHECK_EQ(gw.steps.size(), 2u);  // TRK00 seen at once: no steps out
+    CHECK_EQ(count(gw.steps, head::Step::AtOuterStop), 0u);
+}
+
+TEST(test_gw_first_seek_from_mid_disk) {
+    drive::Config c;
+    c.start_cylinder = 50;
+    drive::Drive d(c);
+    VirtualGreaseweazle gw(d);
+    gw.select(true);
+    CHECK(gw.seek(10));
+    CHECK_EQ(d.head().cylinder(), 10);
+    CHECK_EQ(count(gw.steps, head::Step::Out), 50u);
+    CHECK_EQ(count(gw.steps, head::Step::In), 10u);
+    CHECK_EQ(count(gw.steps, head::Step::AtOuterStop), 0u);  // stopped as soon as TRK00 came
+}
+
+TEST(test_gw_seeks_every_cylinder_and_back) {
+    drive::Drive d;
+    VirtualGreaseweazle gw(d);
+    gw.select(true);
+    bool agree = true;
+    for (int round = 0; round < 3; ++round) {
+        for (int cyl = 0; cyl < 80; ++cyl) {
+            CHECK(gw.seek(cyl));
+            if (d.head().cylinder() != cyl || gw.trk0() != (cyl == 0)) agree = false;
+        }
+        for (int cyl = 79; cyl >= 0; --cyl) {
+            gw.seek(cyl);
+            if (d.head().cylinder() != cyl || gw.trk0() != (cyl == 0)) agree = false;
+        }
+    }
+    CHECK(agree);
+}
+
+TEST(test_gw_ignored_when_it_selects_the_other_drive) {
+    drive::Drive d;  // answers as B
+    VirtualGreaseweazle gw(d, cfg::PIN_DRVSA, cfg::PIN_MOTEA);
+    gw.select(true);
+    CHECK(!gw.seek(5));  // no TRK00 seen in 256 steps: ACK_NO_TRK0
+    CHECK(gw.steps.empty());
+}
+
+TEST(test_gw_noclick_step_knocks_once_at_track0) {
+    drive::Drive d;
+    VirtualGreaseweazle gw(d);
+    gw.select(true);
+    gw.noclickStep();
+    CHECK_EQ(gw.steps.size(), 1u);
+    CHECK(gw.steps[0].outcome == head::Step::AtOuterStop);
+    CHECK(gw.trk0());
+}
+
+TEST(test_gw_rpm) {
+    drive::Drive d;
+    d.insertDisk(true);
+    VirtualGreaseweazle gw(d);
+    gw.select(true);
+    gw.motor(true);
+    std::vector<uint32_t> periods = gw.indexPeriods(5);
+    CHECK_EQ(periods.size(), 5u);
+    bool exact = true;
+    for (uint32_t p : periods) exact = exact && p == 200000u;  // 300.0 RPM
+    CHECK(exact);
+}
+
+TEST(test_gw_rpm_without_disk_sees_no_index) {
+    drive::Drive d;
+    VirtualGreaseweazle gw(d);
+    gw.select(true);
+    gw.motor(true);
+    CHECK(gw.indexPeriods(2).empty());
+}
+
+void runDriveTests() {
+    RUN(test_head_steps_and_stops);
+    RUN(test_head_start_position);
+    RUN(test_spindle_off_has_no_index);
+    RUN(test_spindle_index_timing);
+    RUN(test_spindle_spin_up_and_stop);
+    RUN(test_spindle_across_the_timer_wrap);
+    RUN(test_spindle_runs_longer_than_the_timer);
+    RUN(test_drive_power_on_state);
+    RUN(test_drive_answers_on_its_own_select_only);
+    RUN(test_drive_steps_once_per_assertion_and_only_when_selected);
+    RUN(test_drive_side);
+    RUN(test_drive_disk_change);
+    RUN(test_drive_index_needs_motor_disk_and_select);
+    RUN(test_output_pins_are_active_low);
+    RUN(test_gw_first_seek_from_track0);
+    RUN(test_gw_first_seek_from_mid_disk);
+    RUN(test_gw_seeks_every_cylinder_and_back);
+    RUN(test_gw_ignored_when_it_selects_the_other_drive);
+    RUN(test_gw_noclick_step_knocks_once_at_track0);
+    RUN(test_gw_rpm);
+    RUN(test_gw_rpm_without_disk_sees_no_index);
+}

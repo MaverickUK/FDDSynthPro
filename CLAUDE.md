@@ -21,9 +21,13 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 ## Toolchain
 
-- **Build:** `pio run` (PlatformIO lives in `~/.platformio-venv/bin/pio` on the dev Mac). The board is `olimex_pico2bb48`. There is one build so far, `bb48` (`FIRMWARE_SLICE` 0, listen only); drive builds get their own environment, as on HDDSynthPro.
+- **Build:** `pio run` (PlatformIO lives in `~/.platformio-venv/bin/pio` on the dev Mac). The board is `olimex_pico2bb48`. There are two builds, selected by `FIRMWARE_SLICE`:
+  - `bb48` (0): listen only;
+  - `bb48_drive` (1): the drive.
+
+  `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring` and `short_test` free of Arduino and SDK headers so they stay testable here; new logic (head, rotation, MFM, track layout, image, activity) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation` and `drive` free of Arduino and SDK headers so they stay testable here; new logic (MFM, track layout, image, activity) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -35,6 +39,14 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - Evidence goes to `host/runs/` (git-ignored); reference traces live in `host/reference/`.
   - `host/rig.env` (git-ignored, from `rig.env.example`) sets the Greaseweazle's drive letter and ports.
 - **Host OS:** the dev machine is macOS.
+
+## Drive model
+
+Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSample()` with the pins, then `outputs()` onto the SN7407. It never waits.
+- Outputs are released while the drive is deselected; steps count only while selected.
+- The head knocks against its outer stop on a step out at cylinder 0 (`head::Step::AtOuterStop`): that's a sound event, not an error.
+- Time is `time_us_32()`, which wraps every 71 minutes. Take differences in unsigned arithmetic; `rotation::Spindle` keeps its anchor close to now.
+- `test/native/test_drive.cpp` has a virtual Greaseweazle that follows its firmware's `floppy.c`: a 15 µs STEP pulse, a 10 ms step delay, TRK00 checked before each step out (up to 256), and a 15 ms settle. Keep it faithful when adding host behaviour.
 
 ## Trace format
 
@@ -48,7 +60,8 @@ The Python parser is `host/fddproto/trace.py`; change both together.
 Console:
 - `h`: help, and the READY line with version and build;
 - `p`: input pin levels (wiring check);
-- `s`: stats;
+- `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk` and the knock counts;
+- `d`: eject or insert the disk (drive build);
 - `m`: print a `MARK` timestamp;
 - `x` then `Y`: the solder-bridge test, floppy cable unplugged (`short_test.*`; the board reboots afterwards);
 - `b`: reboot to the bootloader.
