@@ -16,7 +16,10 @@
 #include "rdata_stream.h"
 #include "track_source.h"
 #include "write_burst.h"
+#include "machine.h"
 #include "crc16.h"
+
+namespace {  // this file's own helpers and tests
 
 static const uint32_t TICKS = 16;  // capture ticks per cell, as the WDATA program measures them
 
@@ -271,33 +274,6 @@ TEST(test_dd_track_write) {
 
 // ---- The whole write path: burst in, live track and disk out --------------------------------
 
-// A writable disk in memory, starting as the generated disk.
-class MemorySource : public TrackSource {
-public:
-    explicit MemorySource(const ibm::Format& fmt) : fmt_(fmt), image_(80 * 2 * fmt.trackDataBytes()) {
-        for (uint8_t c = 0; c < 80; ++c)
-            for (uint8_t h = 0; h < 2; ++h) gen_disk::track(fmt, c, h, &image_[imageTrackOffset(fmt, c, h)]);
-    }
-    const ibm::Format& format() const override { return fmt_; }
-    bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override {
-        if (c >= 80) return false;
-        std::memcpy(out, &image_[imageTrackOffset(fmt_, c, h)], fmt_.trackDataBytes());
-        return true;
-    }
-    bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
-        std::memcpy(&image_[imageTrackOffset(fmt_, c, h) + s * 512u], data, 512);
-        ++writes;
-        return true;
-    }
-    bool writable() const override { return true; }
-    const uint8_t* sector(uint8_t c, uint8_t h, uint8_t s) const { return &image_[imageTrackOffset(fmt_, c, h) + s * 512u]; }
-    unsigned writes = 0;
-
-private:
-    const ibm::Format& fmt_;
-    std::vector<uint8_t> image_;
-};
-
 // As the WDATA capture delivers them: 8-bit ticks, less the edge ticks.
 static std::vector<uint8_t> captured(const std::vector<uint32_t>& flux, uint32_t edge_ticks) {
     std::vector<uint8_t> out;
@@ -397,6 +373,8 @@ TEST(test_burst_on_an_unloaded_cylinder_still_persists) {
     r.load(4);
     CHECK(r.liveSector(0, 1) == data);
 }
+
+}  // namespace
 
 void runWriteDecodeTests() {
     RUN(test_field_positions);

@@ -87,6 +87,8 @@ struct Rig {
 
 using Step = CylinderLoader::Step;
 
+namespace {  // this file's own helpers and tests
+
 // ---- The loader ----------------------------------------------------------------
 
 TEST(test_loader_loads_in_four_steps) {
@@ -263,6 +265,8 @@ TEST(test_slow_card_misses_the_settle_time) {
     const Costs spi{9000, 2500};
     CHECK(worstReady(0, 1, 3000, spi) > 15000);
 }
+
+}  // namespace
 
 void runLoaderTests() {
     RUN(test_format_from_image_size);

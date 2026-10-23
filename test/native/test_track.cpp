@@ -12,6 +12,8 @@
 #include "mfm.h"
 #include "rdata_stream.h"
 
+namespace {  // this file's own helpers and tests
+
 // ---- CRC-16 ------------------------------------------------------------------
 
 TEST(test_crc16_check_values) {
@@ -282,6 +284,8 @@ TEST(test_clock_divider) {
     d = rdata::clockDivider(125000000, 300000);
     CHECK(!d.exact);
 }
+
+}  // namespace
 
 void runTrackTests() {
     RUN(test_crc16_check_values);

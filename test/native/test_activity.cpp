@@ -13,6 +13,8 @@ using activity::DriveEvent;
 using activity::Input;
 using activity::Sound;
 
+namespace {  // this file's own helpers and tests
+
 // ---- Helpers ----------------------------------------------------------------------
 
 static DriveEvent stepAt(uint32_t t, head::Step outcome, uint8_t cylinder) {
@@ -286,6 +288,8 @@ TEST(test_blind_recalibrate_grinds) {
     CHECK(ev[2].sound == Sound::SeekEnd && ev[3].sound == Sound::Bump);
     CHECK_EQ(ev[2].time_us, ev[3].time_us);
 }
+
+}  // namespace
 
 void runActivityTests() {
     RUN(test_tracker_single_steps_click);

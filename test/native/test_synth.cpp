@@ -9,6 +9,8 @@
 #include "synth.h"
 #include "wav.h"
 
+namespace {  // this file's own helpers and tests
+
 static std::vector<uint8_t> readFile(const char* path) {
     std::vector<uint8_t> out;
     FILE* f = std::fopen(path, "rb");
@@ -114,6 +116,8 @@ TEST(test_synth_pack_complete) {
     t.pack.seek = synth::Sample{};
     CHECK(!t.pack.complete());
 }
+
+}  // namespace
 
 void runSynthTests() {
     RUN(test_wav_stand_in_pack);

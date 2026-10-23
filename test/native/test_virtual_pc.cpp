@@ -15,6 +15,8 @@
 
 using Status = VirtualPc::Status;
 
+namespace {  // this file's own helpers and tests
+
 static std::vector<uint8_t> sectors(const MemorySource& src, uint8_t c, uint8_t h, uint8_t first, uint8_t n) {
     std::vector<uint8_t> out;
     for (uint8_t i = 0; i < n; ++i) out.insert(out.end(), src.sector(c, h, uint8_t(first - 1 + i)),
@@ -232,6 +234,8 @@ TEST(test_image_list) {
     ImageList empty;
     CHECK_EQ(empty.next(0), 0u);
 }
+
+}  // namespace
 
 void runVirtualPcTests() {
     RUN(test_pc_dos_session);

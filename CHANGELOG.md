@@ -41,6 +41,9 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
   - `wav.h` is copied from HDDSynth_Native, so packs follow the same rules.
 - **The sample player** (`python -m fddproto.player <trace> <out.wav>`) mixes a trace's sound events with a sample pack, by the rules the synth's firmware will follow. It works on the virtual PC's session or a real drive's log.
 
+### Fixed
+- The test suite failed on CI (GCC): two test files defined different `MemorySource` classes, an ODR violation. One is gone, and each test file's helpers now live in an anonymous namespace.
+
 ### Changed
 - The player mixes in integers and saturates, as the firmware does, instead of normalising the whole render.
 - Core 1's RDATA gate and write-capture control moved out of `main.cpp` into pure code (`drive::Drive::streams`, `WriteGate` in `write_burst.h`), so the firmware and the virtual PC share them.

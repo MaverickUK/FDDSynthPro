@@ -10,6 +10,8 @@
 
 using namespace short_test;
 
+namespace {  // this file's own helpers and tests
+
 // A simulated board: groups of pins bridged together, and pins shorted to GND.
 struct Board {
     std::vector<uint32_t> groups;  // each a mask of mutually bridged pins
@@ -105,6 +107,8 @@ TEST(test_short_separate_faults) {
     CHECK_EQ(r.stuck_low, pins({16}));
     CHECK(!r.ok());
 }
+
+}  // namespace
 
 void runShortTestTests() {
     RUN(test_short_masks);

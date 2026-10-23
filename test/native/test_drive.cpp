@@ -13,6 +13,8 @@
 #include "rotation.h"
 #include "virtual_hosts.h"
 
+namespace {  // this file's own helpers and tests
+
 // ---- Head -----------------------------------------------------------------
 
 TEST(test_head_steps_and_stops) {
@@ -382,6 +384,8 @@ TEST(test_adafruit_motor_sees_index) {
     host2.select(true);
     CHECK(!host2.motorOn());  // no disk: no index, so it reports a timeout
 }
+
+}  // namespace
 
 void runDriveTests() {
     RUN(test_head_steps_and_stops);
