@@ -48,4 +48,9 @@ bool buildTrack(const Format& fmt, uint8_t cylinder, uint8_t head, const uint8_t
     return !e.overflowed() && e.size() == fmt.track_bytes;
 }
 
+void buildBlankTrack(const Format& fmt, uint16_t* out) {
+    mfm::Encoder e(out, fmt.track_bytes);
+    e.fill(GAP_BYTE, fmt.track_bytes);
+}
+
 }  // namespace ibm

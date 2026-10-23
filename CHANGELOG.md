@@ -2,7 +2,17 @@
 
 All notable changes to this firmware. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-23
+
+### Added
+- **Slice 3, images on the SD card (`bb48_drive` build, now `FIRMWARE_SLICE` 3).**
+  - **The image:** at power-on the drive mounts the card over 4-bit SDIO (GPIO 32–37) and serves the first `.img`/`.ima` in the root, in name order, that is 720 KB or 1.44 MB. The format and data rate follow the file size. Without a card or an image, it serves the generated disk as before.
+  - **Loading:** `cylinder_loader` reads both tracks of the cylinder under the head and encodes them into the RDATA buffer in four steps, one per pass of core 0's loop. If the head moves mid-load, it starts again for the new cylinder.
+  - **RDATA:** stays released until the buffer holds the cylinder under the head. Stale sector IDs would look like a seek error to the host.
+  - **Cylinders 80–83:** the image has no data there, so those cylinders get a blank track.
+- Console `i` names the image; `s` adds `ready`, `loads`, `restarts`, `read_us_max` and `encode_us_max`.
+- Host tests for image geometry and the loader. A timing simulation checks that a cylinder is ready within the host's 15 ms settle time after any seek at PC, Greaseweazle and Feather step rates, with SDIO-speed reads. It also shows that SPI-speed reads miss it.
+- `python -m fddproto.make_images <folder>` writes test images for the card. Rig tests for slice 3 (`-m slice3`) compare the host's reads with them.
 
 ### Changed
 - The rig's host is now a Feather RP2040 + Adafruit Floppy FeatherWing running Adafruit's Greaseweazle-compatible firmware. A Greaseweazle is optional.
@@ -12,6 +22,9 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ### Added
 - `VirtualAdafruitFloppy` in the C++ tests, following Adafruit_Floppy's seek, step and motor timing. The drive meets it as it meets the virtual Greaseweazle.
+
+- The RDATA streamer claims PIO 2 or 1, never 0, which SdFat's SDIO driver takes for the GPIO 16–47 window.
+- Slice 2's rig tests skip when an image is on the card.
 
 ## [0.3.0] - 2026-10-23
 

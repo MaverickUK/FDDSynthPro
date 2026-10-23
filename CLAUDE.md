@@ -23,11 +23,11 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 - **Build:** `pio run` (PlatformIO lives in `~/.platformio-venv/bin/pio` on the dev Mac). The board is `olimex_pico2bb48`. There are two builds, selected by `FIRMWARE_SLICE`:
   - `bb48` (0): listen only;
-  - `bb48_drive` (2): the drive, slices 1-2.
+  - `bb48_drive` (3): the drive, slices 1-3.
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream` and `gen_disk` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source` and `cylinder_loader` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -68,6 +68,13 @@ A track is an array of 16-bit cell words, one per encoded byte, first cell in th
 - `gpio_set_function` (inside `pio_gpio_init`) clears a pin's overrides, so set overrides after it.
 - Core 0 rebuilds the buffer in place when the head moves, within the host's settle time.
 
+## Loading cylinders
+
+At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, else `GeneratedSource`). Only then does core 1 start the streamer, since the data rate depends on the format. From then on core 0 calls `CylinderLoader::service()` on every pass: one bounded step (read a track, or encode one into the live buffer).
+- `ready()` is atomic: -1 before the first write into the buffer, the cylinder after the last. Core 1 only lets RDATA out when it equals the head's cylinder.
+- A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
+- **PIO blocks:** SdFat's SDIO driver takes PIO 0 and sets its window to GPIO 16–47; `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window. Keep new programs off PIO 0.
+
 ## Trace format
 
 Core 1 records events into an SPSC ring, and core 0 prints them (`src/trace_format.h`).
@@ -82,6 +89,7 @@ Console:
 - `p`: input pin levels (wiring check);
 - `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk` and the knock counts;
 - `d`: eject or insert the disk (drive build);
+- `i`: the image being served (drive build);
 - `m`: print a `MARK` timestamp;
 - `x` then `Y`: the solder-bridge test, floppy cable unplugged (`short_test.*`; the board reboots afterwards);
 - `b`: reboot to the bootloader.

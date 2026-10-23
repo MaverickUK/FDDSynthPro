@@ -5,6 +5,8 @@
 #include <hardware/gpio.h>
 #include <hardware/pio.h>
 
+#include <initializer_list>
+
 #include "config.h"
 #include "fdd_rdata.pio.h"
 #include "rdata_stream.h"
@@ -39,9 +41,21 @@ void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps) {
     s_words = words;
     s_rewind_addr = cylinder;
 
-    bool ok = pio_claim_free_sm_and_add_program_for_gpio_range(&fdd_rdata_program, &s_pio, &s_sm, &s_offset,
-                                                                cfg::PIN_SIDE1, cfg::PIN_RDATA - cfg::PIN_SIDE1 + 1,
-                                                                true);
+    // PIO 2 or 1, never 0: SdFat's SDIO driver takes PIO 0 first and moves
+    // its GPIO window to 16-47 for the SD pins, which would cut off ours.
+    bool ok = false;
+    for (PIO p : {pio2, pio1}) {
+        int sm = pio_claim_unused_sm(p, false);
+        if (sm < 0) continue;
+        if (pio_get_gpio_base(p) == 0 && pio_can_add_program(p, &fdd_rdata_program)) {
+            s_pio = p;
+            s_sm = uint(sm);
+            s_offset = pio_add_program(p, &fdd_rdata_program);
+            ok = true;
+            break;
+        }
+        pio_sm_unclaim(p, uint(sm));
+    }
     hard_assert(ok);
 
     // RDATA: released (high) before the state machine owns it.

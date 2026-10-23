@@ -58,6 +58,23 @@ Odd floppy pins 1–33 are all ground.
 
 Its TTL inputs read the RP2350's 3.3 V as high. Running it from VBUS means it is only powered when the BB48 is.
 
+### The SD card (slice 3)
+
+An Adafruit SDIO microSD breakout, as on HDDSynthPro, on 4-bit SDIO. DAT0–3 must be on consecutive pins.
+
+| Breakout pin | Signal | GPIO | BB48 pin |
+|---|---|---|---|
+| CLK | SDIO clock | 32 | EXT2-12 |
+| CMD | SDIO command | 33 | EXT2-13 |
+| DAT0 | data 0 | 34 | EXT2-14 |
+| DAT1 | data 1 | 35 | EXT2-15 |
+| DAT2 | data 2 | 36 | EXT2-16 |
+| DAT3 | data 3 | 37 | EXT2-17 |
+| 3V | +3.3 V | | EXT1-1 |
+| GND | GND | | EXT2-3 |
+
+Fit 10 kΩ pull-ups to +3.3 V on CMD and DAT0–3 (five resistors), unless the breakout already has them. Keep the six signal wires short and of similar length.
+
 ## Notes
 
 - **Grounds:** wire at least five of the odd floppy pins, spread along the connector, to the BB48's ground. All seventeen is better.

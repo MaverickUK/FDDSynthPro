@@ -87,6 +87,22 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Measure on the board, now that it exists: the `build_us` in `s` after a seek, and the RDATA pulse width with the logic analyser (375 ns expected at HD).
 - [ ] If reads fail but slice 1 passed, capture flux with `gw read --raw flux.scp` and look at its histogram (`gw convert` or HxC). Peaks should be clean at 2, 3 and 4 µs.
 
+## 9. Slice 3: images on the SD card
+
+- [ ] Wire the SD breakout ([wiring.md](wiring.md)), with the BB48 unplugged.
+- [ ] Make the test images: `cd host && .venv/bin/python -m fddproto.make_images ~/fdd-images`. Set `FDDPRO_IMAGES=~/fdd-images` in `host/rig.env`.
+- [ ] Format a card FAT32 and copy **one** image to its root (the drive serves the first `.img` in name order).
+  - Copy it onto a freshly formatted card, so its clusters are contiguous.
+  - Try `GEN1440.IMG` first, then `RAND1440.IMG`, then `RAND720.IMG` (720 KB, the 250 kbit/s rate).
+- [ ] Power the BB48 and type `i`: `IMAGE GEN1440.IMG 1440 contiguous=1`.
+- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice3`. The checks:
+  - three full reads byte for byte;
+  - 20 random tracks;
+  - the slowest read and encode, which must fit the settle time.
+
+  The test prints the measured times. Compare them with the assumptions in `test/native/test_loader.cpp` (3 ms a read, 2.5 ms an encode), and update the assumptions if they're off.
+- [ ] Repeat with each image, power-cycling between them.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

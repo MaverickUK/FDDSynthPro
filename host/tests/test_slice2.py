@@ -19,12 +19,14 @@ SECTORS = 18
 TRACK_BYTES = SECTORS * 512
 IMAGE_BYTES = 80 * 2 * TRACK_BYTES
 FULL_READS = 10
-SETTLE_US = 15000  # the Greaseweazle's settle time: a cylinder must be built within it
+SETTLE_US = 15000  # the host's settle time: a cylinder must be loaded within it
 
 
 @pytest.fixture(autouse=True)
-def drive_build(firmware_slice):
+def drive_build(firmware_slice, drive):
     require_build(firmware_slice, drive_build=True)
+    if not drive.command("i", "IMAGE").startswith("IMAGE generated"):
+        pytest.skip("an image is on the SD card: slice 2 needs the generated disk (no card)")
 
 
 @pytest.fixture(scope="module")
@@ -61,14 +63,14 @@ def test_random_tracks(gw, expected, tmp_path):
         assert path.read_bytes()[n * TRACK_BYTES:(n + 1) * TRACK_BYTES] == expected[n * TRACK_BYTES:(n + 1) * TRACK_BYTES]
 
 
-def test_cylinder_builds_within_settle_time(drive, gw):
-    worst = 0
+def test_cylinder_loads_within_settle_time(drive, gw):
     for cyl in (1, 40, 79, 0):
         assert gw.seek(cyl).ok
-        s = stats(drive)
-        assert int(s["built"]) == cyl
-        worst = max(worst, int(s["build_us"]))
-    print(f"slowest cylinder build: {worst} us")
+        assert int(stats(drive)["ready"]) == cyl
+    s = stats(drive)
+    read, encode = int(s["read_us_max"]), int(s["encode_us_max"])
+    worst = max(read, encode) + 2 * read + 2 * encode  # as test_loader.cpp works it out
+    print(f"slowest read {read} us, slowest encode {encode} us: worst case {worst} us")
     assert worst < SETTLE_US
 
 

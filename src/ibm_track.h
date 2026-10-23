@@ -56,4 +56,9 @@ constexpr unsigned PRESYNC_BYTES = 12;
 // layout doesn't fit in the track.
 bool buildTrack(const Format& fmt, uint8_t cylinder, uint8_t head, const uint8_t* data, uint16_t* out);
 
+// An unformatted-looking track: gap bytes all the way round, no index mark
+// and no sectors. What the drive sends for a cylinder the image doesn't
+// have (80-83): the host finds no sectors there, as on a real disk.
+void buildBlankTrack(const Format& fmt, uint16_t* out);
+
 }  // namespace ibm

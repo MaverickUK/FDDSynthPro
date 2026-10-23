@@ -24,12 +24,18 @@ uint16_t headCells(uint32_t slots, uint8_t head) {
     return cells;
 }
 
+void setHead(uint8_t head, const uint16_t* cells, uint32_t words, uint32_t* out) {
+    const uint32_t keep = head == 0 ? 0x55555555u : 0xAAAAAAAAu;  // the other head's bits
+    const unsigned shift = head == 0 ? 1 : 0;
+    for (uint32_t i = 0; i < words; ++i) out[i] = (out[i] & keep) | (spread16(cells[i]) << shift);
+}
+
 bool buildCylinder(const ibm::Format& fmt, uint8_t cylinder, const uint8_t* head0_data, const uint8_t* head1_data,
                    uint16_t* scratch, uint32_t* out) {
     if (!ibm::buildTrack(fmt, cylinder, 0, head0_data, scratch)) return false;
-    for (uint32_t i = 0; i < fmt.track_bytes; ++i) out[i] = spread16(scratch[i]) << 1;
+    setHead(0, scratch, fmt.track_bytes, out);
     if (!ibm::buildTrack(fmt, cylinder, 1, head1_data, scratch)) return false;
-    for (uint32_t i = 0; i < fmt.track_bytes; ++i) out[i] |= spread16(scratch[i]);
+    setHead(1, scratch, fmt.track_bytes, out);
     return true;
 }
 

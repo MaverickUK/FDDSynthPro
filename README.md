@@ -10,9 +10,9 @@ It follows the approach of [HDDSynthPro](https://github.com/MaverickUK/HDDSynthP
 
 Slice 0 (listen only): the firmware records every drive select, motor, side, density and write-gate change and every head step it sees, without driving any pin, and streams the trace over USB serial.
 
-The drive build (`pio run -e bb48_drive`, slices 1-2) is ready for when the hardware arrives:
+The drive build (`pio run -e bb48_drive`, slices 1-3) is ready for when the hardware arrives:
 - it tracks the head, and drives TRK00, a 300 RPM index, write protect and disk change;
-- it streams a generated 1.44 MB disk on RDATA.
+- it streams a 720 KB or 1.44 MB image from the SD card on RDATA, or a generated disk without one.
 
 Its logic is tested on the Mac against virtual hosts (the Feather's firmware and a Greaseweazle's), and its PIO program in a simulator whose output Greaseweazle's own decoder reads back. It has not run on hardware yet.
 

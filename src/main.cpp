@@ -5,11 +5,12 @@
 //               records select, motor, side, write gate and density changes,
 //               and every step. Every pin stays an input; the SN7407 outputs
 //               stay released.
-//   bb48_drive  slices 1-2, the drive: core 1 also runs the drive model
+//   bb48_drive  slices 1-3, the drive: core 1 also runs the drive model
 //               (drive.h) and puts INDEX, TRK00, WPT and DSKCHG on the
 //               SN7407, and the RDATA streamer (rdata_pio.h) sends the
-//               current cylinder of the generated 1.44 MB disk, which core 0
-//               builds whenever the head moves. A read-only disk is in from
+//               cylinder under the head. Core 0 loads it (cylinder_loader.h)
+//               from the first image on the SD card, or from the generated
+//               1.44 MB disk without one. A read-only disk is in from
 //               power-on.
 // In both, core 1 records events into the trace ring and core 0 owns USB
 // serial: it prints the trace and runs the console.
@@ -30,10 +31,11 @@
 #include "version.h"
 
 #if FIRMWARE_SLICE != 0
-#include "gen_disk.h"
+#include "cylinder_loader.h"
 #include "ibm_track.h"
 #include "rdata_pio.h"
-#include "rdata_stream.h"
+#include "sd_image.h"
+#include "track_source.h"
 #endif
 
 static SpscRing<TraceEvent, cfg::TRACE_RING_EVENTS> g_trace;
@@ -101,11 +103,14 @@ static std::atomic<int> g_disk_request{0};       // console `d`: +1 insert, -1 e
 
 constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
 
-// The disk's format, and the cylinder the RDATA streamer sends: both heads,
-// interleaved (rdata_stream.h). Core 0 rebuilds it in place when the head
-// moves; the DMA reads it all the time.
-static const ibm::Format& FORMAT = ibm::HD_1440;
+// The cylinder the RDATA streamer sends: both heads, interleaved
+// (rdata_stream.h), sized for the largest format. Core 0's loader rebuilds it
+// in place when the head moves; the DMA reads it all the time.
 static uint32_t g_cylinder_slots[ibm::HD_1440.track_bytes];
+
+// Set by core 0 once it has chosen the disk (setup()); core 1 waits for both.
+static std::atomic<const ibm::Format*> g_format{nullptr};
+static std::atomic<CylinderLoader*> g_loader{nullptr};
 
 void setup1() {
     setUpInputs();
@@ -115,7 +120,11 @@ void setup1() {
     gpio_put_masked(OUTPUT_GPIO_MASK, OUTPUT_GPIO_MASK);
     gpio_set_dir_out_masked(OUTPUT_GPIO_MASK);
     // RDATA then moves to the PIO, held released until the drive is ready.
-    rdata_pio::begin(g_cylinder_slots, FORMAT.track_bytes, FORMAT.dataRate());
+    // The data rate depends on the disk, which core 0 chooses after mounting
+    // the SD card.
+    while (!g_loader.load(std::memory_order_acquire)) tight_loop_contents();
+    const ibm::Format* fmt = g_format.load();
+    rdata_pio::begin(g_cylinder_slots, fmt->track_bytes, fmt->dataRate());
 }
 
 void loop1() {
@@ -123,6 +132,7 @@ void loop1() {
     // outputs on the pins. The index pulse is timed from this loop, so its
     // edges are late by at most one pass (well under a microsecond).
     static drive::Drive d;
+    const CylinderLoader& loader = *g_loader.load();
     d.insertDisk(true);  // read-only until slice 5
     g_disk_in.store(true);
     PinWatch w(pinsAsSample());
@@ -150,11 +160,13 @@ void loop1() {
         gpio_put_masked(OUTPUT_GPIO_MASK, drive::outputPins(d.outputs(now)) << cfg::BUS_FIRST_PIN);
 
         // The track starts at each index pulse, and RDATA only carries it
-        // while the host could be reading.
+        // while the host could be reading and the buffer holds the cylinder
+        // under the head (stale IDs would look like a seek error).
         bool index = d.spindle().index(now);
         if (index && !index_was) rdata_pio::restartAtIndex();
         index_was = index;
-        bool stream = d.selected() && d.diskPresent() && d.spindle().atSpeed(now);
+        bool stream = d.selected() && d.diskPresent() && d.spindle().atSpeed(now) &&
+                      loader.ready() == d.head().cylinder();
         if (stream != streaming) {
             rdata_pio::enable(stream);
             streaming = stream;
@@ -162,22 +174,44 @@ void loop1() {
     }
 }
 
-// Core 0's share of the drive: rebuild the cylinder buffer when the head
-// moves. The host waits for the head to settle (15 ms or more) before it
-// reads, which covers the build.
+// Core 0's share of the drive: choose the disk at power-on, then keep the
+// cylinder buffer loaded with the cylinder under the head, a step at a time.
+static GeneratedSource g_generated(ibm::HD_1440);
+static TrackSource* g_source = &g_generated;
 static uint8_t g_track_data[2][ibm::HD_1440.sectors * gen_disk::SECTOR_BYTES];
 static uint16_t g_track_scratch[ibm::HD_1440.track_bytes];
-static int g_built_cylinder = -1;
-static uint32_t g_build_us = 0;  // the last build's duration (console `s`)
+static uint32_t g_read_us_max = 0;    // slowest track read (console `s`)
+static uint32_t g_encode_us_max = 0;  // slowest track encode
 
-static void buildCylinderIfMoved() {
-    uint8_t cyl = g_cylinder.load(std::memory_order_relaxed);
-    if (cyl == g_built_cylinder) return;
+static void chooseDisk() {
+    if (TrackSource* image = sd_image::open()) g_source = image;
+    static CylinderLoader loader(*g_source, g_cylinder_slots, g_track_scratch, g_track_data[0],
+                                 g_track_data[1]);
+    while (loader.service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
+    g_format.store(&g_source->format());
+    g_loader.store(&loader, std::memory_order_release);
+}
+
+static void serviceLoader() {
+    CylinderLoader& loader = *g_loader.load();
+    loader.request(g_cylinder.load(std::memory_order_relaxed));
     uint32_t started = time_us_32();
-    for (uint8_t head = 0; head < 2; ++head) gen_disk::track(FORMAT, cyl, head, g_track_data[head]);
-    rdata::buildCylinder(FORMAT, cyl, g_track_data[0], g_track_data[1], g_track_scratch, g_cylinder_slots);
-    g_build_us = time_us_32() - started;
-    g_built_cylinder = cyl;
+    CylinderLoader::Step step = loader.service();
+    uint32_t took = time_us_32() - started;
+    if (step == CylinderLoader::Step::ReadHead0 || step == CylinderLoader::Step::ReadHead1) {
+        if (took > g_read_us_max) g_read_us_max = took;
+    } else if (step != CylinderLoader::Step::Idle) {
+        if (took > g_encode_us_max) g_encode_us_max = took;
+    }
+}
+
+static void printImage() {
+    const ibm::Format* fmt = g_format.load();
+    unsigned kb = fmt ? unsigned(fmt->trackDataBytes() * IMAGE_CYLINDERS * IMAGE_HEADS / 1024) : 0;
+    if (g_source == &g_generated)
+        Serial.printf("IMAGE generated %u\n", kb);
+    else
+        Serial.printf("IMAGE %s %u contiguous=%d\n", sd_image::name(), kb, (int)sd_image::contiguous());
 }
 
 #endif
@@ -212,10 +246,13 @@ static void printStats() {
     Serial.printf("STATS events=%lu dropped=%lu steps=%lu ring=%u", (unsigned long)g_events.load(),
                   (unsigned long)g_dropped.load(), (unsigned long)g_steps.load(), (unsigned)g_trace.size());
 #if FIRMWARE_SLICE != 0
-    Serial.printf(" cyl=%u side=%u selected=%d disk=%d outer_knocks=%lu inner_knocks=%lu built=%d build_us=%lu",
-                  (unsigned)g_cylinder.load(), (unsigned)g_side.load(), (int)g_selected.load(),
-                  (int)g_disk_in.load(), (unsigned long)g_outer_knocks.load(),
-                  (unsigned long)g_inner_knocks.load(), g_built_cylinder, (unsigned long)g_build_us);
+    const CylinderLoader& loader = *g_loader.load();
+    Serial.printf(" cyl=%u side=%u selected=%d disk=%d outer_knocks=%lu inner_knocks=%lu", (unsigned)g_cylinder.load(),
+                  (unsigned)g_side.load(), (int)g_selected.load(), (int)g_disk_in.load(),
+                  (unsigned long)g_outer_knocks.load(), (unsigned long)g_inner_knocks.load());
+    Serial.printf(" ready=%d loads=%lu restarts=%lu read_us_max=%lu encode_us_max=%lu", loader.ready(),
+                  (unsigned long)loader.loads(), (unsigned long)loader.restarts(), (unsigned long)g_read_us_max,
+                  (unsigned long)g_encode_us_max);
 #endif
     Serial.print("\n");
 }
@@ -277,7 +314,7 @@ static void handleConsole() {
                 Serial.println("# h help, p pins, s stats, m mark, x short test (cable unplugged), "
                                "b reboot to bootloader");
 #else
-                Serial.println("# h help, p pins, s stats, d disk in/out, m mark, "
+                Serial.println("# h help, p pins, s stats, i image, d disk in/out, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
@@ -298,6 +335,7 @@ static void handleConsole() {
                 Serial.println("# short test not armed: type x first");
                 break;
 #if FIRMWARE_SLICE != 0
+            case 'i': printImage(); break;
             case 'd': {  // the rig's way to eject and insert, for DSKCHG
                 bool insert = !g_disk_in.load();
                 g_disk_request.store(insert ? 1 : -1);
@@ -319,14 +357,14 @@ static void handleConsole() {
 void setup() {
     Serial.begin(115200);
 #if FIRMWARE_SLICE != 0
-    buildCylinderIfMoved();  // cylinder 0, before the host can ask
+    chooseDisk();
 #endif
     printReady();
 }
 
 void loop() {
 #if FIRMWARE_SLICE != 0
-    buildCylinderIfMoved();
+    serviceLoader();
 #endif
     handleConsole();
 

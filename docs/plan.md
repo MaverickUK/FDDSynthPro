@@ -130,7 +130,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - Both heads are interleaved in one stream and chosen per cell by the PIO program, so a head switch needs nothing from the CPU. Rebuild the cylinder on a step.
   - *Before hardware:* the track encoder checked byte for byte against `gw convert` output and decoded by `gw convert`; the PIO program in `pio_sim.py`, decoded by a Python model of a floppy controller's data separator.
   - **Exit:** `gw read --format ibm.1440` gives the generated image byte for byte, ten times; random single-track reads too.
-- **Slice 3: images on SD.**
+- **Slice 3: images on SD.** *Done in firmware (0.4.0) and in host tests; waiting for hardware.*
   - IMG/IMA files, geometry from size (720 KB and 1.44 MB to start), one cylinder cached, loaded on each step within the settle time. 720 KB brings the 250 kbit/s rate.
   - *Before hardware:* geometry and cache tests with a fake SD, including how long a load may take.
   - **Exit:** real images (a DOS boot disk, a full data disk) read byte for byte; seek-heavy reads at the host's fastest step rate.

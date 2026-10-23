@@ -23,6 +23,10 @@ uint32_t interleave(uint16_t head0_cells, uint16_t head1_cells);
 // One head's cells back out of a slot word (for tests).
 uint16_t headCells(uint32_t slots, uint8_t head);
 
+// Writes one head's cells into a cylinder buffer (track_bytes words),
+// leaving the other head's as they are.
+void setHead(uint8_t head, const uint16_t* cells, uint32_t words, uint32_t* out);
+
 // Builds both tracks of a cylinder into `out` (fmt.track_bytes words).
 // `head0_data` and `head1_data` are each track's sector data, as
 // ibm::buildTrack takes it. `scratch` holds fmt.track_bytes cell words.

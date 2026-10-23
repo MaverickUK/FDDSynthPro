@@ -40,6 +40,13 @@ constexpr unsigned PIN_DSKCHG = 18;  // floppy pin 34: disk changed
 
 constexpr unsigned PIN_BOARD_LED = 25;  // on-board LED, not a floppy line
 
+// The SD card, 4-bit SDIO through SdFat's PIO driver: DAT0-3 on consecutive
+// pins. Above GPIO 31, so its PIO block uses the GPIO 16-47 window; the
+// RDATA streamer keeps to another block (rdata_pio.cpp).
+constexpr unsigned PIN_SD_CLK = 32;
+constexpr unsigned PIN_SD_CMD = 33;
+constexpr unsigned PIN_SD_DAT0 = 34;  // DAT0-DAT3 on GPIO 34-37
+
 constexpr unsigned FIRST_INPUT_PIN = PIN_DENSEL;
 constexpr unsigned LAST_INPUT_PIN = PIN_SIDE1;
 constexpr unsigned FIRST_OUTPUT_PIN = PIN_INDEX;
