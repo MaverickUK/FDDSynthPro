@@ -127,6 +127,9 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Copy all three test images to the card (`GEN1440.IMG`, `RAND1440.IMG`, `RAND720.IMG`).
 - [ ] Type `]` and `i` a few times: the index moves round the list and back, and each swap prints `EJECT` and then `INSERT`.
 - [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice6 -k swap`. Each image reads as its local copy, including the 720 KB one at 250 kbit/s.
+- [ ] **No eject mid-swap:** type `]` and at once `d` (or hold the action button, once the panel is wired). The console prints `# a swap is under way`, and the swap finishes with the new disk in: one `EJECT`, one `INSERT`.
+- [ ] **A swap that can't open its image:** with the drive idle, pull the SD card out, then type `]`. The console prints `# can't open ...; putting ... back`, then `# can't open that either; the drive stays empty`. `s` shows `disk=0`, `gw read` fails cleanly (no data, no hang), and `d` prints `# no disk to insert`. Put the card back and reboot (the card is only read at power-on).
+- [ ] If a swap ever prints only `# can't open X; putting Y back` (a damaged file, say), check that `i` names Y, `gw read` matches Y's local copy, and `gw write` works.
 
 ## 13. The FDD Synth: sound
 
