@@ -45,7 +45,9 @@ std::vector<uint8_t> load(const std::string& path) {
 struct PackFiles {
     std::vector<int16_t> samples[8];
     synth::Pack pack;
+    std::string name;  // the folder's, as the firmware shows it
     bool load(const std::string& dir) {
+        name = dir.substr(dir.find_last_of('/') + 1);
         const char* names[] = {"spinup", "spin", "spindown", "step", "seek", "bump", "insert", "eject"};
         synth::Sample* slots[] = {&pack.spinup, &pack.spin, &pack.spindown, &pack.step,
                                   &pack.seek,   &pack.bump, &pack.insert,   &pack.eject};
@@ -136,7 +138,7 @@ private:
                      : m_.d.streams(now, m_.loader.ready()) ? ui::Activity::Read
                                                             : ui::Activity::Idle;
         s.rotation = s.motor ? uint8_t((now % 200000) * 256 / 200000) : 0;
-        s.pack = "Placeholder";
+        s.pack = pack_.name.c_str();
         s.sounds_loaded = pack_.pack.loadedMask();
         s.rate = pack_.pack.rate;
         s.pack_kb = pack_.pack.bytes() / 1024;
@@ -276,7 +278,7 @@ int main(int argc, char** argv) {
     const uint32_t S = 1000000;  // a second, in simulated microseconds
 
     panel.caption("Power on: the card's first disk is in");
-    panel.log("FDDSynthPro 0.7.0 drive, sample pack Placeholder");
+    panel.log("FDDSynthPro 0.7.0 drive, sample pack " + pack.name);
     panel.turn(pc.now + S, 5);  // 75% (the power-on volume) up to 100%
     pc.run(2 * S);
 

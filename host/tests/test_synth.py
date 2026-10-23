@@ -1,6 +1,8 @@
 """The firmware's mixer (src/synth.*) against the player (fddproto.player),
 which is its spec: the same events and pack must give the same samples,
 exactly. No hardware needed. test/tools/render_events runs the mixer.
+Every test runs with both packs: the stand-in, and the one recorded from a
+real drive, which has no insert or eject.
 """
 from __future__ import annotations
 
@@ -20,25 +22,30 @@ TOOL = REPO / ".pio/native-tests/render_events"
 SESSION = REPO / ".pio/native-tests/pc_session_act.txt"
 
 
-@pytest.fixture(scope="module")
-def pack():
+PACKS = [player.PACK, REPO / "samples" / "Recorded"]
+
+
+@pytest.fixture(scope="module", params=PACKS, ids=lambda p: p.name)
+def pack(request):
     if not TOOL.exists():
         message = "render_events not built: run test/run_native_tests.sh"
         if os.environ.get("CI"):
             pytest.fail(message)
         pytest.skip(message)
-    return player.load_pack(player.PACK)
+    loaded = player.load_pack(request.param)
+    loaded.folder = request.param
+    return loaded
 
 
-def mixer(lines: list[str]) -> list[int]:
-    r = subprocess.run([str(TOOL), str(player.PACK)], input="\n".join(lines).encode(),
+def mixer(lines: list[str], folder) -> list[int]:
+    r = subprocess.run([str(TOOL), str(folder)], input="\n".join(lines).encode(),
                        capture_output=True, check=True)
     return list(array.array("h", r.stdout))
 
 
 def compare(lines: list[str], pack):
     want = player.render(trace.parse(lines).activity, pack)
-    got = mixer(lines)
+    got = mixer(lines, pack.folder)
     assert len(got) == len(want)
     if got != want:
         i = next(k for k in range(len(got)) if got[k] != want[k])

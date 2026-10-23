@@ -64,6 +64,17 @@ Until a real drive is recorded, `samples/Placeholder/` holds a synthesised stand
 
 `--demo demo.wav` writes a short session to listen to (`afplay demo.wav` on a Mac). `spin` and `seek` loop seamlessly: whole revolutions and whole steps, with their filters run circularly.
 
+`samples/Recorded/` is cut from a recording of a real 3.5-inch drive (`media/FDDSynth_ExampleBehaviours.m4a`, the drive driven by the FDD Synth's software), by `scripts/make_recorded_pack.py`. The script's notes say where in the recording each sound comes from:
+- `spinup` is the motor starting (a knock in the middle is cut out: it's the `bump`);
+- `spin` is four revolutions of the idle disk (a soft thump every 199.8 ms), joined end to start;
+- `step` is the most typical of a slow 79-step sweep across the disk;
+- `seek` loops 20 steps 10 ms apart;
+- `bump` is the loudest click in the recording, a step against the end stop.
+
+The recording has no insert or eject, so the pack has neither. It keeps the drive's own balance, with one gain for the whole pack: loud clicks over a quiet motor. `--audition out.wav` writes each sound in turn to listen to.
+
+The firmware plays the first folder under `/samples` in name order, so put one pack on the card.
+
 ## Hearing it
 
 `host/fddproto/player.py` plays any trace's `ACT` lines with a pack, into a WAV, by the synth's rules:

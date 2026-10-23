@@ -4,7 +4,8 @@ front panel is worked, shown and heard through the firmware's own code
 (test/tools/showreel.cpp). This lays it out with the OLED scaled up, the
 controls, a caption and the PC's log, and encodes it with ffmpeg.
 
-    scripts/make_showreel.py [out.mp4]      (default media/showreel.mp4)
+    scripts/make_showreel.py [out.mp4] [--pack samples/Recorded]
+                                            (default media/showreel.mp4, the Placeholder pack)
 
 It also writes a poster beside it (showreel.png): a frame from the head
 trace with a play button, which the README links to the video.
@@ -14,6 +15,7 @@ ffmpeg, and Pillow (python3 -m pip install pillow).
 """
 from __future__ import annotations
 
+import argparse
 import array
 import math
 import random
@@ -199,14 +201,18 @@ def make_poster(video: Path, poster: Path):
 
 
 def main() -> int:
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "media/showreel.mp4"
+    p = argparse.ArgumentParser()
+    p.add_argument("out", nargs="?", type=Path, default=REPO / "media/showreel.mp4")
+    p.add_argument("--pack", type=Path, default=PACK, help="the sample pack's folder")
+    args = p.parse_args()
+    out, pack = args.out, args.pack.resolve()
     if not TOOL.exists():
         print("showreel not built: run test/run_native_tests.sh", file=sys.stderr)
         return 1
     with tempfile.TemporaryDirectory() as t:
         tmp = Path(t)
         disk = make_disk(tmp)
-        run = subprocess.run([str(TOOL), str(disk), str(PACK), str(tmp)], capture_output=True, text=True)
+        run = subprocess.run([str(TOOL), str(disk), str(pack), str(tmp)], capture_output=True, text=True)
         print(run.stdout.strip(), run.stderr.strip())
         if run.returncode:
             return run.returncode
