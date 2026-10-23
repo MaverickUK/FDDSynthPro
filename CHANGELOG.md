@@ -31,6 +31,8 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 - `DiskSlot` (the disk in the drive, which the loader and write path go through), `ImageList`, `CylinderLoader::reset`, `rdata_pio::setFormat` and `wdata_pio::setRate`.
 - **The virtual PC finds a disk's data rate** after a change, trying 500 and then 250 kbit/s as a BIOS does. Tests cover a swap from 1.44 MB to 720 KB and back, writes going to the disk that's in, and the image list's ordering and filtering. A rig test (`test_swaps.py`, `-m slice6`) swaps through every image on the card.
 
+- **The sample player** (`python -m fddproto.player <trace> <out.wav>`) mixes a trace's sound events with a sample pack, by the rules the synth's firmware will follow. It works on the virtual PC's session or a real drive's log.
+
 ### Changed
 - Core 1's RDATA gate and write-capture control moved out of `main.cpp` into pure code (`drive::Drive::streams`, `WriteGate` in `write_burst.h`), so the firmware and the virtual PC share them.
 

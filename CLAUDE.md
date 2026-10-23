@@ -107,6 +107,7 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 `src/activity.*` (rationale: `docs/activity.md`). Core 1's `DriveObserver` diffs the drive model after each sample (motor, disk, and the `StepEvent`) into `DriveEvent`s on `g_drive_events`. Core 0's `Tracker` turns them into `ACT` lines.
 - A step against a stop is a `BUMP`, never a click, and ends a seek.
 - A seek is two or more same-direction steps within `seek_gap_us` (20 ms). Its first step has already clicked, and `SEEK_END`'s count includes it.
+- `host/fddproto/player.py` turns `ACT` lines into a WAV with a sample pack. Keep its rules in step with `docs/activity.md`: they're the spec for the synth's firmware.
 - Tests drive it through the virtual hosts (`test/native/virtual_hosts.h`); drain the tracker as core 0 does, or its 32-event queue drops the oldest.
 
 ## Trace format

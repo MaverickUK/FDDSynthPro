@@ -64,6 +64,22 @@ Until a real drive is recorded, `samples/Placeholder/` holds a synthesised stand
 
 `--demo demo.wav` writes a short session to listen to (`afplay demo.wav` on a Mac). `spin` and `seek` loop seamlessly: whole revolutions and whole steps, with their filters run circularly.
 
+## Hearing it
+
+`host/fddproto/player.py` plays any trace's `ACT` lines with a pack, into a WAV, by the synth's rules:
+- spin-up, then the spin loop until `MOTOR_OFF`, then spin-down;
+- a click per `STEP`;
+- the seek loop from `SEEK_START` to `SEEK_END`;
+- a bump, insert or eject sample where those happen.
+
+```
+cd host
+.venv/bin/python -m fddproto.player ../.pio/native-tests/pc_session_act.txt session.wav
+afplay session.wav
+```
+
+`pc_session_act.txt` is the virtual PC's DOS-like session (`test/run_native_tests.sh` writes it): boot, a file read across the disk, a file written, a disk swap. A drive's serial log works the same way, with `--pack` choosing another pack.
+
 Recording these from a real drive is easiest with a Greaseweazle or the Feather host driving it: `gw seek` to make single steps and seeks on demand, and a short sector loop to keep the motor running.
 
 ## Limits and open questions
