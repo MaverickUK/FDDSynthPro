@@ -57,10 +57,20 @@ private:
 };
 
 // Core 0's costs per loader step: SDIO-speed reads, and an assumed encode
-// time until the board measures it (test_loader.cpp uses the same).
+// time until the board measures it (test_loader.cpp uses the same). And the
+// front panel's frame: screens::draw every 100 ms, which takes core 0 for
+// draw_us between other steps, but never while a load is under way
+// (panel.cpp). Frames come every frame_us plus up to 3 ms, as on the board,
+// where a frame starts on whichever loop pass sees 100 ms have gone: so
+// they drift against the disk's rotation, which the host's reads are locked
+// to, and land at every point between its steps. 2 ms is pessimistic: the slowest screen draws in 10 us on an
+// M1, and the board's Cortex-M33 is perhaps 100 times slower. The board
+// reports its own as draw_us_max (console `s`). 0 leaves the panel out.
 struct Core0Costs {
     uint32_t read_us = 3000;
     uint32_t encode_us = 2500;
+    uint32_t draw_us = 2000;
+    uint32_t frame_us = 100000;
 };
 
 class Machine {
@@ -125,12 +135,16 @@ public:
         if (on_tick) on_tick(now);
     }
 
+    // When the next panel frame is due (it starts once core 0 is free).
+    uint32_t nextFrameUs() const { return next_frame_us_; }
+
     // Called after every tick: for watching the drive as time passes (the
     // showreel draws the front panel from it).
     std::function<void(uint32_t now)> on_tick;
 
-    // Core 0's background work, up to `now`: one loader step at a time, each
-    // taking its cost. The loader sees the head's cylinder as each step starts.
+    // Core 0's background work, up to `now`: one loader step or panel frame
+    // at a time, each taking its cost. The loader sees the head's cylinder as
+    // each step starts.
     void runCore0(uint32_t now) {
         // Writes first, as on the board: decode whatever has arrived.
         BurstResult r;
@@ -138,15 +152,34 @@ public:
             writes.push_back(r);
             if (lostWrite(r)) d.setWriteProtected(true);  // as core 1 does on the board
         }
+        if (costs_.draw_us && !frames_started_) {
+            next_frame_us_ = now;
+            frames_started_ = true;
+        }
         while (int32_t(now - core0_us_) > 0) {
             loader.request(d.head().cylinder());
+            bool frame_due = costs_.draw_us && int32_t(core0_us_ - next_frame_us_) >= 0;
+            if (frame_due && !loader.loading()) {
+                busy(costs_.draw_us);
+                frame_seed_ = frame_seed_ * 1103515245 + 12345;
+                next_frame_us_ += costs_.frame_us + (frame_seed_ >> 8) % 3000;
+                ++frames;
+                continue;
+            }
             CylinderLoader::Step s = loader.service();
-            if (s == CylinderLoader::Step::Idle) {
-                core0_us_ = now;
+            if (s != CylinderLoader::Step::Idle) {
+                busy((s == CylinderLoader::Step::ReadHead0 || s == CylinderLoader::Step::ReadHead1) ? costs_.read_us
+                                                                                                  : costs_.encode_us);
+                if (since_step_ && loader.ready() == d.head().cylinder()) {
+                    uint32_t took = core0_us_ - last_step_us_;
+                    if (took > slowest_ready_us) slowest_ready_us = took;
+                    since_step_ = false;
+                }
+            } else if (costs_.draw_us && !loader.loading() && int32_t(next_frame_us_ - core0_us_) > 0 &&
+                       int32_t(now - next_frame_us_) > 0) {
+                core0_us_ = next_frame_us_;  // idle until the next frame, before `now`
             } else {
-                core0_us_ += (s == CylinderLoader::Step::ReadHead0 || s == CylinderLoader::Step::ReadHead1)
-                                 ? costs_.read_us
-                                 : costs_.encode_us;
+                core0_us_ = now;
             }
         }
         tracker.update(now);
@@ -182,6 +215,11 @@ public:
     activity::Tracker tracker;
     std::vector<BurstResult> writes;      // every burst core 0 decoded
     std::vector<activity::Event> sounds;  // every sound event, in order
+    unsigned frames = 0;                  // panel frames drawn
+    uint32_t longest_step_us = 0;         // core 0's longest single step: audio waits that long
+    // The slowest a cylinder was ready after the head's last step: the host
+    // reads after its settle time (15 ms for a PC), and RDATA is silent until then.
+    uint32_t slowest_ready_us = 0;
 
 private:
     static drive::Config config(uint8_t start_cylinder) {
@@ -191,6 +229,10 @@ private:
     }
 
     void sample(uint32_t now, uint32_t pins, const drive::StepEvent& e) {
+        if (e.stepped && e.outcome != head::Step::AtOuterStop && e.outcome != head::Step::AtInnerStop) {
+            last_step_us_ = now;
+            since_step_ = true;
+        }
         activity::DriveEvent out[3];
         unsigned n = observer_.observe(now, d, e, out);
         for (unsigned i = 0; i < n; ++i) tracker.onDriveEvent(out[i]);
@@ -211,6 +253,11 @@ private:
         }
     }
 
+    void busy(uint32_t us) {
+        core0_us_ += us;
+        if (us > longest_step_us) longest_step_us = us;
+    }
+
     void drainSounds() {
         activity::Event ev;
         while (tracker.pop(ev)) sounds.push_back(ev);
@@ -229,4 +276,9 @@ private:
     WriteBurst burst_{};
     activity::DriveObserver observer_;
     uint32_t core0_us_ = 0;
+    uint32_t next_frame_us_ = 0;
+    bool frames_started_ = false;
+    uint32_t frame_seed_ = 1;
+    uint32_t last_step_us_ = 0;
+    bool since_step_ = false;  // a step whose cylinder isn't ready yet
 };

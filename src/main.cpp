@@ -574,7 +574,7 @@ static ui::Status panelStatus() {
 }
 
 static void servicePanel() {
-    panel::service(panelStatus(), millis());
+    panel::service(panelStatus(), millis(), !g_loader.load()->loading());  // never mid-load
     ui::Model& m = panel::model();
     size_t image;
     // Taken only when no swap is running, so a choice made during one (a

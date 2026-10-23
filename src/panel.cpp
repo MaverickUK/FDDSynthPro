@@ -85,7 +85,7 @@ void begin() {
         Serial.println("# oled: no display answering on the Qwiic connector (I2C1, 0x3C); OLED off");
 }
 
-void service(const ui::Status& s, uint32_t now_ms) {
+void service(const ui::Status& s, uint32_t now_ms, bool may_draw) {
     ui::Input inputs[controls::Controls::MAX_INPUTS];
     int detents = pending_detents.exchange(0, std::memory_order_relaxed);
     size_t n = panel_controls.update(detents, pressed(cfg::PIN_ENC_BUTTON), pressed(cfg::PIN_ACTION_BUTTON), now_ms,
@@ -100,7 +100,7 @@ void service(const ui::Status& s, uint32_t now_ms) {
 
     if (!found) return;
     feed();
-    if (!stream.done() || now_ms - last_frame_ms < cfg::OLED_FRAME_MS) return;
+    if (!may_draw || !stream.done() || now_ms - last_frame_ms < cfg::OLED_FRAME_MS) return;
     last_frame_ms = now_ms;
     uint32_t started = time_us_32();
     screens::draw(canvas, ui_model, s, trace);

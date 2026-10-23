@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "check.h"
+#include "config.h"
 #include "image_list.h"
 #include "machine.h"
 #include "virtual_pc.h"
@@ -244,6 +245,110 @@ TEST(test_pc_write_to_a_failing_card) {
     CHECK(buf == data);
 }
 
+// Seeks, reading one sector after each, as a busy DOS program does: every
+// load against the settle time, with the panel drawing throughout. Half are
+// to a random cylinder, half a single step on (as reading a file does). A
+// single step is the hard case: a multi-step seek's own stepping outlasts a
+// frame drawn when it began. Returns the retries; `bad` counts sectors
+// that read back wrong.
+static unsigned seekSession(Machine& m, int seeks, unsigned& bad) {
+    VirtualPc pc(m);
+    pc.motorOn();
+    pc.recalibrate();
+    uint32_t seed = 1987;
+    std::vector<uint8_t> buf(512);
+    bad = 0;
+    uint8_t cyl = 0;
+    for (int i = 0; i < seeks; ++i) {
+        seed = seed * 1103515245 + 12345;
+        if (i % 2) cyl = uint8_t(cyl == 79 ? 78 : cyl + 1);
+        else cyl = uint8_t((seed >> 8) % 80);
+        uint8_t head = uint8_t((seed >> 16) & 1), r = uint8_t(1 + (seed >> 20) % 18);
+        if (pc.readSectors(cyl, head, r, 1, buf.data()) != Status::Ok ||
+            std::memcmp(buf.data(), m.source.sector(cyl, head, uint8_t(r - 1)), 512) != 0)
+            ++bad;
+    }
+    pc.motorOff();
+    return pc.retries;
+}
+
+// The I2S queue: what core 0 can be away for before the sound runs dry.
+constexpr uint32_t AUDIO_QUEUE_US = uint32_t(uint64_t(cfg::AUDIO_BUFFERS) * cfg::AUDIO_BLOCK_FRAMES * 1000000 / 22050);
+
+TEST(test_pc_panel_keeps_up) {
+    // The front panel drawing a frame every 100 ms (2 ms each, pessimistic)
+    // never makes a cylinder late for the PC's 15 ms settle time, and never
+    // keeps audio waiting longer than a fraction of its queue.
+    Machine m;
+    unsigned bad = 0;
+    CHECK_EQ(seekSession(m, 150, bad), 0u);
+    CHECK_EQ(bad, 0u);
+    CHECK(m.frames > 0);
+    CHECK(m.slowest_ready_us > 0);
+    CHECK(m.slowest_ready_us <= VirtualPc::SETTLE_US);
+    CHECK(m.longest_step_us < AUDIO_QUEUE_US / 4);  // 46 ms of audio queued
+    std::printf("    slowest cylinder ready %.1f ms after the last step (settle %.0f ms)\n", m.slowest_ready_us / 1000.0,
+                VirtualPc::SETTLE_US / 1000.0);
+}
+
+TEST(test_pc_panel_frame_rate) {
+    // Frames are held back only while a load is under way, so even through
+    // constant seeking the panel keeps nearly all of its 10 frames a second.
+    Machine m;
+    VirtualPc pc(m);
+    pc.motorOn();
+    pc.recalibrate();
+    uint32_t t0 = pc.now;
+    unsigned f0 = m.frames;
+    std::vector<uint8_t> buf(512);
+    for (int i = 0; i < 60; ++i) pc.readSectors(uint8_t((i * 37) % 80), 0, 1, 1, buf.data());
+    double seconds = (pc.now - t0) / 1e6;
+    unsigned frames = m.frames - f0;
+    CHECK(frames >= unsigned(seconds * 10 * 0.95));
+    CHECK(frames <= unsigned(seconds * 10) + 1);
+}
+
+// The worst case for the settle time: a frame starts just as the head steps
+// a single cylinder. The load waits for the frame, then takes two reads and
+// two encodes (11 ms with these costs). Returns how long after the step the
+// cylinder was ready.
+static uint32_t readyAfterStepDuringFrame(uint32_t draw_us) {
+    Core0Costs costs;
+    costs.draw_us = draw_us;
+    Machine m(ibm::HD_1440, costs);
+    VirtualPc pc(m);
+    pc.motorOn();
+    pc.recalibrate();
+    std::vector<uint8_t> buf(512);
+    pc.readSectors(10, 0, 1, 1, buf.data());  // settled on cylinder 10, nothing loading
+    pc.run(5000);
+    uint32_t due = m.nextFrameUs();
+    while (int32_t(pc.now - due) < 0) pc.run(50);  // the frame has just started
+    m.slowest_ready_us = 0;
+    pc.seekTo(11);
+    pc.run(40000);
+    return m.slowest_ready_us;
+}
+
+TEST(test_pc_panel_margin) {
+    // How slow could the board's frames be, at worst, before a cylinder is
+    // late for the PC's 15 ms settle time? The frame and the load share core
+    // 0, so the answer is the settle time less the load. Require room to
+    // spare over the 2 ms assumed.
+    uint32_t slowest_ok = 0;
+    for (uint32_t draw_us = 500; draw_us <= 8000; draw_us += 250) {
+        uint32_t ready = readyAfterStepDuringFrame(draw_us);
+        CHECK(ready >= 11000 && ready <= draw_us + 11000);  // the frame's rest, then the load
+        if (ready > VirtualPc::SETTLE_US) break;
+        slowest_ok = draw_us;
+    }
+    std::printf("    panel margin: frames of up to %.2f ms keep every cylinder within the settle time "
+                "(2 ms assumed)\n", slowest_ok / 1000.0);
+    CHECK(slowest_ok >= 3500);
+    // And the frame really does delay it: a slower frame, a later cylinder.
+    CHECK(readyAfterStepDuringFrame(4000) > readyAfterStepDuringFrame(1000));
+}
+
 TEST(test_image_list) {
     ImageList l;
     CHECK(l.add("games.IMG", 1474560));
@@ -273,5 +378,8 @@ void runVirtualPcTests() {
     RUN(test_pc_gives_up_on_a_card_that_never_answers);
     RUN(test_pc_disk_swaps);
     RUN(test_pc_write_to_a_failing_card);
+    RUN(test_pc_panel_keeps_up);
+    RUN(test_pc_panel_frame_rate);
+    RUN(test_pc_panel_margin);
     RUN(test_image_list);
 }

@@ -4,6 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-23
+
+### Changed
+- **The panel never starts a frame while a cylinder is loading** (`CylinderLoader::loading()`), so drawing can't eat into the host's settle time mid-load.
+
+### Added
+- **The panel's cost on core 0 is now tested, not argued.** The virtual PC's machine draws a frame every 100 ms (2 ms each, pessimistic; drifting against the disk's rotation, as on the board) between loader steps. Through a session of random seeks and single steps every cylinder is ready within 14 ms of the last step (settle: 15 ms), the frame rate holds, and core 0's longest step is a fraction of the audio queue. The worst case, a frame starting just as the head steps, is built on purpose: frames up to 4 ms still make every settle time, so the board's `draw_us_max` must stay under that.
+
 ## [0.8.0] - 2026-10-23
 
 ### Added

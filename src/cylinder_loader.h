@@ -58,6 +58,10 @@ public:
     // read from the other core: it turns -1 before the first write into the
     // buffer, and to the cylinder only after the last.
     int ready() const { return ready_.load(std::memory_order_acquire); }
+    // The buffer doesn't hold the cylinder asked for yet: a load is under
+    // way, against the host's settle time. Core 0 holds back other slow work
+    // (a panel frame) until it's done.
+    bool loading() const { return ready() != wanted_; }
     // Loads finished, and loads abandoned because the head moved.
     uint32_t loads() const { return loads_; }
     uint32_t restarts() const { return restarts_; }

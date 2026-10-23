@@ -150,7 +150,7 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] On the Sounds screen, press the encoder: the pack list, `>` on the one loaded. Choose the other and press: it loads (with the host using the drive, the screen says `LOADING WHEN IDLE` until it stops). A running motor carries on in the new pack's sound.
 - [ ] **Remembered:** choose a disk, a pack and a volume, wait 5 seconds with the drive idle, and power off. Power on: the same three come back. `/FDDSYNTH.CFG` on the card holds them, and can be edited by hand.
 - [ ] Delete `/FDDSYNTH.CFG`, or put nonsense in it: the drive still starts, on the first disk and pack at 75%.
-- [ ] During a long `gw read` with the panel on, `audio_underruns` stays 0, `draw_us_max` is a few milliseconds at most, and `oled_aborts=0`. Then repeat slice 2's seek test: the panel must not make a read miss its settle time.
+- [ ] During a long `gw read` with the panel on, `audio_underruns` stays 0, `draw_us_max` is well under 4000 (the most `test_pc_panel_margin` allows: above that, a frame just as the head steps could make a cylinder late for a PC's 15 ms settle time), and `oled_aborts=0`. Also note `read_us_max` and `encode_us_max`: the margin assumes 3 ms and 2.5 ms; if they're higher, rerun the test with them. Then repeat slice 2's seek test: the panel must not make a read miss its settle time.
 
 ## If something fails
 

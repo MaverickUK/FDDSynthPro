@@ -21,8 +21,11 @@ void begin();
 
 // Every pass of core 0's loop: applies the controls to the model, samples
 // the head trace, draws a frame every cfg::OLED_FRAME_MS and feeds the bus.
-// `s` is the drive as it is now.
-void service(const ui::Status& s, uint32_t now_ms);
+// `s` is the drive as it is now. With `may_draw` false (a cylinder is
+// loading against the host's settle time) a due frame waits: drawing takes
+// core 0 for a while (draw_us_max). test_pc_panel_margin works out how long
+// a frame may take.
+void service(const ui::Status& s, uint32_t now_ms, bool may_draw = true);
 
 // The screens' state and the requests (swap, eject, volume) for main.cpp.
 ui::Model& model();
