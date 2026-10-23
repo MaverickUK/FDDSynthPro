@@ -2,9 +2,11 @@
 
 #include <SdFat.h>
 
+#include <cstdio>
 #include <cstring>
 
 #include "config.h"
+#include "wav.h"
 
 namespace sd_image {
 
@@ -72,6 +74,51 @@ TrackSource* open(size_t index) {
     std::strcpy(s_name, name);
     s_source.use(*formatForImageSize(s_images.size(index)));
     return &s_source;
+}
+
+bool loadPack(synth::Pack& pack, int16_t* pool, size_t pool_samples, char* pack_name, size_t name_len) {
+    FsFile dir, entry;
+    if (!dir.open("/samples")) return false;
+    char best[ImageList::NAME] = "";
+    while (entry.openNext(&dir, O_RDONLY)) {
+        char name[ImageList::NAME];
+        if (entry.isDir() && entry.getName(name, sizeof name) && (!best[0] || strcasecmp(name, best) < 0))
+            std::strcpy(best, name);
+        entry.close();
+    }
+    dir.close();
+    if (!best[0]) return false;
+    std::strncpy(pack_name, best, name_len - 1);
+    pack_name[name_len - 1] = '\0';
+
+    static uint8_t header[cfg::WAV_HEADER_BYTES];
+    struct { const char* file; synth::Sample* slot; } sounds[] = {
+        {"spinup", &pack.spinup}, {"spin", &pack.spin}, {"spindown", &pack.spindown}, {"step", &pack.step},
+        {"seek", &pack.seek},     {"bump", &pack.bump}, {"insert", &pack.insert},     {"eject", &pack.eject},
+    };
+    size_t used = 0;
+    pack = synth::Pack{};
+    for (auto& s : sounds) {
+        char path[ImageList::NAME * 2 + 24];
+        std::snprintf(path, sizeof path, "/samples/%s/%s.wav", best, s.file);
+        FsFile f;
+        if (!f.open(path, O_RDONLY)) continue;
+        int n = f.read(header, sizeof header);
+        WavInfo info;
+        bool ok = n > 0 && parseWavHeader(header, size_t(n), uint32_t(f.fileSize()), info) == WavError::Ok &&
+                  wavIsPlayable(info) && (!pack.rate || info.sampleRate == pack.rate);
+        if (ok) {
+            size_t count = info.dataBytes / 2;
+            if (count > pool_samples - used) count = pool_samples - used;  // cut short to fit
+            if (count && f.seekSet(info.dataOffset) && f.read(pool + used, count * 2) == int(count * 2)) {
+                *s.slot = synth::Sample{pool + used, uint32_t(count)};
+                pack.rate = info.sampleRate;
+                used += count;
+            }
+        }
+        f.close();
+    }
+    return pack.complete();
 }
 
 const char* name() { return s_name; }

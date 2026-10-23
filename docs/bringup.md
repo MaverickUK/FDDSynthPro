@@ -127,6 +127,14 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Type `]` and `i` a few times: the index moves round the list and back, and each swap prints `EJECT` and then `INSERT`.
 - [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice6 -k swap`. Each image reads as its local copy, including the 720 KB one at 250 kbit/s.
 
+## 13. The FDD Synth: sound
+
+- [ ] Wire the MAX98357A and a speaker ([wiring.md](wiring.md)).
+- [ ] Copy `samples/Placeholder/` from the repo to `/samples/Placeholder/` on the card. The drive plays the first folder under `/samples`, in name order.
+- [ ] Power up and type `s`: `pack=Placeholder`.
+- [ ] Run `gw seek` and `gw read`: spin-up, the spin loop, clicks or seeks, spin-down. `[` and `]` add eject and insert.
+- [ ] After a long `gw read` and a `gw write`, `s` should show `audio_underruns=0`. If not, core 0 stalled longer than the 46 ms queue: note what it was doing (`write_us_max` is the likely one).
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

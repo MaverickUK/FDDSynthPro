@@ -166,6 +166,8 @@ Each slice ends in a passing automated test before the next starts. Each one als
 | Erratum E9 on A2-stepping RP2350s | Never use internal pull-downs |
 | RDATA pulse width and jitter the controller won't accept | Match the reference drive (measured with the logic analyser), and check `gw read` margins with its flux histogram |
 | A write burst arrives while core 0 is still decoding the last one | Bursts of a sector write are ~11 ms apart; a sector decodes in well under that. Measure `write_us_max` and watch `bursts_dropped`; a second capture buffer if needed |
+| RAM: the drive build uses 85% (the 160 KB sample pool, the 80 KB write capture, the 50 KB cylinder buffer) | Watch for stack or heap trouble at bring-up. Shrink the sample pool to the pack's size, or stream long samples from SD as HDDSynth_Native does |
+| Core 0 stalls longer than the 46 ms audio queue (a whole-track write's decode) | `audio_underruns` in `s`. Service audio inside the decode, or a longer queue |
 | SD reads slower than the settle time | Measure in slice 3; the host retries on the next revolution, and a second cylinder buffer can prefetch neighbours |
 
 **Answered from the Greaseweazle firmware source (`floppy.c`, 23 Oct 2026):**

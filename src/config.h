@@ -47,6 +47,22 @@ constexpr unsigned PIN_SD_CLK = 32;
 constexpr unsigned PIN_SD_CMD = 33;
 constexpr unsigned PIN_SD_DAT0 = 34;  // DAT0-DAT3 on GPIO 34-37
 
+// Audio: a MAX98357A I2S amp, as on HDDSynth_Native. Below GPIO 32, so the
+// I2S PIO program works in the same GPIO 0-31 window as RDATA and WDATA.
+constexpr unsigned PIN_I2S_DATA = 26;
+constexpr unsigned PIN_I2S_BCLK = 27;  // LRCLK is BCLK + 1 = GPIO 28
+
+// The sample pack lives in RAM: FDD sounds are short. 160 KB holds the
+// stand-in pack (152 KB) with a little room; longer samples are cut short.
+constexpr size_t SAMPLE_POOL_BYTES = 160 * 1024;
+constexpr size_t WAV_HEADER_BYTES = 4096;  // a WAV's data must start within this (HDDSynth_Native's rule)
+
+// Mixing on core 0: blocks of 128 frames (5.8 ms at 22.05 kHz), 8 of them
+// queued (46 ms). That covers core 0's longest stall between top-ups: an SD
+// track read or a track encode, a few milliseconds each.
+constexpr size_t AUDIO_BLOCK_FRAMES = 128;
+constexpr size_t AUDIO_BUFFERS = 8;
+
 constexpr unsigned FIRST_INPUT_PIN = PIN_DENSEL;
 constexpr unsigned LAST_INPUT_PIN = PIN_SIDE1;
 constexpr unsigned FIRST_OUTPUT_PIN = PIN_INDEX;

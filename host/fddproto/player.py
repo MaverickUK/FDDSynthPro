@@ -15,6 +15,10 @@ The rules are the ones the synth's firmware will follow (docs/activity.md):
   SEEK_START  seek.wav looping until SEEK_END (at its last step)
   BUMP        bump.wav
   INSERT      insert.wav;  EJECT  eject.wav
+
+The mix is the plain sum of everything playing, saturated to 16 bits, in
+integers: exactly what the firmware's mixer (src/synth.*) does, so the two
+can be compared sample for sample (host/tests/test_synth.py).
 """
 from __future__ import annotations
 
@@ -37,7 +41,7 @@ NAMES = ("spinup", "spin", "spindown", "step", "seek", "bump", "insert", "eject"
 @dataclass
 class Pack:
     rate: int
-    sounds: dict[str, list[float]]  # name -> samples in [-1, 1]
+    sounds: dict[str, list[int]]  # name -> 16-bit samples
 
 
 def load_pack(folder: Path) -> Pack:
@@ -53,39 +57,38 @@ def load_pack(folder: Path) -> Pack:
                 rate = w.getframerate()
             elif w.getframerate() != rate:
                 raise ValueError(f"{path}: every sample in a pack must have the same rate")
-            data = array.array("h", w.readframes(w.getnframes()))
-            sounds[name] = [v / 32768 for v in data]
+            sounds[name] = list(array.array("h", w.readframes(w.getnframes())))
     for required in ("spinup", "spin", "spindown", "step", "seek", "bump"):
         if required not in sounds:
             raise ValueError(f"{folder}: no {required}.wav")
     return Pack(rate, sounds)
 
 
-def render(events: list[trace.Act], pack: Pack) -> list[float]:
-    """Mixes the pack's sounds as the events call for them. Returns samples."""
+def render(events: list[trace.Act], pack: Pack) -> list[int]:
+    """Mixes the pack's sounds as the events call for them. Returns 16-bit samples."""
     if not events:
         return []
     t0 = events[0].t_us - int(LEAD_IN_S * 1e6)
     end_us = events[-1].t_us + int(TAIL_S * 1e6)
     rate = pack.rate
-    out = [0.0] * ((end_us - t0) * rate // 1_000_000 + 1)
+    out = [0] * ((end_us - t0) * rate // 1_000_000 + 1)
 
     def at(t_us: int) -> int:
         return (t_us - t0) * rate // 1_000_000
 
-    def place(name: str, start: int, gain: float = 1.0):
+    def place(name: str, start: int):
         s = pack.sounds.get(name)
         if not s:
             return
         for i, v in enumerate(s, start):
             if i >= len(out):
                 break
-            out[i] += gain * v
+            out[i] += v
 
-    def loop(name: str, start: int, stop: int, gain: float = 1.0):
+    def loop(name: str, start: int, stop: int):
         s = pack.sounds[name]
         for i in range(max(0, start), min(stop, len(out))):
-            out[i] += gain * s[(i - start) % len(s)]
+            out[i] += s[(i - start) % len(s)]
 
     motor_on = seek_on = None
     for e in events:
@@ -113,14 +116,11 @@ def render(events: list[trace.Act], pack: Pack) -> list[float]:
     if seek_on is not None:
         loop("seek", seek_on, len(out))
 
-    peak = max((abs(v) for v in out), default=0.0)
-    if peak > 0.95:
-        out = [v * 0.95 / peak for v in out]
-    return out
+    return [32767 if v > 32767 else -32768 if v < -32768 else v for v in out]
 
 
-def write_wav(path: Path, samples: list[float], rate: int):
-    data = array.array("h", (int(max(-1.0, min(1.0, v)) * 32767) for v in samples))
+def write_wav(path: Path, samples: list[int], rate: int):
+    data = array.array("h", samples)
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)

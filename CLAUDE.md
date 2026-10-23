@@ -27,7 +27,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
   `main.cpp` holds both. Rig tests skip unless the board runs the build they need, and `scripts/rig.sh` takes `PIO_ENV`.
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
-- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write` and `write_burst` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+- **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write`, `write_burst`, `synth` and `wav` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -107,7 +107,8 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 `src/activity.*` (rationale: `docs/activity.md`). Core 1's `DriveObserver` diffs the drive model after each sample (motor, disk, and the `StepEvent`) into `DriveEvent`s on `g_drive_events`. Core 0's `Tracker` turns them into `ACT` lines.
 - A step against a stop is a `BUMP`, never a click, and ends a seek.
 - A seek is two or more same-direction steps within `seek_gap_us` (20 ms). Its first step has already clicked, and `SEEK_END`'s count includes it.
-- `host/fddproto/player.py` turns `ACT` lines into a WAV with a sample pack. Keep its rules in step with `docs/activity.md`: they're the spec for the synth's firmware.
+- `host/fddproto/player.py` turns `ACT` lines into a WAV with a sample pack. It's the spec for the firmware's mixer (`src/synth.*`): `host/tests/test_synth.py` requires the two to match sample for sample (integer mix, saturating). Change both together, and `docs/activity.md` with them.
+- **Audio runs on core 0** (`audio.h`): I2S on GPIO 26–28 (below 32, so its PIO shares the GPIO 0–31 window with RDATA/WDATA), begun on core 0 so its DMA interrupt never touches core 1. `audio::service()` runs between core 0's slower steps; the queue (`AUDIO_BUFFERS` x `AUDIO_BLOCK_FRAMES`) must outlast the longest one.
 - Tests drive it through the virtual hosts (`test/native/virtual_hosts.h`); drain the tracker as core 0 does, or its 32-event queue drops the oldest.
 
 ## Trace format

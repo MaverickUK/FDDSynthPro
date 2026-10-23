@@ -75,6 +75,20 @@ An Adafruit SDIO microSD breakout, as on HDDSynthPro, on 4-bit SDIO. DAT0–3 mu
 
 Fit 10 kΩ pull-ups to +3.3 V on CMD and DAT0–3 (five resistors), unless the breakout already has them. Keep the six signal wires short and of similar length.
 
+### The I2S amp (the FDD Synth)
+
+A MAX98357A breakout, as on HDDSynth_Native, with a small speaker. BCLK and LRCLK must be on consecutive pins.
+
+| Amp pin | Signal | GPIO | BB48 pin |
+|---|---|---|---|
+| DIN | I2S data | 26 | EXT2-6 |
+| BCLK | bit clock | 27 | EXT2-7 |
+| LRC | word clock | 28 | EXT2-8 |
+| Vin | +5 V | | VBUS (EXT2-1) |
+| GND | GND | | EXT2-3 |
+
+Leave SD_MODE and GAIN unconnected (the firmware sends the same sample on both channels).
+
 ## Notes
 
 - **Grounds:** wire at least five of the odd floppy pins, spread along the connector, to the BB48's ground. All seventeen is better.

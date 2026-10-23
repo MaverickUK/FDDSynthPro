@@ -7,7 +7,8 @@
 // (in test_loader.cpp) image geometry and the cylinder loader, and (in
 // test_activity.cpp) the sound events, and (in test_write_decode.cpp) reading
 // writes back: the data separator, field scanner and write interpreter, and
-// (in test_virtual_pc.cpp) a virtual PC driving the whole drive.
+// (in test_virtual_pc.cpp) a virtual PC driving the whole drive, and (in
+// test_synth.cpp) the FDD Synth's mixer.
 //
 // Run: test/run_native_tests.sh
 #include <cstdio>
@@ -224,6 +225,7 @@ void runLoaderTests();
 void runActivityTests();
 void runWriteDecodeTests();
 void runVirtualPcTests();
+void runSynthTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -249,6 +251,7 @@ int main() {
     runActivityTests();
     runWriteDecodeTests();
     runVirtualPcTests();
+    runSynthTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

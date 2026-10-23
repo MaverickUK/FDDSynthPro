@@ -31,9 +31,18 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 - `DiskSlot` (the disk in the drive, which the loader and write path go through), `ImageList`, `CylinderLoader::reset`, `rdata_pio::setFormat` and `wdata_pio::setRate`.
 - **The virtual PC finds a disk's data rate** after a change, trying 500 and then 250 kbit/s as a BIOS does. Tests cover a swap from 1.44 MB to 720 KB and back, writes going to the disk that's in, and the image list's ordering and filtering. A rig test (`test_swaps.py`, `-m slice6`) swaps through every image on the card.
 
+- **The FDD Synth plays (drive build).**
+  - **The mixer** (`synth.h`, pure C++): sound events in, samples out, by the player's rules. It has 32 one-shot voices (the oldest is stolen past that), the spin loop and up to four seek loops, and saturates at 16 bits.
+  - **The pack:** at power-on, core 0 loads the first folder under `/samples` on the card into a 160 KB pool in RAM.
+  - **Output:** core 0 mixes into a MAX98357A over I2S (GPIO 26–28), topping up a 46 ms queue between its slower steps.
+  - **Events:** reach the mixer as soon as core 0 takes them; the `ACT` lines follow when the serial link can take them.
+  - **Console:** `s` adds `pack`, `audio_underruns` and `voices_stolen`.
+  - **Golden test:** the mixer matches the Python player sample for sample, on the virtual PC's session, motor and seek edge cases, and random event sequences (`test/tools/render_events`, `host/tests/test_synth.py`).
+  - `wav.h` is copied from HDDSynth_Native, so packs follow the same rules.
 - **The sample player** (`python -m fddproto.player <trace> <out.wav>`) mixes a trace's sound events with a sample pack, by the rules the synth's firmware will follow. It works on the virtual PC's session or a real drive's log.
 
 ### Changed
+- The player mixes in integers and saturates, as the firmware does, instead of normalising the whole render.
 - Core 1's RDATA gate and write-capture control moved out of `main.cpp` into pure code (`drive::Drive::streams`, `WriteGate` in `write_burst.h`), so the firmware and the virtual PC share them.
 
 ## [0.6.0] - 2026-10-23

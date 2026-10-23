@@ -15,7 +15,9 @@
 //               swap to the previous or next image on the card, GoTek
 //               style. What the drive does
 //               becomes sound events (activity.h), printed as ACT lines for
-//               the FDD Synth. Writes: core 1 captures WDATA while WGATE is
+//               the FDD Synth, and played: the mixer (synth.h) sounds them
+//               with the card's sample pack through an I2S amp (audio.h).
+//               Writes: core 1 captures WDATA while WGATE is
 //               asserted (wdata_pio.h); core 0 decodes each burst and puts
 //               the sectors in the live track and on the card
 //               (write_burst.h).
@@ -39,10 +41,12 @@
 
 #if FIRMWARE_SLICE != 0
 #include "activity.h"
+#include "audio.h"
 #include "cylinder_loader.h"
 #include "ibm_track.h"
 #include "rdata_pio.h"
 #include "sd_image.h"
+#include "synth.h"
 #include "track_source.h"
 #include "wdata_pio.h"
 #include "write_burst.h"
@@ -272,8 +276,25 @@ static uint32_t g_write_bad_crc = 0;
 static uint32_t g_write_unplaced = 0;
 static uint32_t g_write_us_max = 0;
 
+// The FDD Synth: the card's sample pack, in RAM, played by the mixer.
+static int16_t g_sample_pool[cfg::SAMPLE_POOL_BYTES / 2];
+static synth::Pack g_pack;
+static synth::Mixer* g_mixer = nullptr;
+static char g_pack_name[ImageList::NAME] = "";
+
+static void startSynth(bool card) {
+    if (!card || !sd_image::loadPack(g_pack, g_sample_pool, sizeof g_sample_pool / 2, g_pack_name,
+                                     sizeof g_pack_name))
+        return;  // no pack: the drive works, silently
+    static synth::Mixer mixer(g_pack);
+    g_mixer = &mixer;
+    audio::begin(mixer, g_pack.rate);
+}
+
 static void chooseDisk() {
-    TrackSource* image = sd_image::mount() ? sd_image::open(0) : nullptr;
+    bool card = sd_image::mount();
+    startSynth(card);
+    TrackSource* image = card ? sd_image::open(0) : nullptr;
     g_from_card = image != nullptr;
     static DiskSlot slot(image ? *image : static_cast<TrackSource&>(g_generated));
     g_slot = &slot;
@@ -369,10 +390,18 @@ static void serviceActivity() {
         g_activity_checked_us = now;
         g_activity.update(now);
     }
+    // Every event to the mixer at once; the ACT line follows when the serial
+    // link can take it, so a slow host delays the trace, never the sound.
+    static SpscRing<activity::Event, 64> unprinted;
+    activity::Event e;
+    while (g_activity.pop(e)) {
+        if (g_mixer) g_mixer->event(e);
+        unprinted.push(e);  // dropped if the trace can't keep up; the sound isn't
+    }
     static activity::Event pending;
     static bool has_pending = false;
     for (int i = 0; i < 8; ++i) {
-        if (!has_pending && !g_activity.pop(pending)) return;
+        if (!has_pending && !unprinted.pop(pending)) return;
         char line[48];
         size_t len = activity::format(pending, line, sizeof line);
         has_pending = !printLine(line, len);
@@ -434,6 +463,8 @@ static void printStats() {
                   (int)g_writable.load(), (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
                   (unsigned long)g_write_us_max);
+    Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_mixer ? g_pack_name : "none",
+                  (unsigned long)audio::underruns(), (unsigned long)(g_mixer ? g_mixer->voicesStolen() : 0));
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
                   (unsigned long)g_activity.seeks(), (unsigned long)g_activity.bumps(),
                   (unsigned long)(g_activity.dropped() + g_drive_events_dropped.load()));
@@ -550,9 +581,13 @@ void setup() {
 
 void loop() {
 #if FIRMWARE_SLICE != 0
+    // Audio between every slow step, so the I2S queue never runs dry.
+    audio::service();
     serviceWrites();  // before loading: a write may be to the cylinder being left
+    audio::service();
     serviceSwap();
     serviceLoader();
+    audio::service();
     serviceActivity();
 #endif
     handleConsole();

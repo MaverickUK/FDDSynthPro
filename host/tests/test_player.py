@@ -17,9 +17,10 @@ def pack():
 
 
 def loudness(samples, rate, start_s, end_s) -> float:
+    """Mean level over a window, as a fraction of full scale."""
     a, b = int(start_s * rate), int(end_s * rate)
     window = samples[a:b]
-    return sum(abs(v) for v in window) / max(1, len(window))
+    return sum(abs(v) for v in window) / max(1, len(window)) / 32768
 
 
 def events(lines):
@@ -57,10 +58,13 @@ def test_unfinished_loops_run_to_the_end(pack):
     assert loudness(out, pack.rate, len(out) / pack.rate - 0.1, len(out) / pack.rate) > 0.01
 
 
-def test_no_clipping(pack):
-    lines = ["ACT 0 MOTOR_ON"] + [f"ACT {1000000 + i * 3000} STEP IN {i}" for i in range(50)]
+def test_saturates_rather_than_wrapping(pack):
+    """Fifty clicks on top of each other overflow 16 bits: the mix holds at
+    full scale, as the firmware does, rather than wrapping round."""
+    lines = ["ACT 0 MOTOR_ON"] + [f"ACT {1000000 + i * 1000} BUMP OUTER" for i in range(50)]
     out = player.render(events(lines), pack)
-    assert max(abs(v) for v in out) <= 0.95 + 1e-9
+    assert max(out) == 32767 or min(out) == -32768
+    assert all(-32768 <= v <= 32767 for v in out)
 
 
 def test_the_virtual_pcs_session(pack, tmp_path):
