@@ -8,7 +8,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 ## Rules that keep the interface safe
 
-- **Pins:** the pin map in `src/config.h` and `docs/wiring.md` must agree, and `short_test.cpp`'s names with both.
+- **Pins:** the pin map in `src/config.h`, `docs/wiring.md` and the `FDD`/`OTHER` tables in `docs/wiring.html` must agree, and `short_test.cpp`'s names with them. `test_no_pin_used_twice` checks every pin in `config.h`, planned ones included.
   - GPIO 0–3 stay off the interface: the BB48 pulls GPIO 2/3 up to 3.3 V (R17/R18).
   - GPIO 25 is the LED.
   - The ten inputs stay on consecutive pins (one read captures them).

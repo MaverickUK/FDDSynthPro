@@ -2,7 +2,7 @@
 
 Hardware day, in order. Each step either passes or tells you what to fix before the next one. The wiring itself is in [wiring.md](wiring.md).
 
-You'll need: a multimeter with a continuity beeper, the Mac, the Feather RP2040 with its Floppy FeatherWing, a plain **BB48** (not the BB48R), and ideally the reference floppy drive with a 5 V 2 A supply.
+The parts are in [parts.md](parts.md). You'll need: a multimeter with a continuity beeper, the Mac, the Feather RP2040 with its Floppy FeatherWing, a plain **BB48** (not the BB48R), and ideally the reference floppy drive with a 5 V 2 A supply.
 
 ## 1. Before any power
 

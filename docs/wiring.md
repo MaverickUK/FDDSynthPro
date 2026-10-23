@@ -1,6 +1,8 @@
 # Wiring: floppy header to Olimex RP2350-PICO2-BB48
 
-The pin map lives in [src/config.h](../src/config.h); this table must match it.
+The pin map lives in [src/config.h](../src/config.h); this table must match it, and so must the `FDD` and `OTHER` tables in [wiring.html](wiring.html).
+
+[wiring.html](wiring.html) shows the same connections as an interactive diagram, with a soldering checklist and a plan for the Perma-Proto board. Open it in a browser: GitHub shows HTML files as source. Its ticks are saved in that browser only. The parts are in [parts.md](parts.md).
 
 ## Why these pins
 
@@ -15,7 +17,7 @@ BB48 header pins: GPIO 0–23 are on EXT1 pins 4–27. EXT1 pin 1 is +3.3 V and 
 ## Signal conventions
 
 - **Every floppy signal is active low.** "Asserted" or "ON" means the line is pulled low.
-- **Inputs (host → drive)** come from the host's drivers. The drive end of the cable terminates them, so each one has a pull-up to **+3.3 V** on our side, from a **10-pin SIP resistor network in a socket** (common pin to +3.3 V). Pulling up to 3.3 V, not 5 V, keeps 5 V off the RP2350's pins from our side.
+- **Inputs (host → drive)** come from the host's drivers. The drive end of the cable terminates them, so each one has a pull-up to **+3.3 V** on our side, from an **11-pin bussed SIP resistor network in a socket** (pin 1, the common, to +3.3 V; one resistor per input). Pulling up to 3.3 V, not 5 V, keeps 5 V off the RP2350's pins from our side.
   - **10 kΩ with the Feather + FeatherWing.** Its outputs are level-shifted to 5 V and may be push-pull. Against 1 kΩ each line would feed about 1.7 mA into the BB48's 3.3 V rail; 10 kΩ cuts that to 0.17 mA.
   - **1 kΩ for a real PC**, whose open-collector outputs rely on the drive's termination. Swap the network when you move to a PC.
 - **Outputs (drive → host)** go through an **SN7407** open-collector buffer. The host pulls them up. The firmware drives the buffer's input low to assert a line and high to release it. The SN7407 can sink 40 mA, enough for an old host's 150 Ω termination, which a GPIO can't.
@@ -88,6 +90,20 @@ A MAX98357A breakout, as on HDDSynth_Native, with a small speaker. BCLK and LRCL
 | GND | GND | | EXT2-3 |
 
 Leave SD_MODE and GAIN unconnected (the firmware sends the same sample on both channels).
+
+### The front panel (planned)
+
+The firmware doesn't use these yet ([docs/oled](oled) has the screens); the pins are reserved so nothing else takes them.
+
+| Part | Signal | GPIO | BB48 pin |
+|---|---|---|---|
+| SSD1306 OLED, 128 × 64 | SDA, SCL (I2C1) | 2, 3 | The BB48's Qwiic/UEXT socket, by cable. The board already pulls them up |
+| Rotary encoder | A | 20 | EXT1-24 |
+| Rotary encoder | B | 21 | EXT1-25 |
+| Rotary encoder | switch | 22 | EXT1-26 |
+| Action button | | 23 | EXT1-27 |
+
+The encoder's common pin and the other side of each switch go to GND; the firmware will use the RP2350's internal pull-ups, as HDDSynth_Native does.
 
 ## Notes
 

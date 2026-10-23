@@ -54,7 +54,7 @@ The Mac that builds the firmware also flashes it, drives the host (the floppy co
 | Olimex RP2350-PICO2-BB48 on a Perma-Proto board | The emulated drive |
 | 34-pin IDC breakout + floppy ribbons (one straight, one PC cable with the twist) | Host connection, wired per [wiring.md](wiring.md) |
 | SN7407N (DIP, hex open-collector buffer, 40 mA sink) | The drive's five outputs |
-| Two 10-pin SIP resistor networks, 10 kΩ and 1 kΩ, in a socket, to 3.3 V | Termination pull-ups on the drive's ten inputs: 10 kΩ with the FeatherWing, 1 kΩ for a real PC |
+| Two 11-pin bussed SIP resistor networks (ten resistors each), 10 kΩ and 1 kΩ, in a socket, to 3.3 V | Termination pull-ups on the drive's ten inputs: 10 kΩ with the FeatherWing, 1 kΩ for a real PC |
 | Feather RP2040 + Adafruit Floppy FeatherWing | The host under test: Adafruit's Greaseweazle-compatible firmware, driven by `gw` from the Mac |
 | Optional: Greaseweazle V4.1 | A second host, running the real Greaseweazle firmware, with both drive selects and full pin access |
 | A real 3.5-inch PC floppy drive + 5 V 2 A supply | The known-good reference: proves the host setup, and gives real timings and flux to compare with |

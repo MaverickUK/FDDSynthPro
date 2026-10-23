@@ -65,6 +65,30 @@ TEST(test_pin_layout) {
     CHECK(fdd::WATCHED_MASK & fdd::maskOf(cfg::PIN_STEP));
 }
 
+TEST(test_no_pin_used_twice) {
+    // Every GPIO the board uses or has planned, once each.
+    const unsigned pins[] = {
+        cfg::PIN_DENSEL, cfg::PIN_MOTEA, cfg::PIN_DRVSB, cfg::PIN_DRVSA, cfg::PIN_MOTEB, cfg::PIN_DIR,
+        cfg::PIN_STEP, cfg::PIN_WDATA, cfg::PIN_WGATE, cfg::PIN_SIDE1, cfg::PIN_INDEX, cfg::PIN_TRK00,
+        cfg::PIN_WPT, cfg::PIN_RDATA, cfg::PIN_DSKCHG, cfg::PIN_BOARD_LED,
+        cfg::PIN_SD_CLK, cfg::PIN_SD_CMD, cfg::PIN_SD_DAT0, cfg::PIN_SD_DAT0 + 1, cfg::PIN_SD_DAT0 + 2,
+        cfg::PIN_SD_DAT0 + 3, cfg::PIN_I2S_DATA, cfg::PIN_I2S_BCLK, cfg::PIN_I2S_BCLK + 1,
+        cfg::PIN_OLED_SDA, cfg::PIN_OLED_SCL, cfg::PIN_ENC_A, cfg::PIN_ENC_B, cfg::PIN_ENC_BUTTON,
+        cfg::PIN_ACTION_BUTTON,
+    };
+    uint64_t seen = 0;
+    bool unique = true;
+    for (unsigned p : pins) {
+        CHECK(p < 48);
+        if (seen & (1ull << p)) unique = false;
+        seen |= 1ull << p;
+    }
+    CHECK(unique);
+    // The OLED on I2C1's GPIO 2/3, which the RP2350 allows (SDA on 4n+2).
+    CHECK_EQ(cfg::PIN_OLED_SDA % 4, 2u);
+    CHECK_EQ(cfg::PIN_OLED_SCL, cfg::PIN_OLED_SDA + 1);
+}
+
 TEST(test_signal_names) {
     for (unsigned pin = cfg::BUS_FIRST_PIN; pin <= cfg::BUS_LAST_PIN; ++pin)
         CHECK(std::string(fdd::signalName(pin)) != "?");
@@ -231,6 +255,7 @@ void runUiTests();
 
 int main() {
     RUN(test_pin_layout);
+    RUN(test_no_pin_used_twice);
     RUN(test_signal_names);
     RUN(test_active_low);
     RUN(test_watch_idle_is_silent);

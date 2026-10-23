@@ -4,7 +4,7 @@
 
 An RP2350 that pretends to be a 3.5-inch floppy drive, GoTek style, as the base for a future FDD Synth that *is* the drive rather than one that listens to it. Being the drive, it knows exactly when the motor spins and how the head moves, so the sounds can follow every step.
 
-At this stage it is a proof of concept on an Olimex RP2350-PICO2-BB48, tested from the same Mac that builds it. The host is a Feather RP2040 with an Adafruit Floppy FeatherWing, running Adafruit's Greaseweazle-compatible firmware, so the Greaseweazle tools (`gw`) drive it. See [docs/plan.md](docs/plan.md) for the slices and [docs/wiring.md](docs/wiring.md) for the connections. [docs/bringup.md](docs/bringup.md) is the checklist for hardware day.
+At this stage it is a proof of concept on an Olimex RP2350-PICO2-BB48, tested from the same Mac that builds it. The host is a Feather RP2040 with an Adafruit Floppy FeatherWing, running Adafruit's Greaseweazle-compatible firmware, so the Greaseweazle tools (`gw`) drive it. See [docs/plan.md](docs/plan.md) for the slices and [docs/wiring.md](docs/wiring.md) for the connections. [docs/bringup.md](docs/bringup.md) is the checklist for hardware day, [docs/parts.md](docs/parts.md) the parts list, and [docs/wiring.html](docs/wiring.html) an interactive wiring diagram with a soldering checklist (open it in a browser).
 
 It follows the approach of [HDDSynthPro](https://github.com/MaverickUK/HDDSynthPro), which does the same for IDE hard disks.
 

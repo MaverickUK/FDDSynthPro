@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Interactive wiring diagram: open in a browser. Pin map must match src/config.h and docs/wiring.md. -->
+<title>BB48 Floppy Wiring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body { margin: 0; }
+[hidden] { display: none !important; }
+/* Layout: a bench sheet, as HDDSynthPro's. Warnings first, then the pin-to-pin
+   drawing, the checklist you tick while soldering, and the board plan.
+   Signal colours = suggested wire colours. */
+:root {
+  --bg: #f4f6f3;
+  --panel: #ffffff;
+  --fg: #1c2125;
+  --muted: #5d6870;
+  --line: #d3d9d4;
+  --accent: #0e6a87;
+  --warn-bg: #fff4e5;
+  --warn-fg: #7a3d00;
+  --c-in: #2457d6;
+  --c-out: #c2410c;
+  --c-gnd: #3c444a;
+  --c-pwr: #b42318;
+  --c-sd: #13803f;
+  --c-audio: #7b3aec;
+  --c-panel: #a87700;
+  --c-nc: #a3acb2;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121518; --panel: #1a1e22; --fg: #e3e7ea; --muted: #94a0a8; --line: #2c3338;
+    --accent: #5cc3e0; --warn-bg: #33240f; --warn-fg: #ffcf94;
+    --c-in: #79a6ff; --c-out: #ff8a4f; --c-gnd: #aab3ba; --c-pwr: #ff7b6e;
+    --c-sd: #4fc27a; --c-audio: #b598ff; --c-panel: #e7b94c; --c-nc: #5b656c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121518; --panel: #1a1e22; --fg: #e3e7ea; --muted: #94a0a8; --line: #2c3338;
+  --accent: #5cc3e0; --warn-bg: #33240f; --warn-fg: #ffcf94;
+  --c-in: #79a6ff; --c-out: #ff8a4f; --c-gnd: #aab3ba; --c-pwr: #ff7b6e;
+  --c-sd: #4fc27a; --c-audio: #b598ff; --c-panel: #e7b94c; --c-nc: #5b656c;
+  color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap {
+  max-width: 1080px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 32px;
+}
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: 0.01em; }
+h2 { font-size: 1.35rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 70ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+header { display: grid; gap: 10px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+a { color: var(--accent); }
+
+.warnings { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.warn { background: var(--warn-bg); color: var(--warn-fg); border-radius: 6px; padding: 12px 14px; display: grid; gap: 4px; min-width: 0; }
+.warn strong { font-family: var(--font-display); font-size: 1.02rem; font-weight: 600; }
+.warn p { font-size: 0.92rem; }
+
+section { display: grid; gap: 14px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 18px; height: 4px; border-radius: 2px; background: var(--c); display: inline-block; }
+.legend .planned i { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; }
+.toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+button { font: inherit; font-size: 0.85rem; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 5px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+figure { margin: 0; display: grid; gap: 10px; }
+.drawing { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; padding: 8px; }
+.drawing svg { display: block; width: 100%; min-width: 820px; height: auto; color: var(--fg); }
+figcaption { font-size: 0.88rem; color: var(--muted); max-width: 85ch; }
+
+/* SVG parts, coloured through tokens so both themes work */
+.g-in { --c: var(--c-in); } .g-out { --c: var(--c-out); } .g-gnd { --c: var(--c-gnd); }
+.g-pwr { --c: var(--c-pwr); } .g-sd { --c: var(--c-sd); } .g-audio { --c: var(--c-audio); }
+.g-panel { --c: var(--c-panel); } .g-nc { --c: var(--c-nc); }
+.board { fill: var(--bg); stroke: var(--muted); stroke-width: 1.2; }
+.conn { fill: var(--bg); stroke: var(--muted); stroke-width: 1.2; }
+.chip { fill: var(--fg); fill-opacity: 0.08; stroke: var(--muted); stroke-width: 1.2; }
+.usb { fill: var(--line); stroke: var(--muted); }
+.pin { fill: var(--c); stroke: var(--panel); stroke-width: 1.5; }
+.pin.nc { fill: none; stroke: var(--c-nc); stroke-width: 1.2; }
+.pin.gnd { fill: var(--c-gnd); opacity: 0.55; }
+.tagbox { fill: color-mix(in srgb, var(--c) 14%, transparent); }
+.planned .tagbox { fill: none; stroke: var(--c); stroke-dasharray: 3 2; }
+.tagtext { fill: var(--c); font: 600 11px var(--font-mono); }
+.num { fill: var(--muted); font: 400 10px var(--font-mono); }
+.boardlbl { fill: var(--muted); font: 400 10px var(--font-mono); }
+.title { fill: currentColor; font: 600 13px var(--font-display); letter-spacing: 0.04em; }
+.sub { fill: var(--muted); font: 400 11px var(--font-body); }
+.wire { fill: none; stroke: var(--c); stroke-width: 2.2; stroke-linecap: round; opacity: 0.55; }
+.wire.on { opacity: 1; stroke-width: 3.2; }
+.res rect { fill: var(--panel); stroke: var(--c); stroke-width: 1.5; }
+.res text { fill: var(--c); font: 600 9.5px var(--font-mono); }
+.hit { cursor: pointer; }
+.hit.on .tagbox { fill: color-mix(in srgb, var(--c) 32%, transparent); }
+.hit.on .pin { stroke: var(--fg); stroke-width: 2; }
+.x { stroke: var(--c-nc); stroke-width: 1.3; }
+
+/* Checklist */
+.progress { font-family: var(--font-mono); font-size: 0.9rem; }
+.progress b { color: var(--accent); }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); background: var(--panel); position: sticky; top: 0; }
+tr.group td { font-family: var(--font-display); font-weight: 600; font-size: 0.98rem; background: color-mix(in srgb, var(--fg) 4%, transparent); cursor: default; }
+tbody tr:not(.group) { cursor: pointer; }
+tbody tr:not(.group):hover, tbody tr.on { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+tbody tr.done td:not(:first-child) { color: var(--muted); }
+tbody tr.done .sig { text-decoration: line-through; text-decoration-color: var(--muted); }
+td.mono { font-family: var(--font-mono); font-size: 0.85rem; }
+.sig { font-family: var(--font-mono); font-weight: 600; font-size: 0.88rem; color: var(--c); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); margin-right: 8px; vertical-align: -1px; }
+td input { accent-color: var(--accent); width: 17px; height: 17px; cursor: pointer; }
+.note { font-size: 0.88rem; color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+.cols > div { display: grid; gap: 10px; align-content: start; min-width: 0; }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; }
+.plan svg { min-width: 760px; }
+.plan .strip { stroke: var(--line); stroke-width: 1; }
+.plan .zone { stroke-width: 1.5; }
+.plan .zonetext { font: 600 11px var(--font-mono); }
+.plan .zonesub { font: 400 10px var(--font-body); fill: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .wire { transition: opacity 120ms ease, stroke-width 120ms ease; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">FDDSynthPro · the drive · firmware 0.6 pin map</div>
+    <h1>Olimex BB48 to a 34-pin floppy header</h1>
+    <p>Ten inputs straight to the BB48, each pulled up by the SIP network; five outputs through the SN7407, which pulls the cable low for the BB48. The SD card, the amp and the (planned) front panel hang off the other pins. Pick any pin or row to see its wire.</p>
+  </header>
+
+  <div class="warnings" aria-label="Before you wire">
+    <div class="warn"><strong>Use a plain BB48, not the BB48R</strong><p>On the R, GPIO 8 is the PSRAM chip-select and GPIO 9–11 go to its SD slot. Here they carry MOTEB, DIR, STEP and WDATA.</p></div>
+    <div class="warn"><strong>Power order</strong><p>BB48 on (USB-C) before the host's USB; the host off first. The RP2350's pins are 5 V tolerant only while it is powered, and the FeatherWing's outputs are 5 V.</p></div>
+    <div class="warn"><strong>Odd pins are all ground</strong><p>Pins 1–33 odd. Wire at least five, spread along the header, to the ground rail; all seventeen is better. Pins 4 and 6 stay unconnected.</p></div>
+    <div class="warn"><strong>One strip per header pin</strong><p>The box header's two columns must not share a Perma-Proto strip: cut the trace between them under every row (see the board plan), then check with a meter that pins 1 and 2 aren't connected.</p></div>
+    <div class="warn"><strong>5 V only to the SN7407 and the amp</strong><p>From the BB48's VBUS (EXT2-1). Everything else runs at 3.3 V: the SIP common and the SD card from +3.3V (EXT1-1).</p></div>
+  </div>
+
+  <section aria-labelledby="map-h">
+    <h2 id="map-h">Pin to pin</h2>
+    <div class="toolbar">
+      <label class="toggle"><input type="checkbox" id="showAll"> Show all wires</label>
+      <div class="legend" aria-label="Signal groups (suggested wire colours)">
+        <span class="g-in"><i></i>Inputs (host → drive)</span>
+        <span class="g-out"><i></i>Outputs, via the SN7407</span>
+        <span class="g-pwr"><i></i>Power</span>
+        <span class="g-gnd"><i></i>Ground</span>
+        <span class="g-sd"><i></i>SD card</span>
+        <span class="g-audio"><i></i>Amp</span>
+        <span class="g-panel planned"><i></i>Front panel (planned)</span>
+      </div>
+    </div>
+    <figure>
+      <div class="drawing">
+        <svg id="map" viewBox="0 0 900 640" role="img"
+             aria-label="The floppy header's even pins wired to the BB48: inputs DENSEL, motors, selects, DIR, STEP, WDATA, WGATE and SIDE1 to GPIO 4 to 13 directly, each with a pull-up; outputs INDEX, TRK00, WPT, RDATA and DSKCHG from GPIO 14 to 18 through the SN7407's buffers back to the header. All odd header pins to ground."></svg>
+      </div>
+      <figcaption>Left: the floppy box header seen from above, pin 1 at the top, odd pins (all ground) in the left column. Middle: the SN7407, pin 1 at the top left. Right: the BB48 as in Olimex's pinout, USB-C at the top, EXT1 (GPIO 0–23) the left row, EXT2 (GPIO 24–47) the right. The "10k" marks are the SIP network's pull-ups to +3.3 V. Check it all against the silkscreens.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="list-h">
+    <div class="toolbar">
+      <h2 id="list-h">Wiring checklist</h2>
+      <span class="progress" id="progress" aria-live="polite"></span>
+      <button type="button" id="clear">Clear ticks</button>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Done</th><th scope="col">From</th><th scope="col">Signal</th><th scope="col">To</th><th scope="col">GPIO</th><th scope="col">Notes</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="note">The ticks are saved in this browser only.</p>
+  </section>
+
+  <section aria-labelledby="plan-h" class="plan">
+    <h2 id="plan-h">On the Perma-Proto</h2>
+    <p>A plan by zones, not hole by hole: check it against the real parts before soldering. Rows run along the board; each half-row (a–e, f–j) is one strip.</p>
+    <figure>
+      <div class="drawing"><svg id="plan" viewBox="0 0 900 230" role="img" aria-label="Board plan: the floppy box header at rows 1 to 17 on the left half, with the SIP network on the right half of the same rows; the SN7407 across the centre at rows 19 to 25; the SD breakout at rows 27 to 33; the BB48 across the centre at rows 34 to 60."></svg></div>
+      <figcaption>The amp, the speaker, the OLED (on a Qwiic cable to the BB48's own socket) and the encoder and button sit off the board on short leads.</figcaption>
+    </figure>
+    <div class="cols">
+      <div>
+        <h3>Placing</h3>
+        <ul>
+          <li><b>BB48</b> across the centre channel at the far end (rows 34–60), in female headers so it can be swapped. EXT1 faces the header end: all fifteen floppy signals are on it.</li>
+          <li><b>Box header</b> at the near end, on the left half, its two columns in holes c and d. <b>Cut the trace between c and d</b> under all 17 rows, so pin 1 and pin 2 (and every pair) are on separate strips.</li>
+          <li><b>SIP network</b> in a 1 × 11 socket on the right half of the header's rows, one pin per row, pin 1 (the dot) nearest the end. Pin 1 to +3.3V; pins 2–11 to the ten inputs.</li>
+          <li><b>SN7407</b> in its socket across the centre channel, notch towards the header, with 100 nF between pins 14 and 7.</li>
+          <li><b>SD breakout</b> in the rows between the SN7407 and the BB48, so its six SDIO wires to GPIO 32–37 are short and alike.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>First power-up check</h3>
+        <p>With the host connected and reset (<code>gw reset --device &lt;port&gt;</code>), type <code>p</code> in the serial monitor:</p>
+<pre>PINS DENSEL=OFF MOTEA=OFF DRVSB=OFF DRVSA=OFF MOTEB=OFF DIR=OFF STEP=OFF WDATA=OFF WGATE=OFF SIDE1=OFF</pre>
+        <ul>
+          <li>Every input OFF (high, on its pull-up). DENSEL may be either: it's a level, not a request.</li>
+          <li>An input stuck ON usually means a wire on the wrong pin, or the SIP in backwards.</li>
+          <li>Run the solder-bridge test first, cable unplugged: <code>x</code> then <code>Y</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // Floppy pin -> [signal, group, gpio, 7407 A pin, 7407 Y pin]
+  const FDD = {
+    2: ["DENSEL", "in", 4], 4: ["unused", "nc"], 6: ["unused", "nc"], 8: ["INDEX", "out", 14, 1, 2],
+    10: ["MOTEA", "in", 5], 12: ["DRVSB", "in", 6], 14: ["DRVSA", "in", 7], 16: ["MOTEB", "in", 8],
+    18: ["DIR", "in", 9], 20: ["STEP", "in", 10], 22: ["WDATA", "in", 11], 24: ["WGATE", "in", 12],
+    26: ["TRK00", "out", 15, 3, 4], 28: ["WPT", "out", 16, 5, 6], 30: ["RDATA", "out", 17, 9, 8],
+    32: ["SIDE1", "in", 13], 34: ["DSKCHG", "out", 18, 11, 10],
+  };
+  // Other BB48 pins: GPIO -> [label, group, destination, planned]
+  const OTHER = {
+    32: ["SD CLK", "sd", "SD breakout CLK"], 33: ["SD CMD", "sd", "SD breakout CMD (10k pull-up)"],
+    34: ["SD DAT0", "sd", "SD breakout DAT0 (10k pull-up)"], 35: ["SD DAT1", "sd", "SD breakout DAT1 (10k pull-up)"],
+    36: ["SD DAT2", "sd", "SD breakout DAT2 (10k pull-up)"], 37: ["SD DAT3", "sd", "SD breakout DAT3 (10k pull-up)"],
+    26: ["AMP DIN", "audio", "MAX98357A DIN"], 27: ["AMP BCLK", "audio", "MAX98357A BCLK"],
+    28: ["AMP LRC", "audio", "MAX98357A LRC"],
+    2: ["OLED SDA", "panel", "OLED, by the BB48's Qwiic socket", true], 3: ["OLED SCL", "panel", "OLED, by the BB48's Qwiic socket", true],
+    20: ["ENC A", "panel", "Encoder A (other side to GND)", true], 21: ["ENC B", "panel", "Encoder B", true],
+    22: ["ENC SW", "panel", "Encoder switch (other side to GND)", true], 23: ["ACTION", "panel", "Action button (other side to GND)", true],
+  };
+  const bbPin = g => (g <= 23 ? { ext: 1, n: g + 4 } : { ext: 2, n: g - 20 });
+  const bbName = (ext, n) => `EXT${ext}-${n}`;
+  const EXT1 = ["+3.3V", "GND", "3V3_EN"].concat(Array.from({ length: 24 }, (_, i) => `GP${i}`));
+  const EXT2 = ["VBUS", "VSYS", "GND"].concat(Array.from({ length: 24 }, (_, i) => `GP${i + 24}`));
+
+  // Geometry
+  const P = 20;
+  const H_Y0 = 150, X_ODD = 120, X_EVEN = 150;                 // floppy header
+  const C_X1 = 395, C_X2 = 455, C_Y0 = 230;                    // SN7407 pins
+  const BB_Y0 = 70, X_EXT1 = 690, X_EXT2 = 790;                // BB48
+  const hdrPos = pin => ({ x: pin % 2 ? X_ODD : X_EVEN, y: H_Y0 + Math.floor((pin - 1) / 2) * P });
+  const chipPos = n => n <= 7 ? { x: C_X1, y: C_Y0 + (n - 1) * P } : { x: C_X2, y: C_Y0 + (14 - n) * P };
+  const bbPos = (ext, n) => ({ x: ext === 1 ? X_EXT1 : X_EXT2, y: BB_Y0 + (n - 1) * P });
+
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("map");
+  const el = (tag, attrs, parent, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    (parent || svg).appendChild(e);
+    return e;
+  };
+  const tagWidth = s => s.length * 6.9 + 12;
+  const gBody = el("g", {}), gWires = el("g", {}), gPins = el("g", {});
+  const hits = {}, wires = {};
+  const addHit = (key, g) => { (hits[key] = hits[key] || []).push(g); };
+  const addWire = (key, g) => { (wires[key] = wires[key] || []).push(g); };
+  function tag(parent, x, y, text, anchor) {
+    const w = tagWidth(text), x0 = anchor === "end" ? x - w : x;
+    el("rect", { x: x0, y: y - 8.5, width: w, height: 17, rx: 3, class: "tagbox" }, parent);
+    el("text", { x: x0 + w / 2, y: y + 4, "text-anchor": "middle", class: "tagtext" }, parent, text);
+    return { left: x0, right: x0 + w };
+  }
+
+  // Titles and bodies
+  el("text", { x: X_ODD + 15, y: 104, "text-anchor": "middle", class: "title" }, gBody, "FLOPPY 34-PIN HEADER");
+  el("text", { x: X_ODD + 15, y: 120, "text-anchor": "middle", class: "sub" }, gBody, "from the host (FeatherWing)");
+  el("rect", { x: X_ODD - 15, y: H_Y0 - 14, width: X_EVEN - X_ODD + 30, height: 17 * P + 8, rx: 3, class: "conn" }, gBody);
+  el("path", { d: `M ${X_ODD - 15} ${H_Y0 - 22} l 8 0 l -8 8 z`, fill: "currentColor" }, gBody);
+  el("text", { x: X_ODD - 2, y: H_Y0 - 18, class: "num" }, gBody, "1");
+  el("text", { x: (C_X1 + C_X2) / 2, y: C_Y0 - 40, "text-anchor": "middle", class: "title" }, gBody, "SN7407");
+  el("text", { x: (C_X1 + C_X2) / 2, y: C_Y0 - 26, "text-anchor": "middle", class: "sub" }, gBody, "open-collector, 5 V");
+  el("rect", { x: C_X1 + 8, y: C_Y0 - 14, width: C_X2 - C_X1 - 16, height: 7 * P + 8, rx: 3, class: "chip" }, gBody);
+  el("path", { d: `M ${(C_X1 + C_X2) / 2 - 6} ${C_Y0 - 14} a 6 6 0 0 0 12 0`, fill: "none", stroke: "currentColor", "stroke-opacity": 0.5 }, gBody);
+  el("text", { x: 790 - 50, y: 18, "text-anchor": "middle", class: "title" }, gBody, "OLIMEX RP2350-PICO2-BB48");
+  el("rect", { x: X_EXT1 - 14, y: BB_Y0 - 30, width: X_EXT2 - X_EXT1 + 28, height: 27 * P + 34, rx: 6, class: "board" }, gBody);
+  el("rect", { x: 722, y: BB_Y0 - 38, width: 36, height: 16, rx: 4, class: "usb" }, gBody);
+  el("text", { x: 740, y: BB_Y0 - 27, "text-anchor": "middle", class: "boardlbl" }, gBody, "USB");
+  el("text", { x: X_EXT1 - 16, y: BB_Y0 - 14, "text-anchor": "end", class: "num" }, gBody, "EXT1");
+  el("text", { x: X_EXT2 + 16, y: BB_Y0 - 14, class: "num" }, gBody, "EXT2");
+
+  // SN7407 pins
+  const CHIP = { 1: "1A", 2: "1Y", 3: "2A", 4: "2Y", 5: "3A", 6: "3Y", 7: "GND", 8: "4Y", 9: "4A", 10: "5Y", 11: "5A", 12: "6Y", 13: "6A", 14: "VCC" };
+  const chipKey = {};
+  for (const [pin, v] of Object.entries(FDD)) if (v[1] === "out") { chipKey[v[3]] = pin; chipKey[v[4]] = pin; }
+  for (let n = 1; n <= 14; n++) {
+    const { x, y } = chipPos(n);
+    const key = chipKey[n] || (n === 14 ? "c14" : n === 7 || n === 13 ? "cgnd" : null);
+    const grp = chipKey[n] ? "out" : n === 14 ? "pwr" : n === 12 ? "nc" : "gnd";
+    const g = el("g", { class: `g-${grp}` + (key ? " hit" : ""), "data-key": key || "" }, gPins);
+    el("circle", { cx: x, cy: y, r: 4.5, class: grp === "nc" ? "pin nc" : "pin" }, g);
+    el("text", { x: n <= 7 ? x + 12 : x - 12, y: y + 3.5, "text-anchor": n <= 7 ? "start" : "end", class: "boardlbl" }, g, CHIP[n]);
+    el("text", { x: n <= 7 ? x - 9 : x + 9, y: y + 3.5, "text-anchor": n <= 7 ? "end" : "start", class: "num" }, g, n);
+    if (key) addHit(key, g);
+  }
+
+  // BB48 pin uses
+  const bbUse = {};
+  for (const [pin, [sig, grp, gpio]] of Object.entries(FDD)) {
+    if (gpio != null) { const b = bbPin(gpio); bbUse[bbName(b.ext, b.n)] = { sig, grp, key: String(pin) }; }
+  }
+  for (const [gpio, [label, grp, , planned]] of Object.entries(OTHER)) {
+    const b = bbPin(Number(gpio)); bbUse[bbName(b.ext, b.n)] = { sig: label, grp, key: `g${gpio}`, planned };
+  }
+  bbUse["EXT1-1"] = { sig: "3V3", grp: "pwr", key: "v33" };
+  bbUse["EXT2-1"] = { sig: "5V", grp: "pwr", key: "c14" };
+  bbUse["EXT1-2"] = { sig: "GND", grp: "gnd", key: "gnd" };
+  bbUse["EXT2-3"] = { sig: "GND", grp: "gnd", key: "gnd" };
+
+  [[1, EXT1], [2, EXT2]].forEach(([ext, names]) => {
+    names.forEach((label, i) => {
+      const n = i + 1, { x, y } = bbPos(ext, n), use = bbUse[bbName(ext, n)];
+      const grp = use ? use.grp : "nc";
+      const g = el("g", { class: `g-${grp}` + (use ? " hit" : "") + (use && use.planned ? " planned" : ""), "data-key": use ? use.key : "" }, gPins);
+      el("text", { x: ext === 1 ? x + 12 : x - 12, y: y + 3.5, "text-anchor": ext === 1 ? "start" : "end", class: "boardlbl" }, g, label);
+      if (use) {
+        el("circle", { cx: x, cy: y, r: 5, class: "pin" }, g);
+        tag(g, ext === 1 ? x - 22 : x + 22, y, use.sig, ext === 1 ? "end" : "start");
+        addHit(use.key, g);
+      } else el("circle", { cx: x, cy: y, r: 4, class: "pin nc" }, g);
+    });
+  });
+
+  // Floppy header pins and their wires
+  const curve = (a, b, bend) => `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${b.x - bend} ${b.y}, ${b.x} ${b.y}`;
+  for (let pin = 1; pin <= 34; pin++) {
+    const { x, y } = hdrPos(pin);
+    if (pin % 2) {  // ground
+      const g = el("g", { class: "g-gnd hit", "data-key": "gnd" }, gPins);
+      el("circle", { cx: x, cy: y, r: 4, class: "pin gnd" }, g);
+      el("text", { x: x - 12, y: y + 3.5, "text-anchor": "end", class: "num" }, g, pin);
+      addHit("gnd", g);
+      continue;
+    }
+    const [sig, grp, gpio, aPin, yPin] = FDD[pin];
+    const g = el("g", { class: `g-${grp}` + (grp === "nc" ? "" : " hit"), "data-key": pin }, gPins);
+    el("text", { x: x + 12, y: y + 3.5, class: "num" }, g, pin);
+    if (grp === "nc") {
+      el("circle", { cx: x, cy: y, r: 4.5, class: "pin nc" }, g);
+      el("text", { x: x + 30, y: y + 3.5, class: "num" }, g, sig);
+      continue;
+    }
+    el("circle", { cx: x, cy: y, r: 5, class: "pin" }, g);
+    const t = tag(g, x + 30, y, sig, "start");
+    addHit(String(pin), g);
+    const start = { x: t.right, y };
+    const wg = el("g", { class: `g-${grp}`, visibility: "hidden" }, gWires);
+    if (grp === "in") {
+      const b = bbPos(1, bbPin(gpio).n);
+      const path = el("path", { d: curve(start, b, 220), class: "wire" }, wg);
+      const mid = path.getPointAtLength(path.getTotalLength() * 0.25);
+      const r = el("g", { class: "res" }, wg);
+      el("rect", { x: mid.x - 15, y: mid.y - 7, width: 30, height: 14, rx: 2 }, r);
+      el("text", { x: mid.x, y: mid.y + 3.5, "text-anchor": "middle" }, r, "10k↑");
+    } else {
+      const b = bbPos(1, bbPin(gpio).n), ca = chipPos(aPin), cy = chipPos(yPin);
+      el("path", { d: curve(b, ca, -90), class: "wire" }, wg);           // GPIO -> A
+      el("path", { d: curve(cy, start, -110), class: "wire" }, wg);       // Y -> header
+    }
+    addWire(String(pin), wg);
+  }
+
+  // Checklist
+  const NOTES = {
+    DENSEL: "A level from the host, not a request", MOTEA: "", DRVSB: "A PC drive's own select (after the twist: A)",
+    DRVSA: "", MOTEB: "A PC drive's own motor", DIR: "Asserted: step inwards", STEP: "Keep short",
+    WDATA: "Keep short", WGATE: "", SIDE1: "Asserted: head 1",
+    INDEX: "SN7407 pins 1 → 2", TRK00: "SN7407 pins 3 → 4", WPT: "SN7407 pins 5 → 6",
+    RDATA: "SN7407 pins 9 → 8", DSKCHG: "SN7407 pins 11 → 10",
+  };
+  const entries = [];
+  const group = title => entries.push({ group: title });
+  group("Floppy inputs: header to BB48, each also to its SIP pin");
+  let sipPin = 2;
+  for (const [pin, [sig, grp, gpio]] of Object.entries(FDD)) {
+    if (grp !== "in") continue;
+    const b = bbPin(gpio);
+    entries.push({ key: pin, from: `Floppy ${pin}`, sig, grp, to: `${bbName(b.ext, b.n)}, SIP pin ${sipPin++}`, gpio, note: NOTES[sig] });
+  }
+  group("Floppy outputs: BB48 to the SN7407, and the SN7407 to the header");
+  for (const [pin, [sig, grp, gpio, a, y]] of Object.entries(FDD)) {
+    if (grp !== "out") continue;
+    const b = bbPin(gpio);
+    entries.push({ key: pin, from: `${bbName(b.ext, b.n)} → 7407-${a}`, sig, grp, to: `7407-${y} → Floppy ${pin}`, gpio, note: NOTES[sig] });
+  }
+  group("Power and ground");
+  entries.push({ key: "gnd", from: "Floppy 1, 3 … 33", sig: "GND", grp: "gnd", to: "Ground rail", gpio: "—", note: "At least five, spread along the header" });
+  entries.push({ key: "gnd2", hitKey: "gnd", from: "BB48 GND", sig: "GND", grp: "gnd", to: "EXT1-2 and EXT2-3 to the rail", gpio: "—", note: "" });
+  entries.push({ key: "c14", from: "VBUS (EXT2-1)", sig: "5V", grp: "pwr", to: "SN7407 pin 14", gpio: "—", note: "100 nF from pin 14 to pin 7" });
+  entries.push({ key: "cgnd", from: "SN7407 pins 7 and 13", sig: "GND", grp: "gnd", to: "Ground rail", gpio: "—", note: "Pin 13 (6A, unused) to ground; pin 12 open" });
+  entries.push({ key: "v33", from: "+3.3V (EXT1-1)", sig: "3V3", grp: "pwr", to: "SIP pin 1 (the dot)", gpio: "—", note: "10 kΩ with the FeatherWing, 1 kΩ for a real PC" });
+  group("SD card (slice 3)");
+  for (const g of [32, 33, 34, 35, 36, 37]) {
+    const [label, grp, dest] = OTHER[g], b = bbPin(g);
+    entries.push({ key: `g${g}`, from: bbName(b.ext, b.n), sig: label, grp, to: dest, gpio: g, note: "" });
+  }
+  entries.push({ key: "sdpwr", hitKey: "v33", from: "+3.3V and GND", sig: "3V/GND", grp: "pwr", to: "SD breakout 3V and GND", gpio: "—", note: "100 nF across them" });
+  group("Amp (the FDD Synth)");
+  for (const g of [26, 27, 28]) {
+    const [label, grp, dest] = OTHER[g], b = bbPin(g);
+    entries.push({ key: `g${g}`, from: bbName(b.ext, b.n), sig: label, grp, to: dest, gpio: g, note: "" });
+  }
+  entries.push({ key: "amppwr", hitKey: "c14", from: "VBUS and GND", sig: "5V/GND", grp: "pwr", to: "MAX98357A Vin and GND", gpio: "—", note: "Speaker to the amp's terminal block" });
+  group("Front panel (planned: the firmware comes later)");
+  entries.push({ key: "g2", from: "BB48 Qwiic socket", sig: "OLED", grp: "panel", to: "SSD1306, Qwiic cable", gpio: "2, 3", note: "I2C1; the BB48 has the pull-ups" });
+  for (const g of [20, 21, 22, 23]) {
+    const [label, grp, dest] = OTHER[g], b = bbPin(g);
+    entries.push({ key: `g${g}`, from: bbName(b.ext, b.n), sig: label, grp, to: dest, gpio: g, note: "Pulled up inside the RP2350" });
+  }
+
+  const rows = document.getElementById("rows");
+  const STORE = "bb48-floppy-wiring-v1";
+  let done = {};
+  try { done = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { done = {}; }
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(done)); } catch (e) {} };
+  const rowEls = {};
+  const items = entries.filter(e => !e.group);
+  for (const e of entries) {
+    const tr = document.createElement("tr");
+    if (e.group) { tr.className = "group"; tr.innerHTML = `<td colspan="6">${e.group}</td>`; rows.appendChild(tr); continue; }
+    tr.className = `g-${e.grp}`;
+    tr.dataset.key = e.hitKey || e.key;
+    tr.tabIndex = 0;
+    tr.innerHTML =
+      `<td><input type="checkbox" id="w-${e.key}" aria-label="${e.sig}: ${e.from} to ${e.to}, wired"></td>` +
+      `<td class="mono">${e.from}</td>` +
+      `<td><span class="swatch"></span><span class="sig">${e.sig}</span></td>` +
+      `<td class="mono">${e.to}</td>` +
+      `<td class="mono">${e.gpio}</td>` +
+      `<td class="note">${e.note || ""}</td>`;
+    const cb = tr.querySelector("input");
+    cb.checked = !!done[e.key];
+    tr.classList.toggle("done", cb.checked);
+    cb.addEventListener("click", ev => ev.stopPropagation());
+    cb.addEventListener("change", () => { done[e.key] = cb.checked; tr.classList.toggle("done", cb.checked); save(); progress(); });
+    rows.appendChild(tr);
+    (rowEls[tr.dataset.key] = rowEls[tr.dataset.key] || []).push(tr);
+  }
+  const prog = document.getElementById("progress");
+  function progress() {
+    const n = items.filter(e => done[e.key]).length;
+    prog.innerHTML = `<b>${n}</b> of ${items.length} done`;
+  }
+  progress();
+  document.getElementById("clear").addEventListener("click", () => {
+    done = {}; save();
+    rows.querySelectorAll("tr:not(.group)").forEach(tr => { tr.querySelector("input").checked = false; tr.classList.remove("done"); });
+    progress();
+  });
+
+  // Selection: hover previews, click pins it
+  const showAll = document.getElementById("showAll");
+  let pinned = null, hovered = null;
+  function render() {
+    const active = hovered || pinned, all = showAll.checked;
+    for (const [key, gs] of Object.entries(wires))
+      for (const g of gs) {
+        const on = key === active;
+        g.setAttribute("visibility", all || on ? "visible" : "hidden");
+        g.querySelectorAll(".wire").forEach(w => w.classList.toggle("on", on));
+      }
+    for (const [key, gs] of Object.entries(hits)) gs.forEach(g => g.classList.toggle("on", key === active));
+    for (const [key, trs] of Object.entries(rowEls)) trs.forEach(tr => tr.classList.toggle("on", key === active));
+  }
+  const keyOf = t => { const g = t.closest && t.closest(".hit"); return g ? g.getAttribute("data-key") : null; };
+  svg.addEventListener("mouseover", ev => { hovered = keyOf(ev.target); render(); });
+  svg.addEventListener("mouseleave", () => { hovered = null; render(); });
+  svg.addEventListener("click", ev => { const k = keyOf(ev.target); pinned = k && k !== pinned ? k : null; render(); });
+  rows.addEventListener("mouseover", ev => { const tr = ev.target.closest("tr:not(.group)"); hovered = tr ? tr.dataset.key : null; render(); });
+  rows.addEventListener("mouseleave", () => { hovered = null; render(); });
+  rows.addEventListener("click", ev => { const tr = ev.target.closest("tr:not(.group)"); if (!tr) return; pinned = tr.dataset.key === pinned ? null : tr.dataset.key; render(); });
+  rows.addEventListener("keydown", ev => {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    const tr = ev.target.closest("tr:not(.group)"); if (!tr || ev.target.tagName === "INPUT") return;
+    ev.preventDefault(); pinned = tr.dataset.key === pinned ? null : tr.dataset.key; render();
+  });
+  showAll.addEventListener("change", render);
+
+  // The board plan
+  const plan = document.getElementById("plan");
+  const pl = (tag, attrs, text) => el(tag, attrs, plan, text);
+  const ROW = 13.6, X0 = 60, Y_TOP = 40, HALF = 62, GAP = 18;
+  const rowX = r => X0 + (r - 0.5) * ROW;
+  pl("rect", { x: X0 - 10, y: Y_TOP - 22, width: 60 * ROW + 20, height: 2 * HALF + GAP + 44, rx: 6, class: "board" });
+  for (let r = 1; r <= 60; r++) {
+    pl("line", { x1: rowX(r), y1: Y_TOP, x2: rowX(r), y2: Y_TOP + HALF, class: "strip" });
+    pl("line", { x1: rowX(r), y1: Y_TOP + HALF + GAP, x2: rowX(r), y2: Y_TOP + 2 * HALF + GAP, class: "strip" });
+    if (r === 1 || r % 5 === 0) pl("text", { x: rowX(r), y: Y_TOP + 2 * HALF + GAP + 16, "text-anchor": "middle", class: "num" }, r);
+  }
+  pl("text", { x: X0 - 16, y: Y_TOP + HALF / 2 + 4, "text-anchor": "end", class: "num" }, "a–e");
+  pl("text", { x: X0 - 16, y: Y_TOP + HALF + GAP + HALF / 2 + 4, "text-anchor": "end", class: "num" }, "f–j");
+  const zone = (r1, r2, top, bottom, grp, label, sub) => {
+    const g = pl("g", { class: `g-${grp}` });
+    const x = rowX(r1) - ROW / 2 + 1, w = (r2 - r1 + 1) * ROW - 2;
+    el("rect", { x, y: top, width: w, height: bottom - top, rx: 3, class: "zone tagbox", stroke: "var(--c)" }, g);
+    el("text", { x: x + w / 2, y: (top + bottom) / 2 - 2, "text-anchor": "middle", class: "zonetext", fill: "var(--c)" }, g, label);
+    if (sub) el("text", { x: x + w / 2, y: (top + bottom) / 2 + 12, "text-anchor": "middle", class: "zonesub" }, g, sub);
+  };
+  const T1 = Y_TOP + 4, B1 = Y_TOP + HALF - 4, T2 = Y_TOP + HALF + GAP + 4, B2 = Y_TOP + 2 * HALF + GAP - 4, MID_T = Y_TOP + HALF - 14, MID_B = Y_TOP + HALF + GAP + 14;
+  zone(1, 17, T1, B1, "in", "BOX HEADER", "cut c|d under every row");
+  zone(1, 11, T2, B2, "pwr", "SIP 1×11", "pin 1 = +3.3V");
+  zone(19, 25, MID_T, MID_B, "out", "SN7407", "");
+  zone(27, 33, T1, B2, "sd", "SD", "breakout");
+  zone(34, 60, MID_T - 18, MID_B + 18, "nc", "BB48 (across the channel)", "EXT1 on this side, USB-C at the far end");
+})();
+</script>
+</body>
+</html>

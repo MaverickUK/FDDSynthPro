@@ -57,6 +57,12 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
   - Host tests cover the controls and render every screen. `docs/oled/` holds the PNGs. `scripts/build_panel_page.py` builds an interactive panel page from the firmware's own frames.
   - The mixer gains no volume yet: the UI model holds it for when the panel is wired.
 
+- **A hardware pack.**
+  - `docs/parts.md` lists every part, with links to UK suppliers where they stock it, marking which you have and which are optional.
+  - `docs/wiring.html` is an interactive pin-to-pin diagram with a soldering checklist covering the floppy header, the SN7407, the pull-ups, the SD card, the amp and the planned front panel, plus a zone plan for the Perma-Proto board.
+  - The front panel's pins are planned and reserved in `config.h`: the OLED on the BB48's own Qwiic socket (GPIO 2/3), the encoder on GPIO 20–22 and the action button on 23. A test checks no GPIO is used twice.
+  - The input pull-ups are an 11-pin bussed SIP network: ten inputs need ten resistors, which the 10-pin network doesn't have.
+
 ### Fixed
 - The test suite failed on CI (GCC): two test files defined different `MemorySource` classes, an ODR violation. One is gone, and each test file's helpers now live in an anonymous namespace.
 
