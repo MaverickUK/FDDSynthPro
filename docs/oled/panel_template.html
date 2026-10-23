@@ -1,0 +1,345 @@
+<title>FDD Synth Pro Panel</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=VT323&display=swap">
+<style>
+/* Layout: a drive's faceplate up top, live; the screen catalogue and the controls below. */
+:root {
+  --bg: #eceef1;
+  --surface: #ffffff;
+  --ink: #15181c;
+  --muted: #59626d;
+  --line: #d3d8de;
+  --accent: #2a5d91;          /* diskette blue */
+  --plate: #2b2f34;           /* the faceplate: always dark, like the hardware */
+  --plate-edge: #1c1f23;
+  --plate-ink: #c8ced5;
+  --plate-mute: #868f99;
+  --knob: #3b4047;
+  --knob-hi: #5a616a;
+  --led: #59d17a;
+  --font-display: "VT323", "IBM Plex Mono", ui-monospace, monospace;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --surface: #191d22; --ink: #e6e9ed; --muted: #9aa3ad; --line: #2b3138;
+    --accent: #84b3e2; --plate: #24282d; --plate-edge: #0c0e10; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --surface: #191d22; --ink: #e6e9ed; --muted: #9aa3ad; --line: #2b3138;
+  --accent: #84b3e2; --plate: #24282d; --plate-edge: #0c0e10; color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--ink); font: 400 1rem/1.55 var(--font-body); }
+.wrap {
+  max-width: 1040px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 2.5rem 4rem;
+  display: grid; gap: 3rem;
+}
+header { display: grid; gap: .5rem; max-width: 65ch; }
+h1 { font: 400 clamp(2.4rem, 6vw, 3.4rem)/1 var(--font-display); margin: 0; letter-spacing: .02em; text-wrap: balance; }
+h2 { font: 400 1.9rem/1 var(--font-display); margin: 0 0 1rem; letter-spacing: .02em; }
+.lede { margin: 0; color: var(--muted); }
+.eyebrow { font: 500 .72rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin: 0; }
+
+/* ---- The faceplate -------------------------------------------------------------- */
+.plate {
+  background: linear-gradient(180deg, var(--plate), var(--plate-edge));
+  border-radius: 6px; padding: clamp(14px, 3vw, 28px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 1px 0 rgba(0,0,0,.25);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: clamp(16px, 4vw, 40px); align-items: center;
+}
+.window {
+  background: #000; border-radius: 3px; padding: 10px;
+  box-shadow: inset 0 0 0 2px #0a0b0c, inset 0 6px 18px rgba(0,0,0,.8);
+  min-width: 0;
+}
+.window img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.plate-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
+  font: 500 .72rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--plate-mute); }
+.led { display: inline-flex; align-items: center; gap: .5rem; }
+.led::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #3a3f45; }
+.led[data-on="true"]::before { background: var(--led); box-shadow: 0 0 8px var(--led); }
+
+.controls { display: grid; justify-items: center; gap: 14px; }
+.knob-row { display: flex; align-items: center; gap: 10px; }
+.knob {
+  width: 86px; height: 86px; border-radius: 50%; border: 0; cursor: pointer;
+  background:
+    repeating-conic-gradient(from 0deg, rgba(255,255,255,.07) 0 4deg, transparent 4deg 12deg),
+    radial-gradient(circle at 35% 30%, var(--knob-hi), var(--knob) 60%, #23272c);
+  box-shadow: 0 4px 10px rgba(0,0,0,.45), inset 0 1px 1px rgba(255,255,255,.12);
+  position: relative; transition: transform .25s ease;
+}
+.knob::after { content: ""; position: absolute; left: 50%; top: 9px; width: 3px; height: 16px; margin-left: -1.5px; border-radius: 2px; background: var(--plate-ink); }
+.knob:active { box-shadow: 0 2px 5px rgba(0,0,0,.45), inset 0 2px 4px rgba(0,0,0,.4); }
+.turn, .hold {
+  font: 500 .75rem/1 var(--font-mono); color: var(--plate-ink); background: transparent; cursor: pointer;
+  border: 1px solid #4a5058; border-radius: 4px; padding: .45rem .55rem;
+}
+.turn:hover, .hold:hover { border-color: var(--plate-ink); }
+.action {
+  width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
+  background: radial-gradient(circle at 40% 35%, #d9dde2, #9aa1a9 70%);
+  box-shadow: 0 3px 6px rgba(0,0,0,.5), inset 0 -2px 2px rgba(0,0,0,.25);
+}
+.action:active { transform: translateY(1px); box-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.label { font: 500 .66rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--plate-mute); }
+.action-row { display: flex; align-items: center; gap: 12px; }
+:is(.knob, .turn, .action, .hold):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.status { margin: .9rem 0 0; color: var(--muted); font-size: .95rem; min-height: 1.6em; }
+.status b { color: var(--ink); font-weight: 600; }
+.hint { margin: .25rem 0 0; color: var(--muted); font-size: .85rem; }
+kbd { font: 500 .8em/1 var(--font-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: .1em .35em; background: var(--surface); }
+
+/* ---- Catalogue -------------------------------------------------------------------- */
+.screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 1.5rem; }
+figure { margin: 0; display: grid; gap: .6rem; align-content: start; }
+figure img { width: 100%; height: auto; image-rendering: pixelated; border-radius: 3px; background: #000; display: block; }
+figcaption { display: grid; gap: .15rem; }
+figcaption b { font: 500 .78rem/1.2 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+figcaption span { color: var(--muted); font-size: .9rem; }
+
+/* ---- Controls table --------------------------------------------------------------- */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .95rem; min-width: 520px; }
+th, td { text-align: left; padding: .65rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 .72rem/1.2 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+td:first-child { font-family: var(--font-mono); font-size: .88rem; white-space: nowrap; }
+
+.notes { display: grid; gap: .6rem; max-width: 70ch; color: var(--muted); }
+.notes p { margin: 0; }
+
+@media (max-width: 700px) {
+  .plate { grid-template-columns: minmax(0, 1fr); }
+  .controls { grid-auto-flow: column; justify-content: center; align-items: center; gap: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .knob { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">FDD Synth Pro · front panel</p>
+    <h1>The OLED, before the hardware</h1>
+    <p class="lede">These are the firmware's own pixels: the screens below were drawn by <code>src/screens.cpp</code> in the host tests and saved as images, at 4× scale. Turn the encoder, press it, and use the action button to drive the panel the way the UI model does.</p>
+  </header>
+
+  <section aria-labelledby="try">
+    <h2 id="try">Try it</h2>
+    <div class="plate" id="plate" tabindex="0" aria-label="Front panel. Arrow keys turn the encoder, Enter presses it, Space is the action button, H holds it.">
+      <div class="window"><img id="oled" alt="OLED screen" width="516" height="260"></div>
+      <div class="controls">
+        <div class="knob-row">
+          <button class="turn" id="turnDown" aria-label="Turn the encoder anticlockwise">◀</button>
+          <button class="knob" id="knob" aria-label="Press the encoder"></button>
+          <button class="turn" id="turnUp" aria-label="Turn the encoder clockwise">▶</button>
+        </div>
+        <span class="label">Encoder</span>
+        <div class="action-row">
+          <button class="action" id="action" aria-label="Action button: press for the next screen, hold to eject"></button>
+          <button class="hold" id="hold" aria-label="Hold the action button: eject or insert">Hold</button>
+        </div>
+        <span class="label">Action</span>
+      </div>
+      <div class="plate-foot">
+        <span class="led" id="led" data-on="true">Drive</span>
+        <span>3.5" · 1.44M / 720K</span>
+      </div>
+    </div>
+    <p class="status" id="status" aria-live="polite"></p>
+    <p class="hint">Keys: <kbd>←</kbd> <kbd>→</kbd> turn, <kbd>Enter</kbd> press, <kbd>Space</kbd> action, <kbd>H</kbd> hold. Holding the action button for a second also ejects.</p>
+  </section>
+
+  <section aria-labelledby="screens">
+    <h2 id="screens">The screens</h2>
+    <div class="screens" id="gallery"></div>
+  </section>
+
+  <section aria-labelledby="controls">
+    <h2 id="controls">The controls</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>On most screens</th><th>On the disk list</th></tr></thead>
+        <tbody>
+          <tr><td>Turn</td><td>Volume, in 5% steps. The overlay closes 4 s after the last turn.</td><td>Move the selection; it wraps round.</td></tr>
+          <tr><td>Press</td><td>Open the disk list, on the disk that's in.</td><td>Insert the selected disk: eject, half a second, insert.</td></tr>
+          <tr><td>Action</td><td>Next screen: home, head trace, sounds, stats.</td><td>Back, without changing disk.</td></tr>
+          <tr><td>Hold action</td><td>Eject the disk, or put it back.</td><td>Eject, and back.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="notes">
+    <h2 id="notes">Notes</h2>
+    <div class="notes">
+      <p>The look is the HDD Synth's: a 128 × 64 SSD1306, a lit title bar, the same 5 × 7 font, and the same encoder and button handling, copied from HDDSynth_Native so the two products feel like one family.</p>
+      <p>That font has no descenders, so screen text avoids lower-case g, j, p, q and y where it matters ("New disk", not "Changing disk").</p>
+      <p>The head trace is the one screen only this drive can show: it knows exactly where its head is, so seeks draw themselves.</p>
+      <p>On the board, a full frame over I2C takes about 25 ms of core 0, so frames will be paced (the HDD Synth draws at most 10 a second) or sent by DMA, to keep the audio and the cylinder loads on time.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+const F = /*FRAMES*/{};
+const DISKS = ["DOS622.IMG", "GAMES.IMG", "MONKEY1.IMG", "UTILS720.IMA", "WORKBENCH.IMG"];
+const CYCLE = ["home", "head", "sounds", "stats"];
+const NAMES = { home: "Home", head: "Head trace", sounds: "Sounds", stats: "Stats" };
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const st = { screen: "home", base: "home", sel: 1, disk: 1, vol: 75, diskIn: true, frame: 0, swapTo: 1, swapPhase: "", knob: 0 };
+let overlayTimer = 0, swapTimers = [];
+
+const oled = document.getElementById("oled");
+const status = document.getElementById("status");
+const led = document.getElementById("led");
+const knob = document.getElementById("knob");
+
+function frameKey() {
+  switch (st.screen) {
+    case "home": return st.diskIn ? `p_home_${st.disk}_${reduceMotion ? 2 : st.frame % 8}` : `p_nodisk_${st.disk}`;
+    case "disks": return `disks_${st.sel}`;
+    case "swap": return `${st.swapPhase === "eject" ? "p_eject" : "p_insert"}_${st.swapTo}`;
+    case "volume": return `volume_${st.vol}`;
+    case "head": return "head_trace";
+    case "sounds": return "sounds";
+    default: return "stats";
+  }
+}
+
+function say(html) { status.innerHTML = html; }
+
+function render() {
+  const key = frameKey();
+  if (F[key]) oled.src = F[key];
+  oled.alt = `OLED: ${st.screen}`;
+  led.dataset.on = String(st.diskIn && st.screen !== "swap");
+}
+
+function closeAfter(ms) {
+  clearTimeout(overlayTimer);
+  overlayTimer = setTimeout(() => {
+    if (st.screen === "volume" || st.screen === "disks") { st.screen = st.base; say(`Back to <b>${NAMES[st.base]}</b>.`); render(); }
+  }, ms);
+}
+
+function turn(dir) {
+  st.knob += dir * 24;
+  knob.style.transform = `rotate(${st.knob}deg)`;
+  if (st.screen === "swap") return;
+  if (st.screen === "disks") {
+    st.sel = (st.sel + dir + DISKS.length) % DISKS.length;
+    say(`Disk list: <b>${DISKS[st.sel]}</b>${st.sel === st.disk ? " (in the drive)" : ""}. Press to insert it.`);
+    closeAfter(15000);
+  } else {
+    st.vol = Math.max(0, Math.min(100, st.vol + dir * 5));
+    st.screen = "volume";
+    say(`Volume <b>${st.vol}%</b>. The overlay closes 4 s after the last turn.`);
+    closeAfter(4000);
+  }
+  render();
+}
+
+function press() {
+  if (st.screen === "swap") return;
+  if (st.screen === "disks") {
+    if (st.sel === st.disk) { st.screen = st.base; say(`<b>${DISKS[st.disk]}</b> is already in.`); render(); return; }
+    startSwap(st.sel);
+    return;
+  }
+  st.sel = st.disk;
+  st.screen = "disks";
+  say(`Disk list. Turn to choose, press to insert, action to go back.`);
+  closeAfter(15000);
+  render();
+}
+
+function action() {
+  if (st.screen === "swap") return;
+  if (st.screen === "disks" || st.screen === "volume") { st.screen = st.base; }
+  else { st.base = CYCLE[(CYCLE.indexOf(st.base) + 1) % CYCLE.length]; st.screen = st.base; }
+  say(`<b>${NAMES[st.screen]}</b>.`);
+  render();
+}
+
+function hold() {
+  if (st.screen === "swap") return;
+  st.diskIn = !st.diskIn;
+  if (st.screen === "disks" || st.screen === "volume") st.screen = st.base;
+  if (st.base !== "home") { st.base = "home"; st.screen = "home"; }
+  say(st.diskIn ? `<b>${DISKS[st.disk]}</b> back in.` : `Ejected. The drive reports a disk change; hold again to put it back.`);
+  render();
+}
+
+function startSwap(to) {
+  swapTimers.forEach(clearTimeout);
+  st.screen = "swap"; st.swapTo = to; st.swapPhase = "eject"; st.diskIn = false;
+  say(`Ejecting <b>${DISKS[st.disk]}</b>…`);
+  render();
+  swapTimers = [
+    setTimeout(() => { st.swapPhase = "insert"; st.disk = to; say(`Inserting <b>${DISKS[to]}</b>…`); render(); }, 1100),
+    setTimeout(() => { st.diskIn = true; st.screen = st.base; say(`<b>${DISKS[to]}</b> is in.`); render(); }, 2000),
+  ];
+}
+
+document.getElementById("turnUp").addEventListener("click", () => turn(1));
+document.getElementById("turnDown").addEventListener("click", () => turn(-1));
+knob.addEventListener("click", press);
+knob.addEventListener("wheel", e => { e.preventDefault(); turn(e.deltaY > 0 ? 1 : -1); }, { passive: false });
+document.getElementById("hold").addEventListener("click", hold);
+
+// The action button: a press for the next screen, held a second to eject.
+const act = document.getElementById("action");
+let holdTimer = 0, held = false;
+act.addEventListener("pointerdown", () => { held = false; holdTimer = setTimeout(() => { held = true; hold(); }, 1000); });
+act.addEventListener("pointerup", () => { clearTimeout(holdTimer); if (!held) action(); });
+act.addEventListener("pointerleave", () => clearTimeout(holdTimer));
+act.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); action(); } });
+
+document.getElementById("plate").addEventListener("keydown", e => {
+  if (e.target.closest("button")) return;
+  const k = e.key;
+  if (k === "ArrowRight" || k === "ArrowUp") { e.preventDefault(); turn(1); }
+  else if (k === "ArrowLeft" || k === "ArrowDown") { e.preventDefault(); turn(-1); }
+  else if (k === "Enter") { e.preventDefault(); press(); }
+  else if (k === " ") { e.preventDefault(); action(); }
+  else if (k === "h" || k === "H") { hold(); }
+});
+
+if (!reduceMotion) setInterval(() => { if (st.screen === "home" && st.diskIn) { st.frame++; render(); } }, 140);
+
+// The catalogue.
+const SHOW = [
+  ["home_reading", "Home, reading", "The disk in, the track big, the head, the format. The disk spins with the motor; the marker shows the head across 80 cylinders."],
+  ["home_seeking", "Home, seeking", "Track 3, head 0, mid-seek."],
+  ["home_writing", "Home, writing", "Track 79, the innermost."],
+  ["home_idle_write_protected", "Home, idle", "Motor off, the image marked read-only on the card: WP."],
+  ["home_no_disk", "Home, ejected", "No disk: the eject symbol instead of the spinning disk."],
+  ["disks", "Disk list", "The card's images in name order; the one in the drive marked with ›, the selection lit."],
+  ["swap_ejecting", "Changing disk", "The old disk comes out…"],
+  ["swap_inserting", "Changing disk", "…and the new one goes in."],
+  ["volume_75", "Volume", "The HDD Synth's ramp: lit columns up to the level."],
+  ["head_trace", "Head trace", "The last four seconds of head movement: a seek out, single steps, a seek back for the FAT, a full sweep."],
+  ["sounds", "Sounds", "The sample pack on the card: what loaded (insert and eject are optional), its rate and size."],
+  ["stats", "Stats", "Counters for bring-up: cylinder loads, sectors written, and the error counts that should stay at zero."],
+];
+const gallery = document.getElementById("gallery");
+for (const [key, name, text] of SHOW) {
+  if (!F[key]) continue;
+  const fig = document.createElement("figure");
+  fig.innerHTML = `<img alt="${name}" width="516" height="260"><figcaption><b>${name}</b><span>${text}</span></figcaption>`;
+  fig.querySelector("img").src = F[key];
+  gallery.appendChild(fig);
+}
+
+say(`<b>Home</b>. ${DISKS[st.disk]} is in and reading.`);
+render();
+</script>

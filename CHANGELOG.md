@@ -50,6 +50,13 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 - **The sample pool is one allocation sized to the pack** (up to 160 KB), loaded in two passes, instead of a fixed 160 KB array.
 - Static RAM in the drive build falls from 85% to 41%.
 
+- **The front panel, ready for an OLED, an encoder and an action button (screens and controls only; the drivers come with the hardware).**
+  - `ui.h`: the controls, as on the HDD Synth. Turn for volume, or to choose on the disk list; press for the disk list, or to insert the chosen disk; action for the next screen (home, head trace, sounds, stats); hold action to eject or insert.
+  - `screens.h`: the 128 × 64 screens. Home shows the image, a big track number, the head, the format, write-protect, the activity, a disk that spins with the motor, and a head marker across 80 cylinders. The others are the disk list, the disk change, volume, the head trace (the head's cylinder over the last few seconds, so seeks draw themselves), sounds and stats.
+  - The canvas, font, encoder decoder and button handling are copied from HDDSynth_Native, so the two synths share a look and a feel.
+  - Host tests cover the controls and render every screen. `docs/oled/` holds the PNGs. `scripts/build_panel_page.py` builds an interactive panel page from the firmware's own frames.
+  - The mixer gains no volume yet: the UI model holds it for when the panel is wired.
+
 ### Fixed
 - The test suite failed on CI (GCC): two test files defined different `MemorySource` classes, an ODR violation. One is gone, and each test file's helpers now live in an anonymous namespace.
 

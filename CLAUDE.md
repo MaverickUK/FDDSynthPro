@@ -29,7 +29,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
 - **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). CI builds them with GCC on Linux, the Mac with Clang: anything the two may treat differently (undefined behaviour, ODR) shows up there first.
   - Each test file's own types and tests live in an anonymous namespace; only its `run...Tests()` is outside. Two test files once defined different `MemorySource` classes: an ODR violation that Clang's link happened to survive and GCC's didn't.
-  - To run them with GCC locally: `docker run --rm -v "$PWD":/src:ro gcc:13 bash -c 'cp -r /src /tmp/w && cd /tmp/w && rm -rf .pio && test/run_native_tests.sh'` (ThreadSanitizer doesn't run in Docker). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write`, `write_burst`, `synth` and `wav` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+  - To run them with GCC locally: `docker run --rm -v "$PWD":/src:ro gcc:13 bash -c 'cp -r /src /tmp/w && cd /tmp/w && rm -rf .pio && test/run_native_tests.sh'` (ThreadSanitizer doesn't run in Docker). Keep `fdd_signals`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write`, `write_burst`, `synth`, `wav`, `ui`, `screens`, `canvas`, `quadrature` and `button` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware and runs the C++ tests and `pytest -m sim` on every push. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -115,6 +115,13 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 - `host/fddproto/player.py` turns `ACT` lines into a WAV with a sample pack. It's the spec for the firmware's mixer (`src/synth.*`): `host/tests/test_synth.py` requires the two to match sample for sample (integer mix, saturating). Change both together, and `docs/activity.md` with them.
 - **Audio runs on core 0** (`audio.h`): I2S on GPIO 26–28 (below 32, so its PIO shares the GPIO 0–31 window with RDATA/WDATA), begun on core 0 so its DMA interrupt never touches core 1. `audio::service()` runs between core 0's slower steps; the queue (`AUDIO_BUFFERS` x `AUDIO_BLOCK_FRAMES`) must outlast the longest one.
 - Tests drive it through the virtual hosts (`test/native/virtual_hosts.h`); drain the tracker as core 0 does, or its 32-event queue drops the oldest.
+
+## Front panel
+
+`src/ui.*` is the model: inputs (`ui::Input`) in, the screen and requests (`takeSwap`, `takeEjectToggle`) out. `src/screens.*` draws each `ui::Screen` from a `ui::Status` snapshot onto a `Canvas`. `canvas`, `font5x7`, `quadrature` and `button` are copied unchanged from HDDSynth_Native; keep them in step with it rather than editing them here.
+- **The font has no descenders:** avoid lower-case g, j, p, q, y in headings and key words.
+- **Previews:** `FDDSYNTH_PREVIEW_DIR=docs/oled test/run_native_tests.sh && python3 test/pbm_to_png.py docs/oled` regenerates the reference PNGs. Add `FDDSYNTH_PREVIEW_ALL=1` for the extra frames, or run `scripts/build_panel_page.py out.html` for the interactive page. Look at the PNGs after changing a screen.
+- **Not wired yet:** the SSD1306 driver, the encoder and button pins, and the volume in the mixer. HDDSynth_Native's I2C frame takes about 25 ms of core 0, so pace frames or use DMA.
 
 ## Trace format
 

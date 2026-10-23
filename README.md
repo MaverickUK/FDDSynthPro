@@ -21,6 +21,12 @@ The drive build (`pio run -e bb48_drive`, slices 1-3) is ready for when the hard
 
 Its logic is tested on the Mac against virtual hosts (the Feather's firmware and a Greaseweazle's), and its PIO program in a simulator whose output Greaseweazle's own decoder reads back. It has not run on hardware yet.
 
+## Front panel
+
+The OLED screens and controls are designed and tested ahead of the hardware: [docs/oled](docs/oled) has every screen, drawn by the firmware's own code.
+
+<img src="docs/oled/home_reading.png" alt="The home screen: GAMES.IMG, track 40, head 1, reading" width="256"> <img src="docs/oled/head_trace.png" alt="The head trace screen" width="256">
+
 ## Quick start
 
 ```sh
