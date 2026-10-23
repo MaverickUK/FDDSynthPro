@@ -59,8 +59,8 @@ struct Core0Costs {
 
 class Machine {
     // Declared first: members are built in declaration order, and the loader
-    // and writer below are built on these buffers.
-    const ibm::Format& fmt_;
+    // and writer below are built on these buffers (sized for the largest
+    // format, as on the board).
     Core0Costs costs_;
     std::vector<uint32_t> slots_;
     std::vector<uint16_t> scratch_;
@@ -71,26 +71,36 @@ class Machine {
 public:
     explicit Machine(const ibm::Format& fmt = ibm::HD_1440, Core0Costs costs = {}, uint8_t start_cylinder = 0,
                      bool writable = true)
-        : fmt_(fmt),
-          costs_(costs),
-          slots_(fmt.track_bytes),
-          scratch_(fmt.track_bytes),
-          data0_(fmt.trackDataBytes()),
-          data1_(fmt.trackDataBytes()),
+        : costs_(costs),
+          slots_(ibm::HD_1440.track_bytes),
+          scratch_(ibm::HD_1440.track_bytes),
+          data0_(ibm::HD_1440.trackDataBytes()),
+          data1_(ibm::HD_1440.trackDataBytes()),
           store_(12 * 1024),
           fields_(64),
           d(config(start_cylinder)),
           source(fmt),
-          loader(source, slots_.data(), scratch_.data(), data0_.data(), data1_.data()),
-          writer(source, loader, store_.data(), store_.size(), fields_.data(), fields_.size()) {
+          slot(source),
+          loader(slot, slots_.data(), scratch_.data(), data0_.data(), data1_.data()),
+          writer(slot, loader, store_.data(), store_.size(), fields_.data(), fields_.size()) {
         source.writable_ = writable;
         // As at power-on: cylinder 0 is loaded before the host can ask.
         while (loader.service() != CylinderLoader::Step::Idle) {}
         d.insertDisk(!writable);
     }
 
-    const ibm::Format& format() const { return fmt_; }
-    uint32_t usPerByte() const { return 8000000u / fmt_.dataRate(); }
+    const ibm::Format& format() const { return slot.format(); }
+    uint32_t usPerByte() const { return 8000000u / format().dataRate(); }
+
+    // A disk swap, as the firmware does it: eject (DSKCHG set, RDATA off),
+    // then later insert another disk. Its cylinders load in the background;
+    // RDATA stays off until the one under the head is ready.
+    void eject() { d.ejectDisk(); }
+    void insert(TrackSource& disk) {
+        slot.insert(disk);
+        loader.reset();
+        d.insertDisk(!disk.writable());
+    }
 
     // Core 1's work after each sample the host's pin changes cause.
     void attach(VirtualHost& host) {
@@ -127,7 +137,7 @@ public:
     // nothing (0) when the drive holds RDATA released.
     uint16_t rdataCells(uint32_t now, uint8_t head, uint32_t pos) const {
         if (!d.streams(now, loader.ready())) return 0;
-        return rdata::headCells(slots_[pos % fmt_.track_bytes], head);
+        return rdata::headCells(slots_[pos % format().track_bytes], head);
     }
 
     // The WDATA capture: intervals the host writes, as the PIO program
@@ -141,7 +151,8 @@ public:
     static constexpr uint32_t EDGE_TICKS = 2;
 
     drive::Drive d;
-    MemorySource source;
+    MemorySource source;  // the disk in the drive at power-on
+    DiskSlot slot;        // whichever disk is in now
     CylinderLoader loader;
     BurstWriter writer;
     WriteGate gate;
@@ -162,7 +173,7 @@ private:
         for (unsigned i = 0; i < n; ++i) tracker.onDriveEvent(out[i]);
         drainSounds();
 
-        switch (gate.onSample(now, pins, d, true, fmt_.dataRate(), burst_)) {
+        switch (gate.onSample(now, pins, d, true, format().dataRate(), burst_)) {
             case WriteGate::Action::Start:
                 capture_.clear();
                 break;

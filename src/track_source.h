@@ -44,6 +44,26 @@ public:
     virtual bool writable() const { return false; }
 };
 
+// The disk in the drive: whichever source is inserted. The loader and the
+// write path read and write through it, so swapping disks changes what's
+// under them without rebuilding either.
+class DiskSlot : public TrackSource {
+public:
+    explicit DiskSlot(TrackSource& disk) : disk_(&disk) {}
+    void insert(TrackSource& disk) { disk_ = &disk; }
+    TrackSource& disk() { return *disk_; }
+
+    const ibm::Format& format() const override { return disk_->format(); }
+    bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override { return disk_->readTrack(c, h, out); }
+    bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
+        return disk_->writeSector(c, h, s, data);
+    }
+    bool writable() const override { return disk_->writable(); }
+
+private:
+    TrackSource* disk_;
+};
+
 class GeneratedSource : public TrackSource {
 public:
     explicit GeneratedSource(const ibm::Format& fmt) : fmt_(fmt) {}

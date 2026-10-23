@@ -11,7 +11,9 @@
 //               cylinder under the head. Core 0 loads it (cylinder_loader.h)
 //               from the first image on the SD card, or from the generated
 //               1.44 MB disk without one. A read-only disk is in from
-//               power-on, writable if the image is. What the drive does
+//               power-on, writable if the image is. Console `[` and `]`
+//               swap to the previous or next image on the card, GoTek
+//               style. What the drive does
 //               becomes sound events (activity.h), printed as ACT lines for
 //               the FDD Synth. Writes: core 1 captures WDATA while WGATE is
 //               asserted (wdata_pio.h); core 0 decodes each burst and puts
@@ -109,6 +111,12 @@ static std::atomic<uint32_t> g_outer_knocks{0};  // steps out at cylinder 0
 static std::atomic<uint32_t> g_inner_knocks{0};  // steps in at the last cylinder
 static std::atomic<int> g_disk_request{0};       // console `d`: +1 insert, -1 eject
 
+// A disk swap (console `[` / `]`): core 0 asks for an eject, core 1 ejects,
+// core 0 opens the new image and loads the cylinder under the head, core 1
+// retunes the PIO programs if the data rate changed and inserts it.
+enum SwapState : int { SWAP_NONE, SWAP_EJECT, SWAP_EJECTED, SWAP_INSERT };
+static std::atomic<int> g_swap{SWAP_NONE};
+
 // What the drive did, from core 1 to core 0's activity tracker.
 static SpscRing<activity::DriveEvent, 256> g_drive_events;
 static std::atomic<uint32_t> g_drive_events_dropped{0};
@@ -155,8 +163,9 @@ void loop1() {
     // edges are late by at most one pass (well under a microsecond).
     static drive::Drive d;
     const CylinderLoader& loader = *g_loader.load();
-    const bool write_protected = !g_writable.load();
-    const uint32_t data_rate = g_format.load()->dataRate();
+    const ibm::Format* fmt = g_format.load();
+    uint32_t data_rate = fmt->dataRate();
+    bool write_protected = !g_writable.load();
     d.insertDisk(write_protected);
     g_disk_in.store(true);
     PinWatch w(pinsAsSample());
@@ -183,6 +192,25 @@ void loop1() {
         if (request > 0) d.insertDisk(write_protected);
         if (request < 0) d.ejectDisk();
         if (request) g_disk_in.store(d.diskPresent(), std::memory_order_relaxed);
+
+        int swap = g_swap.load(std::memory_order_acquire);
+        if (swap == SWAP_EJECT && !write_gate.capturing()) {
+            d.ejectDisk();
+            g_disk_in.store(false, std::memory_order_relaxed);
+            g_swap.store(SWAP_EJECTED, std::memory_order_release);
+        } else if (swap == SWAP_INSERT) {
+            const ibm::Format* next = g_format.load();
+            if (next != fmt) {  // 720 KB <-> 1.44 MB: another data rate and track length
+                fmt = next;
+                data_rate = fmt->dataRate();
+                rdata_pio::setFormat(fmt->track_bytes, data_rate);
+                wdata_pio::setRate(data_rate);
+            }
+            write_protected = !g_writable.load();
+            d.insertDisk(write_protected);
+            g_disk_in.store(true, std::memory_order_relaxed);
+            g_swap.store(SWAP_NONE, std::memory_order_release);
+        }
 
         activity::DriveEvent changes[3];
         unsigned n = observer.observe(now, d, e, changes);
@@ -227,7 +255,9 @@ void loop1() {
 // Core 0's share of the drive: choose the disk at power-on, then keep the
 // cylinder buffer loaded with the cylinder under the head, a step at a time.
 static GeneratedSource g_generated(ibm::HD_1440);
-static TrackSource* g_source = &g_generated;
+static DiskSlot* g_slot = nullptr;  // the disk in the drive
+static bool g_from_card = false;    // serving images from the card, not the generated disk
+static size_t g_image_index = 0;
 static uint8_t g_track_data[2][ibm::HD_1440.sectors * gen_disk::SECTOR_BYTES];
 static uint16_t g_track_scratch[ibm::HD_1440.track_bytes];
 static uint32_t g_read_us_max = 0;    // slowest track read (console `s`)
@@ -243,15 +273,60 @@ static uint32_t g_write_unplaced = 0;
 static uint32_t g_write_us_max = 0;
 
 static void chooseDisk() {
-    if (TrackSource* image = sd_image::open()) g_source = image;
-    static CylinderLoader loader(*g_source, g_cylinder_slots, g_track_scratch, g_track_data[0],
-                                 g_track_data[1]);
-    static BurstWriter writer(*g_source, loader, g_write_store, sizeof g_write_store, g_write_fields, 64);
+    TrackSource* image = sd_image::mount() ? sd_image::open(0) : nullptr;
+    g_from_card = image != nullptr;
+    static DiskSlot slot(image ? *image : static_cast<TrackSource&>(g_generated));
+    g_slot = &slot;
+    static CylinderLoader loader(slot, g_cylinder_slots, g_track_scratch, g_track_data[0], g_track_data[1]);
+    static BurstWriter writer(slot, loader, g_write_store, sizeof g_write_store, g_write_fields, 64);
     g_writer = &writer;
     while (loader.service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
-    g_format.store(&g_source->format());
-    g_writable.store(g_source->writable());
+    g_format.store(&slot.format());
+    g_writable.store(slot.writable());
     g_loader.store(&loader, std::memory_order_release);
+}
+
+// The disk is out for this long during a swap, as when a person changes
+// disks: the host sees DSKCHG, and the synth plays EJECT then INSERT.
+constexpr uint32_t SWAP_EJECTED_MS = 500;
+static uint32_t g_ejected_ms = 0;
+
+static void requestSwap(bool next) {
+    const ImageList& images = sd_image::images();
+    if (!g_from_card || images.count() < 2) {
+        Serial.println("# no other image on the card");
+        return;
+    }
+    if (g_swap.load() != SWAP_NONE) {
+        Serial.println("# a swap is already under way");
+        return;
+    }
+    g_image_index = next ? images.next(g_image_index) : images.prev(g_image_index);
+    Serial.printf("# swapping to %s\n", images.name(g_image_index));
+    g_ejected_ms = 0;
+    g_swap.store(SWAP_EJECT, std::memory_order_release);
+}
+
+static void serviceSwap() {
+    if (g_swap.load(std::memory_order_acquire) != SWAP_EJECTED) return;
+    if (!g_ejected_ms) g_ejected_ms = millis() | 1;
+    // Wait out the eject, and any write burst still being decoded: it
+    // belongs to the old disk.
+    if (millis() - g_ejected_ms < SWAP_EJECTED_MS || g_burst_state.load() != BURST_FREE) return;
+    TrackSource* image = sd_image::open(g_image_index);
+    if (!image) {
+        Serial.printf("# can't open %s; keeping the last disk out\n", sd_image::images().name(g_image_index));
+        g_swap.store(SWAP_NONE, std::memory_order_release);
+        return;
+    }
+    g_slot->insert(*image);
+    CylinderLoader& loader = *g_loader.load();
+    loader.reset();
+    loader.request(g_cylinder.load(std::memory_order_relaxed));
+    while (loader.service() != CylinderLoader::Step::Idle) {}
+    g_format.store(&image->format());
+    g_writable.store(image->writable());
+    g_swap.store(SWAP_INSERT, std::memory_order_release);
 }
 
 static void serviceWrites() {
@@ -308,11 +383,12 @@ static void serviceActivity() {
 static void printImage() {
     const ibm::Format* fmt = g_format.load();
     unsigned kb = fmt ? unsigned(fmt->trackDataBytes() * IMAGE_CYLINDERS * IMAGE_HEADS / 1024) : 0;
-    if (g_source == &g_generated)
+    if (!g_from_card)
         Serial.printf("IMAGE generated %u\n", kb);
     else
-        Serial.printf("IMAGE %s %u contiguous=%d writable=%d\n", sd_image::name(), kb, (int)sd_image::contiguous(),
-                      (int)g_writable.load());
+        Serial.printf("IMAGE %s %u contiguous=%d writable=%d index=%u/%u\n", sd_image::name(), kb,
+                      (int)sd_image::contiguous(), (int)g_writable.load(), unsigned(g_image_index + 1),
+                      unsigned(sd_image::images().count()));
 }
 
 #endif
@@ -422,7 +498,7 @@ static void handleConsole() {
                 Serial.println("# h help, p pins, s stats, m mark, x short test (cable unplugged), "
                                "b reboot to bootloader");
 #else
-                Serial.println("# h help, p pins, s stats, i image, d disk in/out, m mark, "
+                Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
@@ -444,6 +520,8 @@ static void handleConsole() {
                 break;
 #if FIRMWARE_SLICE != 0
             case 'i': printImage(); break;
+            case '[': requestSwap(false); break;
+            case ']': requestSwap(true); break;
             case 'd': {  // the rig's way to eject and insert, for DSKCHG
                 bool insert = !g_disk_in.load();
                 g_disk_request.store(insert ? 1 : -1);
@@ -473,6 +551,7 @@ void setup() {
 void loop() {
 #if FIRMWARE_SLICE != 0
     serviceWrites();  // before loading: a write may be to the cylinder being left
+    serviceSwap();
     serviceLoader();
     serviceActivity();
 #endif

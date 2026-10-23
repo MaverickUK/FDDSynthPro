@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "check.h"
+#include "image_list.h"
 #include "machine.h"
 #include "virtual_pc.h"
 
@@ -147,6 +148,11 @@ TEST(test_pc_dd_disk) {
     std::vector<uint8_t> buf(9 * 512);
     pc.motorOn();
     pc.recalibrate();
+    // The controller starts at 500 kbit/s: nothing reads until the BIOS
+    // finds the disk's rate.
+    CHECK(pc.readSectors(0, 0, 1, 1, buf.data()) == Status::SectorNotFound);
+    CHECK(pc.detectRate());
+    CHECK_EQ(pc.rate_bps, 250000u);
     CHECK(pc.readSectors(79, 1, 1, 9, buf.data()) == Status::Ok);
     CHECK(buf == sectors(m.source, 79, 1, 1, 9));
     std::vector<uint8_t> data(512, 0xA5);
@@ -167,10 +173,72 @@ TEST(test_pc_gives_up_on_a_card_that_never_answers) {
     CHECK_EQ(pc.retries, 2u);
 }
 
+TEST(test_pc_disk_swaps) {
+    // GoTek style: a 1.44 MB disk, swapped for a 720 KB one, then back. The
+    // BIOS sees each change, finds each disk's rate, and reads the right
+    // disk; writes go to the disk that's in.
+    Machine m;
+    MemorySource dd(ibm::DD_720);
+    VirtualPc pc(m);
+    std::vector<uint8_t> buf(512);
+    pc.motorOn();
+    pc.recalibrate();
+    CHECK(pc.readSectors(10, 0, 1, 1, buf.data()) == Status::Ok);
+
+    m.eject();
+    pc.run(500000);
+    m.insert(dd);
+    pc.run(100000);
+    CHECK(pc.diskChanged());
+    pc.clearDiskChange();
+    CHECK(pc.detectRate());
+    CHECK_EQ(pc.rate_bps, 250000u);
+    CHECK(pc.readSectors(10, 0, 1, 1, buf.data()) == Status::Ok);
+    CHECK(std::memcmp(buf.data(), dd.sector(10, 0, 0), 512) == 0);
+    std::vector<uint8_t> data(512, 0x3C);
+    CHECK(pc.writeSectors(12, 1, 9, 1, data.data()) == Status::Ok);
+    CHECK(std::memcmp(dd.sector(12, 1, 8), data.data(), 512) == 0);
+    CHECK_EQ(m.source.writes, 0u);  // not the 1.44 MB disk
+
+    m.eject();
+    pc.run(500000);
+    m.insert(m.source);
+    pc.run(100000);
+    CHECK(pc.diskChanged());
+    pc.clearDiskChange();
+    CHECK(pc.detectRate());
+    CHECK_EQ(pc.rate_bps, 500000u);
+    CHECK(pc.readSectors(10, 0, 1, 1, buf.data()) == Status::Ok);
+    CHECK(std::memcmp(buf.data(), m.source.sector(10, 0, 0), 512) == 0);
+    CHECK_EQ(countSounds(m.sounds, activity::Sound::Eject), 2u);
+    CHECK_EQ(countSounds(m.sounds, activity::Sound::Insert), 2u);
+}
+
+TEST(test_image_list) {
+    ImageList l;
+    CHECK(l.add("games.IMG", 1474560));
+    CHECK(l.add("Apps.ima", 737280));
+    CHECK(l.add("dos622.img", 1474560));
+    CHECK(!l.add("notes.txt", 1474560));      // not an image name
+    CHECK(!l.add("big.img", 2949120));        // 2.88 MB: not served
+    CHECK(!l.add("x.img", 1000));
+    CHECK_EQ(l.count(), 3u);
+    CHECK_STR(l.name(0), "Apps.ima");  // name order, ignoring case
+    CHECK_STR(l.name(1), "dos622.img");
+    CHECK_STR(l.name(2), "games.IMG");
+    CHECK_EQ(l.size(0), 737280u);
+    CHECK_EQ(l.next(2), 0u);  // wraps
+    CHECK_EQ(l.prev(0), 2u);
+    ImageList empty;
+    CHECK_EQ(empty.next(0), 0u);
+}
+
 void runVirtualPcTests() {
     RUN(test_pc_dos_session);
     RUN(test_pc_head_switch_without_settle);
     RUN(test_pc_write_protected);
     RUN(test_pc_dd_disk);
     RUN(test_pc_gives_up_on_a_card_that_never_answers);
+    RUN(test_pc_disk_swaps);
+    RUN(test_image_list);
 }

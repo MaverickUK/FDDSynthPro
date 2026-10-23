@@ -31,6 +31,15 @@ public:
     CylinderLoader(TrackSource& source, uint32_t* slots, uint16_t* scratch, uint8_t* data0, uint8_t* data1)
         : source_(source), slots_(slots), scratch_(scratch), data_{data0, data1} {}
 
+    // Forgets what the buffer holds, for a new disk: the next service()
+    // starts a load. ready() is -1 until it finishes.
+    void reset() {
+        loading_ = -1;
+        next_ = Step::Idle;
+        present_[0] = present_[1] = false;
+        ready_.store(-1, std::memory_order_release);
+    }
+
     // The cylinder the head is on now. Cheap; call as often as you like.
     void request(uint8_t cylinder) { wanted_ = cylinder; }
 

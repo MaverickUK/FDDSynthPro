@@ -85,6 +85,14 @@ Core 0's `BurstWriter` runs the burst through `mfm::DataSeparator`, `mfm::FieldS
 - **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
 - `WDATA` and `RDATA` programs both live in PIO 2 or 1 (`pio_get_gpio_base == 0`), never PIO 0.
 
+## Swapping images
+
+The loader and `BurstWriter` work through a `DiskSlot`, never an image directly. A swap is a four-state handshake (`g_swap` in `main.cpp`):
+1. Core 0 asks for an eject.
+2. Core 1 ejects, once no capture is running.
+3. After `SWAP_EJECTED_MS`, with no burst pending, core 0 opens the image, puts it in the slot and resets and reloads the loader.
+4. Core 1 retunes `rdata_pio`/`wdata_pio` if the format changed, and inserts the disk.
+
 ## The virtual PC
 
 `test/native/virtual_pc.h` drives a `Machine` (`test/native/machine.h`): the drive as both cores run it, in simulated time.
@@ -117,6 +125,7 @@ Console:
 - `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk` and the knock counts;
 - `d`: eject or insert the disk (drive build);
 - `i`: the image being served (drive build);
+- `[` / `]`: swap to the previous or next image on the card (drive build);
 - `m`: print a `MARK` timestamp;
 - `x` then `Y`: the solder-bridge test, floppy cable unplugged (`short_test.*`; the board reboots afterwards);
 - `b`: reboot to the bootloader.

@@ -17,10 +17,14 @@
 //   - Errors: three tries, recalibrating between them, as INT 13h does.
 //   - Disk change: the BIOS reads DSKCHG before an access; a change is
 //     cleared by stepping (here: to cylinder 1 and back).
+//   - Data rate: the controller reads at one rate (500 kbit/s for 1.44 MB,
+//     250 for 720 KB). At the wrong rate it finds nothing; after a disk
+//     change the BIOS tries each rate in turn (media detection).
 #pragma once
 
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
 #include <vector>
 
 #include "crc16.h"
@@ -101,6 +105,23 @@ public:
         return access(cyl, head, first, count, nullptr, data);
     }
 
+    // The controller's data rate, as the BIOS last set it.
+    uint32_t rate_bps = 500000;
+
+    // Media detection, after a disk change: the rate at which the boot
+    // sector reads, trying 500 then 250 kbit/s. False if neither does.
+    bool detectRate() {
+        for (uint32_t rate : {500000u, 250000u}) {
+            rate_bps = rate;
+            if (seekTo(0)) {
+                set(cfg::PIN_SIDE1, false);
+                std::vector<uint8_t> boot(m_.format().sectorBytes());
+                if (find(0, 0, 1, boot.data())) return true;
+            }
+        }
+        return false;
+    }
+
     unsigned retries = 0;
     unsigned recalibrations = 0;
 
@@ -154,7 +175,9 @@ private:
             uint32_t pos = position();
             if (pos < last_pos && ++indexes == 2) return false;
             last_pos = pos;
-            uint16_t cells = m_.rdataCells(now, head, pos);
+            // At the wrong rate the controller's data separator never
+            // locks: it sees nothing it can use.
+            uint16_t cells = rate_bps == m_.format().dataRate() ? m_.rdataCells(now, head, pos) : 0;
             for (int b = 15; b >= 0; --b) scanner.addCell((cells >> b) & 1);
             run(per_byte);
             if (!scanner.count()) continue;

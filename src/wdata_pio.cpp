@@ -47,6 +47,11 @@ void begin(uint32_t data_rate_bps) {
     s_dma = dma_claim_unused_channel(true);
 }
 
+void setRate(uint32_t data_rate_bps) {
+    rdata::Divider div = rdata::clockDivider(clock_get_hz(clk_sys), data_rate_bps, fdd_wdata_TICKS_PER_CELL * 2);
+    pio_sm_set_clkdiv_int_frac8(s_pio, s_sm, div.integer, div.frac);
+}
+
 void start(uint8_t* buffer, size_t capacity) {
     s_capacity_words = capacity / 4;
     pio_sm_set_enabled(s_pio, s_sm, false);

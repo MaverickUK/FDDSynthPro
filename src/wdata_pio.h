@@ -12,6 +12,9 @@ namespace wdata_pio {
 // rate (16 ticks a cell). Nothing runs until start().
 void begin(uint32_t data_rate_bps);
 
+// A disk of another data rate. Call only while no capture is running.
+void setRate(uint32_t data_rate_bps);
+
 // Captures intervals into `buffer` (`capacity` bytes, a multiple of 4).
 void start(uint8_t* buffer, size_t capacity);
 

@@ -21,6 +21,10 @@ void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps);
 // before. The pause is a few microseconds, inside gap 4a.
 void restartAtIndex();
 
+// A disk of another format: the buffer's length and the data rate change.
+// RDATA should be held released (no disk) while it happens.
+void setFormat(uint32_t words, uint32_t data_rate_bps);
+
 // Lets the program drive RDATA, or holds it released (deselected, no disk,
 // motor not at speed). The program keeps running either way.
 void enable(bool on);

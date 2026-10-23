@@ -21,6 +21,16 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
   Further tests cover a head switch with no settle, a write-protected disk, a 720 KB disk, and a card too slow to ever answer, where the read fails rather than returning stale data. The session's sound events are saved to `.pio/native-tests/pc_session_act.txt`.
 
+- **Swapping images, GoTek style (drive build).** The drive lists every 720 KB and 1.44 MB image on the card in name order. Console `]` and `[` swap to the next or previous image:
+  1. the disk is ejected, setting DSKCHG;
+  2. half a second later the new image is opened and the cylinder under the head loaded;
+  3. both PIO programs are retuned if the data rate changed;
+  4. the disk is inserted.
+
+  `i` shows `index=2/3`. A button can drive the same swap later.
+- `DiskSlot` (the disk in the drive, which the loader and write path go through), `ImageList`, `CylinderLoader::reset`, `rdata_pio::setFormat` and `wdata_pio::setRate`.
+- **The virtual PC finds a disk's data rate** after a change, trying 500 and then 250 kbit/s as a BIOS does. Tests cover a swap from 1.44 MB to 720 KB and back, writes going to the disk that's in, and the image list's ordering and filtering. A rig test (`test_swaps.py`, `-m slice6`) swaps through every image on the card.
+
 ### Changed
 - Core 1's RDATA gate and write-capture control moved out of `main.cpp` into pure code (`drive::Drive::streams`, `WriteGate` in `write_burst.h`), so the firmware and the virtual PC share them.
 

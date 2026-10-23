@@ -121,6 +121,12 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] **Power cycle:** write a track, unplug the BB48 (Feather first), plug it back and read the track: the card kept it.
 - [ ] Afterwards, copy the image back to the Mac and compare it with the local copy: identical, since the tests restored every track.
 
+## 12. Swapping images
+
+- [ ] Copy all three test images to the card (`GEN1440.IMG`, `RAND1440.IMG`, `RAND720.IMG`).
+- [ ] Type `]` and `i` a few times: the index moves round the list and back, and each swap prints `EJECT` and then `INSERT`.
+- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice6 -k swap`. Each image reads as its local copy, including the 720 KB one at 250 kbit/s.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

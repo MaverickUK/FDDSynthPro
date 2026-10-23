@@ -101,6 +101,13 @@ void restartAtIndex() {
     pio_sm_set_enabled(s_pio, s_sm, true);
 }
 
+void setFormat(uint32_t words, uint32_t data_rate_bps) {
+    s_words = words;
+    rdata::Divider div = rdata::clockDivider(clock_get_hz(clk_sys), data_rate_bps);
+    pio_sm_set_clkdiv_int_frac8(s_pio, s_sm, div.integer, div.frac);
+    restartAtIndex();
+}
+
 void enable(bool on) { gpio_set_outover(cfg::PIN_RDATA, on ? GPIO_OVERRIDE_NORMAL : GPIO_OVERRIDE_HIGH); }
 
 }  // namespace rdata_pio
