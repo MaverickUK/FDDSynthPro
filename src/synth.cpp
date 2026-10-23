@@ -75,6 +75,11 @@ static void addLoop(int32_t* mix, size_t n, uint32_t from, uint32_t start, uint3
     }
 }
 
+void Mixer::setVolume(int percent) {
+    percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    target_gain_ = UNITY * uint32_t(percent * percent) / 10000;
+}
+
 void Mixer::render(int16_t* out, size_t frames) {
     constexpr size_t BLOCK = 64;
     int32_t mix[BLOCK];
@@ -103,7 +108,15 @@ void Mixer::render(int16_t* out, size_t frames) {
 
         for (size_t k = 0; k < n; ++k) {
             int32_t v = mix[k];
-            out[k] = int16_t(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+            v = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+            if (gain_ != target_gain_) {
+                constexpr uint32_t step = UNITY / VOLUME_RAMP;
+                if (gain_ < target_gain_) gain_ = target_gain_ - gain_ < step ? target_gain_ : gain_ + step;
+                else gain_ = gain_ - target_gain_ < step ? target_gain_ : gain_ - step;
+            }
+            // At unity this is v exactly. (Shifting a negative right rounds
+            // down, on every compiler the firmware and tests use.)
+            out[k] = int16_t((v * int32_t(gain_)) >> 15);
         }
         out += n;
         frames -= n;

@@ -91,9 +91,9 @@ A MAX98357A breakout, as on HDDSynth_Native, with a small speaker. BCLK and LRCL
 
 Leave SD_MODE and GAIN unconnected (the firmware sends the same sample on both channels).
 
-### The front panel (planned)
+### The front panel
 
-The firmware doesn't use these yet ([docs/oled](oled) has the screens); the pins are reserved so nothing else takes them.
+The drive build drives these ([src/panel.h](../src/panel.h); [docs/oled](oled) has the screens). Without an OLED it logs `# oled: no display answering` and the controls still work.
 
 | Part | Signal | GPIO | BB48 pin |
 |---|---|---|---|
@@ -103,7 +103,7 @@ The firmware doesn't use these yet ([docs/oled](oled) has the screens); the pins
 | Rotary encoder | switch | 22 | EXT1-26 |
 | Action button | | 23 | EXT1-27 |
 
-The encoder's common pin and the other side of each switch go to GND; the firmware will use the RP2350's internal pull-ups, as HDDSynth_Native does.
+The encoder's common pin and the other side of each switch go to GND; the firmware uses the RP2350's internal pull-ups, as HDDSynth_Native does. If clockwise turns the volume down, swap A and B, or set `ENCODER_REVERSED` in `src/config.h`.
 
 ## Notes
 

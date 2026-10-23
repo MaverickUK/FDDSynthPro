@@ -136,6 +136,15 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Run `gw seek` and `gw read`: spin-up, the spin loop, clicks or seeks, spin-down. `[` and `]` add eject and insert.
 - [ ] After a long `gw read` and a `gw write`, `s` should show `audio_underruns=0`. If not, core 0 stalled longer than the 46 ms queue: note what it was doing (`write_us_max` is the likely one).
 
+## 14. The front panel
+
+- [ ] Plug the OLED into the BB48's Qwiic socket, and wire the encoder and the action button ([wiring.md](wiring.md)).
+- [ ] Power up: the console shows `# oled: found at 0x3c` and the home screen appears. `s` shows `oled=1` and `frames` counting up by about 10 a second.
+- [ ] Turn the encoder clockwise: the volume screen, rising, and the sound gets louder. If it falls instead, set `ENCODER_REVERSED` in `src/config.h`.
+- [ ] Press the encoder: the disk list. Turn to another disk and press: the Swap screen, the eject and insert sounds, then home with the new disk (`i` agrees).
+- [ ] Press the action button: head trace, sounds, stats, home. Hold it for a second: the disk ejects (`DSKCHG`); hold again to insert.
+- [ ] During a long `gw read` with the panel on, `audio_underruns` stays 0, `draw_us_max` is a few milliseconds at most, and `oled_aborts=0`. Then repeat slice 2's seek test: the panel must not make a read miss its settle time.
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

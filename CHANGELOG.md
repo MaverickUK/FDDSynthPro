@@ -4,7 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-23
+
 ### Added
+- **The front panel works (drive build)**: an SSD1306 OLED on the BB48's Qwiic socket (I2C1, GPIO 2/3), a rotary encoder (GPIO 20-22) and an action button (GPIO 23), as on the HDD Synth (`src/panel.*`).
+  - Turn for the volume. Press for the disk list, turn to choose, press to insert. The action button steps through home, head trace, sounds and stats; holding it for a second ejects the disk or inserts it again.
+  - A frame goes to the I2C FIFO a few bytes per pass of core 0's loop, so it never holds up the loader or the audio.
+  - Console `s` adds `oled`, `frames`, `draw_us_max`, `oled_aborts` and `volume`.
+  - Host-tested: the controls as inputs (`controls.h`), the bus bytes (`ssd1306.h`), and the mixer's volume, which glides over 12 ms so it never clicks.
 - **A virtual PC driving the whole drive** (`test/native/virtual_pc.h`, `test_virtual_pc.cpp`). It models a BIOS and an 82077-style controller:
   - 3 ms steps, a 15 ms settle and a 500 ms motor start;
   - recalibrating by checking TRK00 before each step;

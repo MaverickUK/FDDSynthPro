@@ -153,7 +153,7 @@ pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border
   <header>
     <div class="eyebrow">FDDSynthPro · the drive · firmware 0.6 pin map</div>
     <h1>Olimex BB48 to a 34-pin floppy header</h1>
-    <p>Ten inputs straight to the BB48, each pulled up by the SIP network; five outputs through the SN7407, which pulls the cable low for the BB48. The SD card, the amp and the (planned) front panel hang off the other pins. Pick any pin or row to see its wire.</p>
+    <p>Ten inputs straight to the BB48, each pulled up by the SIP network; five outputs through the SN7407, which pulls the cable low for the BB48. The SD card, the amp and the front panel hang off the other pins. Pick any pin or row to see its wire.</p>
   </header>
 
   <div class="warnings" aria-label="Before you wire">
@@ -175,7 +175,7 @@ pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border
         <span class="g-gnd"><i></i>Ground</span>
         <span class="g-sd"><i></i>SD card</span>
         <span class="g-audio"><i></i>Amp</span>
-        <span class="g-panel planned"><i></i>Front panel (planned)</span>
+        <span class="g-panel"><i></i>Front panel</span>
       </div>
     </div>
     <figure>
@@ -251,9 +251,9 @@ pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border
     36: ["SD DAT2", "sd", "SD breakout DAT2 (10k pull-up)"], 37: ["SD DAT3", "sd", "SD breakout DAT3 (10k pull-up)"],
     26: ["AMP DIN", "audio", "MAX98357A DIN"], 27: ["AMP BCLK", "audio", "MAX98357A BCLK"],
     28: ["AMP LRC", "audio", "MAX98357A LRC"],
-    2: ["OLED SDA", "panel", "OLED, by the BB48's Qwiic socket", true], 3: ["OLED SCL", "panel", "OLED, by the BB48's Qwiic socket", true],
-    20: ["ENC A", "panel", "Encoder A (other side to GND)", true], 21: ["ENC B", "panel", "Encoder B", true],
-    22: ["ENC SW", "panel", "Encoder switch (other side to GND)", true], 23: ["ACTION", "panel", "Action button (other side to GND)", true],
+    2: ["OLED SDA", "panel", "OLED, by the BB48's Qwiic socket"], 3: ["OLED SCL", "panel", "OLED, by the BB48's Qwiic socket"],
+    20: ["ENC A", "panel", "Encoder A (other side to GND)"], 21: ["ENC B", "panel", "Encoder B"],
+    22: ["ENC SW", "panel", "Encoder switch (other side to GND)"], 23: ["ACTION", "panel", "Action button (other side to GND)"],
   };
   const bbPin = g => (g <= 23 ? { ext: 1, n: g + 4 } : { ext: 2, n: g - 20 });
   const bbName = (ext, n) => `EXT${ext}-${n}`;
@@ -429,7 +429,7 @@ pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border
     entries.push({ key: `g${g}`, from: bbName(b.ext, b.n), sig: label, grp, to: dest, gpio: g, note: "" });
   }
   entries.push({ key: "amppwr", hitKey: "c14", from: "VBUS and GND", sig: "5V/GND", grp: "pwr", to: "MAX98357A Vin and GND", gpio: "—", note: "Speaker to the amp's terminal block" });
-  group("Front panel (planned: the firmware comes later)");
+  group("Front panel");
   entries.push({ key: "g2", from: "BB48 Qwiic socket", sig: "OLED", grp: "panel", to: "SSD1306, Qwiic cable", gpio: "2, 3", note: "I2C1; the BB48 has the pull-ups" });
   for (const g of [20, 21, 22, 23]) {
     const [label, grp, dest] = OTHER[g], b = bbPin(g);

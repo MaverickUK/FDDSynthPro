@@ -17,6 +17,8 @@
 //               becomes sound events (activity.h), printed as ACT lines for
 //               the FDD Synth, and played: the mixer (synth.h) sounds them
 //               with the card's sample pack through an I2S amp (audio.h).
+//               The front panel (panel.h) shows the drive on an OLED; its
+//               encoder sets the volume and picks the disk.
 //               Writes: core 1 captures WDATA while WGATE is
 //               asserted (wdata_pio.h); core 0 decodes each burst and puts
 //               the sectors in the live track and on the card
@@ -44,6 +46,7 @@
 #include "audio.h"
 #include "cylinder_loader.h"
 #include "ibm_track.h"
+#include "panel.h"
 #include "rdata_pio.h"
 #include "sd_image.h"
 #include "synth.h"
@@ -114,6 +117,10 @@ static std::atomic<bool> g_disk_in{false};
 static std::atomic<uint32_t> g_outer_knocks{0};  // steps out at cylinder 0
 static std::atomic<uint32_t> g_inner_knocks{0};  // steps in at the last cylinder
 static std::atomic<int> g_disk_request{0};       // console `d`: +1 insert, -1 eject
+// For the front panel.
+static std::atomic<bool> g_write_protected{false};
+static std::atomic<bool> g_writing{false};    // a write burst being captured
+static std::atomic<bool> g_streaming{false};  // RDATA carrying the track
 
 // A disk swap (console `[` / `]`): core 0 asks for an eject, core 1 ejects,
 // core 0 opens the new image and loads the cylinder under the head, core 1
@@ -240,12 +247,14 @@ void loop1() {
         if (stream != streaming) {
             rdata_pio::enable(stream);
             streaming = stream;
+            g_streaming.store(stream, std::memory_order_relaxed);
         }
 
         // After a lost write the disk reads as write-protected, so the host's
         // next write fails where the user can see it.
         if (g_write_fault.load(std::memory_order_relaxed) && d.diskPresent() && !d.writeProtected())
             d.setWriteProtected(true);
+        g_write_protected.store(d.writeProtected(), std::memory_order_relaxed);
 
         // Writes: run the capture from WGATE asserted to released, marking
         // each burst's start and end in the stream for core 0 (write_burst.h).
@@ -267,6 +276,7 @@ void loop1() {
                 break;
         }
         g_capture_produced.store(wdata_pio::produced(), std::memory_order_release);
+        g_writing.store(write_gate.capturing(), std::memory_order_relaxed);
     }
 }
 
@@ -328,20 +338,32 @@ static void chooseDisk() {
 constexpr uint32_t SWAP_EJECTED_MS = 500;
 static uint32_t g_ejected_ms = 0;
 
+// From the panel's disk list, or console `[` / `]`.
+static void startSwap(size_t index) {
+    if (g_swap.load() != SWAP_NONE) {
+        Serial.println("# a swap is already under way");
+        return;
+    }
+    g_image_index = index;
+    Serial.printf("# swapping to %s\n", sd_image::images().name(g_image_index));
+    g_ejected_ms = 0;
+    g_swap.store(SWAP_EJECT, std::memory_order_release);
+}
+
 static void requestSwap(bool next) {
     const ImageList& images = sd_image::images();
     if (!g_from_card || images.count() < 2) {
         Serial.println("# no other image on the card");
         return;
     }
-    if (g_swap.load() != SWAP_NONE) {
-        Serial.println("# a swap is already under way");
-        return;
-    }
-    g_image_index = next ? images.next(g_image_index) : images.prev(g_image_index);
-    Serial.printf("# swapping to %s\n", images.name(g_image_index));
-    g_ejected_ms = 0;
-    g_swap.store(SWAP_EJECT, std::memory_order_release);
+    startSwap(next ? images.next(g_image_index) : images.prev(g_image_index));
+}
+
+// From the panel's long action, or console `d` (the rig's way to set DSKCHG).
+static void toggleDisk() {
+    bool insert = !g_disk_in.load();
+    g_disk_request.store(insert ? 1 : -1);
+    Serial.printf("# disk %s\n", insert ? "inserted" : "ejected");
 }
 
 static void serviceSwap() {
@@ -436,15 +458,64 @@ static void serviceActivity() {
     }
 }
 
-static void printImage() {
+static unsigned imageKb() {
     const ibm::Format* fmt = g_format.load();
-    unsigned kb = fmt ? unsigned(fmt->trackDataBytes() * IMAGE_CYLINDERS * IMAGE_HEADS / 1024) : 0;
+    return fmt ? unsigned(fmt->trackDataBytes() * IMAGE_CYLINDERS * IMAGE_HEADS / 1024) : 0;
+}
+
+static void printImage() {
+    unsigned kb = imageKb();
     if (!g_from_card)
         Serial.printf("IMAGE generated %u\n", kb);
     else
         Serial.printf("IMAGE %s %u contiguous=%d writable=%d index=%u/%u\n", sd_image::name(), kb,
                       (int)sd_image::contiguous(), (int)g_writable.load(), unsigned(g_image_index + 1),
                       unsigned(sd_image::images().count()));
+}
+
+// The front panel: the drive as it is now in, swaps, ejects and the volume
+// out.
+static ui::Status panelStatus() {
+    ui::Status s;
+    s.images = g_from_card ? &sd_image::images() : nullptr;
+    s.image = g_image_index;
+    s.image_name = g_from_card ? sd_image::name() : "Generated";
+    s.kb = imageKb();
+    s.disk_in = g_disk_in.load(std::memory_order_relaxed);
+    s.write_protected = g_write_protected.load(std::memory_order_relaxed);
+    s.swapping = g_swap.load(std::memory_order_relaxed) != SWAP_NONE;
+    s.motor = g_activity.motorOn();
+    s.cylinder = g_cylinder.load(std::memory_order_relaxed);
+    s.head = g_side.load(std::memory_order_relaxed);
+    s.activity = g_writing.load(std::memory_order_relaxed)     ? ui::Activity::Write
+                 : g_activity.seeking()                         ? ui::Activity::Seek
+                 : g_streaming.load(std::memory_order_relaxed) ? ui::Activity::Read
+                                                                : ui::Activity::Idle;
+    // The spinning icon: 300 RPM while the motor runs, still otherwise.
+    static uint8_t rotation = 0;
+    if (s.motor) rotation = uint8_t((time_us_32() % 200000) * 256 / 200000);
+    s.rotation = rotation;
+    if (g_mixer) {
+        s.pack = g_pack_name;
+        s.sounds_loaded = g_pack.loadedMask();
+        s.rate = g_pack.rate;
+        s.pack_kb = g_pack.bytes() / 1024;
+    }
+    s.loads = g_loader.load()->loads();
+    s.written = g_sectors_written;
+    s.bad_crc = g_write_bad_crc;
+    s.overruns = g_capture->overruns();
+    s.underruns = audio::underruns();
+    return s;
+}
+
+static void servicePanel() {
+    panel::service(panelStatus(), millis());
+    ui::Model& m = panel::model();
+    size_t image;
+    if (m.takeSwap(image)) startSwap(image);
+    if (m.takeEjectToggle()) toggleDisk();
+    if (g_mixer) g_mixer->setVolume(m.volume());
 }
 
 #endif
@@ -496,6 +567,9 @@ static void printStats() {
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
                   (unsigned long)g_activity.seeks(), (unsigned long)g_activity.bumps(),
                   (unsigned long)(g_activity.dropped() + g_drive_events_dropped.load()));
+    Serial.printf(" oled=%d frames=%lu draw_us_max=%lu oled_aborts=%lu volume=%d", (int)panel::displayFound(),
+                  (unsigned long)panel::frames(), (unsigned long)panel::drawUsMax(), (unsigned long)panel::aborts(),
+                  panel::model().volume());
 #endif
     Serial.print("\n");
 }
@@ -581,12 +655,7 @@ static void handleConsole() {
             case 'i': printImage(); break;
             case '[': requestSwap(false); break;
             case ']': requestSwap(true); break;
-            case 'd': {  // the rig's way to eject and insert, for DSKCHG
-                bool insert = !g_disk_in.load();
-                g_disk_request.store(insert ? 1 : -1);
-                Serial.printf("# disk %s\n", insert ? "inserted" : "ejected");
-                break;
-            }
+            case 'd': toggleDisk(); break;
 #endif
             case 'b':
                 Serial.println("# rebooting to bootloader");
@@ -603,6 +672,7 @@ void setup() {
     Serial.begin(115200);
 #if FIRMWARE_SLICE != 0
     chooseDisk();
+    panel::begin();
 #endif
     printReady();
 }
@@ -617,6 +687,7 @@ void loop() {
     serviceLoader();
     audio::service();
     serviceActivity();
+    servicePanel();
 #endif
     handleConsole();
 

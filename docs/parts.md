@@ -29,7 +29,7 @@ Status: **buy**, **have** (you already own it), or **optional**.
 | Adafruit MAX98357A I2S 3 W amp breakout (3006) | 1 | buy | The FDD Synth's sound, as on HDDSynth_Native | [The Pi Hut](https://thepihut.com/products/adafruit-i2s-3w-class-d-amplifier-breakout-max98357a) (about £5.70) |
 | Speaker, 4 Ω, 3 W | 1 | buy | The Pi Hut's enclosed 3 W 4 Ω speaker suits the amp | The Pi Hut |
 
-## The front panel (planned; the firmware comes later)
+## The front panel
 
 | Part | Qty | Status | Why | Where |
 |---|---|---|---|---|

@@ -137,7 +137,7 @@ void home(Canvas& c, const ui::Status& s) {
     // What it's doing, and which disk of how many.
     c.text(2, 46, activityName(s));
     if (s.images && s.images->count()) {
-        char n[12];
+        char n[24];  // room for any two unsigneds, as GCC checks
         std::snprintf(n, sizeof n, "%u/%u", unsigned(s.image + 1), unsigned(s.images->count()));
         rightText(c, 126, 46, n);
     }

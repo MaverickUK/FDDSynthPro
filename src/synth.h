@@ -10,7 +10,9 @@
 //   SEEK_END    the seek loop stops one step-sample later (the last click's tail)
 //   BUMP        bump plays once;  INSERT, EJECT  insert, eject play once
 // Loops play from their own start, so each begins at its first sample. The
-// mix is the plain sum of everything playing, saturated to 16 bits.
+// mix is the plain sum of everything playing, saturated to 16 bits. The
+// volume then scales it, like an amp's volume knob: at 100% (the default)
+// the output is the mix itself, which the player is the spec for.
 //
 // An event applies at the mixer's current position: the caller renders up to
 // where the event belongs, then hands it over. On the board, events arrive
@@ -36,6 +38,18 @@ struct Pack {
     bool complete() const {
         return spinup.length && spin.length && spindown.length && step.length && seek.length && bump.length;
     }
+    // Bit n: the nth sound above (spinup first) is loaded; ui::SOUND_NAMES order.
+    uint8_t loadedMask() const {
+        const Sample* all[] = {&spinup, &spin, &spindown, &step, &seek, &bump, &insert, &eject};
+        uint8_t mask = 0;
+        for (int i = 0; i < 8; ++i)
+            if (all[i]->length) mask |= uint8_t(1u << i);
+        return mask;
+    }
+    uint32_t bytes() const {
+        return 2 * (spinup.length + spin.length + spindown.length + step.length + seek.length + bump.length +
+                    insert.length + eject.length);
+    }
 };
 
 class Mixer {
@@ -49,6 +63,13 @@ public:
 
     void event(const activity::Event& e);
     void render(int16_t* out, size_t frames);
+
+    // 0-100. Loudness follows the square of the setting, roughly as the ear
+    // hears it. A change glides over VOLUME_RAMP samples, so it never clicks.
+    void setVolume(int percent);
+    static constexpr uint32_t UNITY = 32768;      // the gain at 100%, Q15
+    static constexpr uint32_t VOLUME_RAMP = 256;  // 12 ms at 22.05 kHz
+    uint32_t gain() const { return gain_; }
 
     // Samples rendered since the start.
     uint32_t position() const { return pos_; }
@@ -75,6 +96,7 @@ private:
     Loop seeks_[SEEK_LOOPS];
     int seeking_ = -1;  // the seek loop a SEEK_END will stop
     uint32_t stolen_ = 0;
+    uint32_t gain_ = UNITY, target_gain_ = UNITY;
 };
 
 }  // namespace synth

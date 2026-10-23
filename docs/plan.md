@@ -149,7 +149,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
 ## Later layers
 
 1. HDD Synth integration: I2S audio, samples driven by the activity events.
-2. Image selection: buttons or an encoder and an OLED, GoTek style.
+2. Image selection: buttons or an encoder and an OLED, GoTek style. *Done ahead of hardware: `src/panel.*` and the screens in `docs/oled`.*
 3. 5.25-inch drives: 360 KB and 1.2 MB, 360 RPM for HD, double stepping.
 4. Other formats: Atari ST, Amiga ADF (a different sector layout and drive-ready behaviour).
 5. Flux images (HFE) for copy-protected disks.

@@ -52,16 +52,27 @@ constexpr unsigned PIN_SD_DAT0 = 34;  // DAT0-DAT3 on GPIO 34-37
 constexpr unsigned PIN_I2S_DATA = 26;
 constexpr unsigned PIN_I2S_BCLK = 27;  // LRCLK is BCLK + 1 = GPIO 28
 
-// The front panel: PLANNED, not used by the firmware yet (docs/wiring.md).
-// The OLED goes on the BB48's own Qwiic/UEXT I2C connector (I2C1 on GPIO 2
-// and 3, already pulled up on the board); the encoder and the action button
-// on free pins next to the floppy wiring, pulled up internally.
+// The front panel (drive build, panel.h). The OLED goes on the BB48's own
+// Qwiic/UEXT I2C connector (I2C1 on GPIO 2 and 3, already pulled up on the
+// board); the encoder and the action button on free pins next to the floppy
+// wiring, pulled up internally. Each switch connects its pin to ground.
 constexpr unsigned PIN_OLED_SDA = 2;        // I2C1, the BB48's Qwiic/UEXT
 constexpr unsigned PIN_OLED_SCL = 3;
 constexpr unsigned PIN_ENC_A = 20;
 constexpr unsigned PIN_ENC_B = 21;
 constexpr unsigned PIN_ENC_BUTTON = 22;
 constexpr unsigned PIN_ACTION_BUTTON = 23;
+
+// An SSD1306 128x64 at the usual address. A frame is 1,032 bytes on the bus:
+// 23 ms at 400 kHz, fed to the I2C FIFO a few bytes per pass of core 0's
+// loop, so it never holds anything up.
+constexpr uint8_t OLED_I2C_ADDR = 0x3C;
+constexpr uint32_t OLED_I2C_HZ = 400000;
+constexpr uint32_t OLED_FRAME_MS = 100;       // at most 10 frames a second
+constexpr uint32_t HEAD_TRACE_SAMPLE_MS = 50; // the head trace's 128 columns: 6.4 s
+constexpr bool ENCODER_REVERSED = false;      // flip if clockwise turns the volume down
+constexpr uint32_t BUTTON_DEBOUNCE_MS = 20;
+constexpr uint32_t BUTTON_LONG_MS = 1000;     // a long action: eject or insert
 
 // The sample pack lives in RAM (FDD sounds are short), in one allocation
 // sized to the pack. Up to 160 KB: the stand-in pack is 152 KB; longer
