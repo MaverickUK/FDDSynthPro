@@ -18,14 +18,16 @@
 
 namespace short_test {
 
-// The interface pins, GPIO 4-18 (driven and observed), plus their header
-// neighbours GPIO 0-3 and 19 (observed only). GPIO 25 (the LED, pulled down
-// through it) is observed but expected low.
+// The interface pins, GPIO 4-7 and 12-22 (driven and observed), plus their
+// header neighbours GPIO 0-3 and 23 (observed only). GPIO 25 (the LED, pulled
+// down through it) is observed but expected low. GPIO 8-11 sit between them
+// but belong to the BB48R's PSRAM and SD card, so the test leaves them alone
+// and can't see a bridge to them.
 uint32_t drivenMask();
 uint32_t observedMask();
 constexpr uint32_t EXPECTED_LOW = 1u << 25;
 
-// A short name for a GPIO in this rig, e.g. "GPIO10 (STEP)".
+// A short name for a GPIO in this rig, e.g. "GPIO18 (STEP)".
 const char* signalName(unsigned gpio);
 
 struct Result {

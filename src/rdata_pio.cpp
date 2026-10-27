@@ -24,6 +24,24 @@ static const uint32_t* s_cylinder;
 static uint32_t s_words;
 static const uint32_t* s_rewind_addr;  // what the control channel writes: the buffer's start
 
+// RDATA held released, whatever the program does.
+static void hold() {
+    if (cfg::OUTPUTS_OPEN_DRAIN) {
+        gpio_set_outover(cfg::PIN_RDATA, GPIO_OVERRIDE_LOW);
+        gpio_set_oeover(cfg::PIN_RDATA, GPIO_OVERRIDE_LOW);  // an input: the host pulls it up
+    } else {
+        gpio_set_outover(cfg::PIN_RDATA, GPIO_OVERRIDE_HIGH);
+    }
+}
+
+// RDATA follows the program.
+static void release() {
+    if (cfg::OUTPUTS_OPEN_DRAIN)
+        gpio_set_oeover(cfg::PIN_RDATA, GPIO_OVERRIDE_INVERT);  // the level stays forced low
+    else
+        gpio_set_outover(cfg::PIN_RDATA, GPIO_OVERRIDE_NORMAL);
+}
+
 static void configureData(bool chain) {
     dma_channel_config c = dma_channel_get_default_config(s_data_dma);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
@@ -41,8 +59,8 @@ void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps) {
     s_words = words;
     s_rewind_addr = cylinder;
 
-    // PIO 2 or 1, never 0: SdFat's SDIO driver takes PIO 0 first and moves
-    // its GPIO window to 16-47 for the SD pins, which would cut off ours.
+    // PIO 2 or 1, with the GPIO 0-31 window. PIO 0 is left to libraries that
+    // claim it first (SdFat's SDIO driver would, and move its window).
     bool ok = false;
     for (PIO p : {pio2, pio1}) {
         int sm = pio_claim_unused_sm(p, false);
@@ -64,10 +82,15 @@ void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps) {
     pio_gpio_init(s_pio, cfg::PIN_RDATA);
     // After pio_gpio_init: setting the function rewrites the pin's control
     // register, overrides included.
-    gpio_set_outover(cfg::PIN_RDATA, GPIO_OVERRIDE_HIGH);
+    hold();
 
     pio_sm_config c = fdd_rdata_program_get_default_config(s_offset);
     sm_config_set_sideset_pins(&c, cfg::PIN_RDATA);
+    // Open drain (config.h): the same program, its side-set driving the
+    // pin's direction instead of its level. Side 1 (released) would enable
+    // the output, so release() inverts the enable, and the level is forced
+    // low: side 0 drives the line low, side 1 lets the host pull it up.
+    if (cfg::OUTPUTS_OPEN_DRAIN) sm_config_set_sideset(&c, 1, false, true);
     sm_config_set_jmp_pin(&c, cfg::PIN_SIDE1);  // read only; it stays an SIO input
     sm_config_set_out_shift(&c, false, true, 32);  // top bits first, autopull
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
@@ -95,7 +118,9 @@ void restartAtIndex() {
     dma_channel_abort(s_ctrl_dma);
     pio_sm_clear_fifos(s_pio, s_sm);
     pio_sm_restart(s_pio, s_sm);  // empties the OSR, so the first OUT pulls
-    pio_sm_exec(s_pio, s_sm, pio_encode_jmp(s_offset));
+    // Side 1 on the jump: a bare jmp would be side 0, a stray flux pulse
+    // until the program's first instruction.
+    pio_sm_exec(s_pio, s_sm, pio_encode_jmp(s_offset) | pio_encode_sideset(1, 1));
     configureData(true);
     dma_channel_start(s_data_dma);
     pio_sm_set_enabled(s_pio, s_sm, true);
@@ -108,6 +133,11 @@ void setFormat(uint32_t words, uint32_t data_rate_bps) {
     restartAtIndex();
 }
 
-void enable(bool on) { gpio_set_outover(cfg::PIN_RDATA, on ? GPIO_OVERRIDE_NORMAL : GPIO_OVERRIDE_HIGH); }
+void enable(bool on) {
+    if (on)
+        release();
+    else
+        hold();
+}
 
 }  // namespace rdata_pio

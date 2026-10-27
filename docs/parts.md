@@ -8,24 +8,22 @@ Status: **buy**, **have** (you already own it), or **optional**.
 
 | Part | Qty | Status | Why | Where |
 |---|---|---|---|---|
-| Olimex RP2350-PICO2-BB48 (the plain BB48, **not** the BB48R) | 1 | buy | The emulated drive. The BB48R's PSRAM and SD slot use pins this design needs | [The Pi Hut](https://thepihut.com/products/rp2350-pico2-bb48) (about £11; low stock) |
+| Olimex RP2350-PICO2-BB48**R** (the BB48 with 8 MB PSRAM and a microSD slot) | 1 | buy | The emulated drive, and its SD card. The pin map is for the R: a plain BB48 would need an SD breakout and other pins | Olimex ([design files](https://github.com/OLIMEX/RP2350-PICO2-BB48)); The Pi Hut stocks the BB48 range |
 | Adafruit Perma-Proto full-sized breadboard PCB | 1 | buy | Carries everything, laid out as a breadboard | [The Pi Hut](https://thepihut.com/products/adafruit-perma-proto-full-sized-breadboard-pcb-single) (about £11; low stock) |
-| Female header strip, 2.54 mm, 1 × 40 | 2 | buy | Cut to two 1 × 27 sockets for the BB48, so it plugs in and can be swapped | Any supplier |
+| Female header strip, 2.54 mm, 1 × 40 | 2 | buy | Cut to two 1 × 27 sockets for the BB48R, so it plugs in and can be swapped | Any supplier |
 | 34-way IDC box header, 2 × 17, 2.54 mm, straight | 1 | buy | Where the floppy cable plugs in | [The Pi Hut](https://thepihut.com/products/2x17-34-pin-idc-box-header-0-1-2-54mm-pitch), [Rapid](https://rapidonline.com/truconnect-34-way-idc-straight-boxed-header-2-54mm-pitch-19-0038) (19-0038) |
 | SN7407N, hex open-collector buffer, DIP-14 | 1 (+1 spare) | buy | The drive's five outputs: sinks 40 mA, enough for any host's pull-ups | [RS](https://uk.rs-online.com/web/p/line-interface-ics/0306336) (306-336) |
 | DIP-14 IC socket | 1 | buy | So the SN7407 can be swapped | Any supplier |
 | Bourns 4611X-101-103LF, 10 kΩ bussed SIP network, **11 pins** (10 resistors) | 1 | buy | Pull-ups on the ten floppy inputs, with the FeatherWing host (its outputs are 5 V) | Bourns 4600X series ([the 10-pin version at RS](https://ie.rs-online.com/web/p/resistor-arrays/5224807) shows the family; order the 11-pin) |
 | Bourns 4611X-101-102LF, 1 kΩ bussed SIP network, 11 pins | 1 | buy | The same, for a real PC (it needs the stronger termination) | Same series |
 | Female header, 1 × 11, 2.54 mm | 1 | buy | A socket for the SIP network, so 10 kΩ and 1 kΩ swap | Any supplier |
-| 100 nF ceramic capacitor | 4 | buy | Decoupling: the SN7407, the SD breakout, the amp | Any supplier |
+| 100 nF ceramic capacitor | 3 | buy | Decoupling: the SN7407 and the amp | Any supplier |
 
 ## Storage and sound
 
 | Part | Qty | Status | Why | Where |
 |---|---|---|---|---|
-| Adafruit Micro SD SPI or SDIO card breakout, 3 V only (4682) | 1 | buy | Images and the sample pack, over 4-bit SDIO | [The Pi Hut](https://thepihut.com/products/adafruit-micro-sd-spi-or-sdio-card-breakout-board-3v-only) (about £3.40) |
-| 10 kΩ resistor | 5 | buy | Pull-ups on SD CMD and DAT0–3, unless the breakout has them | Any supplier |
-| microSD card, A1 or A2 rated, 8–32 GB | 1 | buy | FAT32, for the images and the pack | Any supplier |
+| microSD card, A1 or A2 rated, 8–32 GB | 1 | buy | FAT32, for the images and the pack, in the BB48R's slot | Any supplier |
 | Adafruit MAX98357A I2S 3 W amp breakout (3006) | 1 | buy | The FDD Synth's sound, as on HDDSynth_Native | [The Pi Hut](https://thepihut.com/products/adafruit-i2s-3w-class-d-amplifier-breakout-max98357a) (about £5.70) |
 | Speaker, 4 Ω, 3 W | 1 | buy | The Pi Hut's enclosed 3 W 4 Ω speaker suits the amp | The Pi Hut |
 
@@ -56,6 +54,6 @@ Hook-up wire in several colours (the wiring diagram suggests one per signal grou
 
 ## Before ordering
 
-- **The BB48 must be the plain one.** On the BB48R, GPIO 8 is the PSRAM chip-select and GPIO 9–11 go to its SD slot; here they carry MOTEB, DIR, STEP and WDATA.
-- **The SN7407 runs at 5 V** (from the BB48's VBUS), the only 5 V part on the drive side. Its TTL inputs read the RP2350's 3.3 V as high.
+- **The board must be the BB48R.** The pin map leaves GPIO 8–11 and 24 to its PSRAM and SD slot, and the firmware reads the card through that slot (SPI1).
+- **The SN7407 runs at 5 V** (from the BB48R's VBUS), the only 5 V part on the drive side. Its TTL inputs read the RP2350's 3.3 V as high.
 - **The SIP networks are bussed, 11 pins**: pin 1 (marked with a dot) is the common end, to +3.3 V; pins 2–11 are the ten resistors, one per input. The 10-pin version has only nine.

@@ -2,16 +2,17 @@
 
 Hardware day, in order. Each step either passes or tells you what to fix before the next one. The wiring itself is in [wiring.md](wiring.md).
 
-The parts are in [parts.md](parts.md). You'll need: a multimeter with a continuity beeper, the Mac, the Feather RP2040 with its Floppy FeatherWing, a plain **BB48** (not the BB48R), and ideally the reference floppy drive with a 5 V 2 A supply.
+The parts are in [parts.md](parts.md). You'll need: a multimeter with a continuity beeper, the Mac, the Feather RP2040 with its Floppy FeatherWing, a **BB48R** (the BB48 with PSRAM and the microSD slot; a plain BB48 doesn't match the pin map), and ideally the reference floppy drive with a 5 V 2 A supply.
 
 ## 1. Before any power
 
-- [ ] **Header orientation.** Check that the BB48's silkscreen matches the wiring table: USB-C at the top, GPIO 0–23 on the EXT1 row.
+- [ ] **Header orientation.** Check that the BB48R's silkscreen matches the wiring table: USB-C at the top, GPIO 0–23 on the EXT1 row.
 - [ ] **IDC helper strips.** Check with the meter that floppy pins 1 and 2 are **not** connected to each other; nor are any other neighbouring pins. Each header pin needs its own strip.
 - [ ] **Continuity, end to end.** For each row of the wiring table, beep from the floppy header pin to its GPIO pin (inputs) or to the SN7407 output pin (outputs). Tick it off as you go.
 - [ ] **Pull-ups.** The 10 kΩ network is in its socket, and each input pin reads about 10 kΩ to +3.3 V (EXT1-1).
 - [ ] **Grounds.** Check that every odd floppy pin you wired beeps to BB48 GND, and that SN7407 pin 7 does too.
 - [ ] **SN7407 power.** Pin 14 beeps to VBUS (EXT2-1), not to +3.3 V.
+- [ ] **The board's own pins stay free.** Nothing is soldered to EXT1-12 to 15 (GPIO 8–11, the PSRAM and SD slot) or EXT2-4 (GPIO 24).
 - [ ] **No power across.** Check that BB48 +3.3 V, VBUS and VSYS do **not** beep to any floppy pin.
 
 ## 2. First power: BB48 only, floppy cable unplugged
@@ -20,8 +21,9 @@ The parts are in [parts.md](parts.md). You'll need: a multimeter with a continui
 - [ ] Open the console: `pio device monitor`. Type `h`; it should answer `READY FDDSynthPro 0.1.0 slice0`.
 - [ ] **Solder-bridge test.** Type `x`, then `Y`. With the cable unplugged, every pin should read high on its pull-up, and pulling each one low should move no other pin.
   - `SHORTTEST OK 15 pins`: no solder bridges.
-  - `SHORT GPIO9 (DIR) GPIO10 (STEP)`: those two are bridged. Fix it, then run the test again.
-  - `STUCK GPIO15 (TRK00) low`: that pin is shorted to ground.
+  - `SHORT GPIO17 (DIR) GPIO18 (STEP)`: those two are bridged. Fix it, then run the test again.
+  - `STUCK GPIO5 (TRK00) low`: that pin is shorted to ground.
+  - The test can't see a bridge to GPIO 8–11 (the board's PSRAM and SD pins): check EXT1-11/12 and EXT1-15/16 by eye.
   - The board reboots when the test finishes.
 - [ ] **SN7407 outputs released.** With the meter, the SN7407 outputs (pins 2, 4, 6, 8, 10) should read open: no continuity to GND while the board is running.
 
@@ -36,12 +38,14 @@ The parts are in [parts.md](parts.md). You'll need: a multimeter with a continui
   - Try `gw rpm` too: whether it works with this firmware is an open question.
 - [ ] **Measure its idle output levels.** With nothing else on the cable, measure floppy pins 10–24 (even) and 32 to GND. Expect 5 V (the wing's level shifters), and note whether a line still reads 5 V through a 10 kΩ resistor to GND, which would mean push-pull. Either is fine with the 10 kΩ network; 1 kΩ only goes in for a real PC.
 - [ ] Measure pins 8, 26, 28, 30 and 34 too: these are its inputs and should sit high on its own pull-ups.
+- [ ] **Without the SN7407:** with the Feather powered and nothing on the cable, measure the resistance from each of pins 8, 26, 28, 30 and 34 to 5 V (or the current into a meter on its mA range from the pin to GND). 1 kΩ or more (5 mA or less) is fine for the direct builds ([wiring.md](wiring.md)); less, and wait for the SN7407.
 
 ## 4. Connect the host (power order)
 
 - [ ] The BB48 is powered **first**: it stays on USB from now on.
+- [ ] **Without the SN7407,** flash `PIO_ENV=bb48_direct` (and later `bb48_drive_direct`) before connecting the cable, and check that `h` answers `... slice0 direct`. Run the rig scripts with the same `PIO_ENV`.
 - [ ] Plug the floppy cable into both ends (straight cable), then plug the Feather's USB into the Mac.
-- [ ] Run `gw reset --device <port>`, then type `p` on the drive's console. Every input should be `OFF` (DENSEL may be either).
+- [ ] Reset the host: `cd host && .venv/bin/python -m fddproto.gw_reset --device <port>` (not `gw reset`, which hangs on the Feather's firmware), then type `p` on the drive's console. Every input should be `OFF` (DENSEL may be either).
 - [ ] From now on: **unplug the Feather before the BB48**.
 
 ## 5. Slice 0: listen to the host
@@ -89,12 +93,12 @@ Note the numbers in `docs/plan.md`, under the open questions.
 
 ## 9. Slice 3: images on the SD card
 
-- [ ] Wire the SD breakout ([wiring.md](wiring.md)), with the BB48 unplugged.
 - [ ] Make the test images: `cd host && .venv/bin/python -m fddproto.make_images ~/fdd-images`. Set `FDDPRO_IMAGES=~/fdd-images` in `host/rig.env`.
-- [ ] Format a card FAT32 and copy **one** image to its root (the drive serves the first `.img` in name order).
+- [ ] Format a card FAT32, copy **one** image to its root and put it in the BB48R's slot (the drive serves the first `.img` in name order).
   - Copy it onto a freshly formatted card, so its clusters are contiguous.
   - Try `GEN1440.IMG` first, then `RAND1440.IMG`, then `RAND720.IMG` (720 KB, the 250 kbit/s rate).
-- [ ] Power the BB48 and type `i`: `IMAGE GEN1440.IMG 1440 contiguous=1`.
+- [ ] Power the BB48 and type `i`: `IMAGE GEN1440.IMG 1440 contiguous=1`. The log should show `# cached 160/160 tracks in ... ms` (about 600 ms at 25 MHz).
+- [ ] After a few seeks, `s` should show `cached=160/160`, `read_us_max` (from PSRAM) under 1000, and `card_read_us_max` (the card, while filling) around 3500. The settle-time tests assume those.
 - [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice3`. The checks:
   - three full reads byte for byte;
   - 20 random tracks;

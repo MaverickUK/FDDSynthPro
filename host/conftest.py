@@ -55,7 +55,7 @@ def drive(session_stamp):
     RUNS.mkdir(parents=True, exist_ok=True)
     log = DriveLog(raw_log_path=RUNS / f"{session_stamp}-serial.log")
     log.open()
-    log.ready = log.command("h", "READY", timeout=5)  # "READY FDDSynthPro <version> slice<N>"
+    log.ready = log.command("h", "READY", timeout=5)  # "READY FDDSynthPro <version> slice<N> [direct]"
     yield log
     log.close()
 
@@ -63,7 +63,7 @@ def drive(session_stamp):
 @pytest.fixture
 def firmware_slice(drive) -> int:
     """Which build the board runs: 0 = listen only, 5 = the drive (slices 1-5)."""
-    return int(drive.ready.split()[-1].removeprefix("slice"))
+    return int(drive.ready.split()[3].removeprefix("slice"))
 
 
 def require_build(firmware_slice: int, drive_build: bool):

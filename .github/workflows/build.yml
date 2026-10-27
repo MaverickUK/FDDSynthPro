@@ -35,7 +35,7 @@ jobs:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
       - run: pip install platformio
-      - run: pio run -e bb48 -e bb48_drive
+      - run: pio run -e bb48 -e bb48_drive -e bb48_direct -e bb48_drive_direct
 
       - name: Read the firmware version
         id: version
@@ -57,6 +57,8 @@ jobs:
           mkdir dist
           cp .pio/build/bb48/firmware.uf2 "dist/fddsynthpro-bb48-listen-v${{ steps.version.outputs.version }}.uf2"
           cp .pio/build/bb48_drive/firmware.uf2 "dist/fddsynthpro-bb48-drive-v${{ steps.version.outputs.version }}.uf2"
+          cp .pio/build/bb48_direct/firmware.uf2 "dist/fddsynthpro-bb48-listen-direct-v${{ steps.version.outputs.version }}.uf2"
+          cp .pio/build/bb48_drive_direct/firmware.uf2 "dist/fddsynthpro-bb48-drive-direct-v${{ steps.version.outputs.version }}.uf2"
       - uses: actions/upload-artifact@v7
         with:
           name: firmware-v${{ steps.version.outputs.version }}

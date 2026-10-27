@@ -2,6 +2,7 @@
 // cylinder loader, ending with a timing simulation of seeks against the
 // host's settle time.
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 #include "check.h"
@@ -227,7 +228,7 @@ static uint32_t readyAfterLastStep(int from, int to, uint32_t step_interval_us, 
 static uint32_t worstReady(int from, int to, uint32_t interval_us, Costs c) {
     uint32_t worst = 0;
     // About 12 phases per interval: enough to land a step at every point of a
-    // load, which is 11 ms long.
+    // load, which is 7 ms long.
     uint32_t stride = interval_us / 12 > 250 ? interval_us / 12 : 250;
     for (uint32_t phase = 0; phase < interval_us; phase += stride) {
         uint32_t v = readyAfterLastStep(from, to, interval_us, phase, c);
@@ -237,14 +238,15 @@ static uint32_t worstReady(int from, int to, uint32_t interval_us, Costs c) {
 }
 
 TEST(test_ready_within_settle_time) {
-    // SD over SDIO: a 9 KB track in about 3 ms (3 MB/s; cards manage more).
-    // Encoding a track: assumed 2.5 ms on the RP2350 until measured
-    // (build_us on the board; bringup.md step 8).
-    const Costs sdio{3000, 2500};
+    // Reads from the image cache in the BB48R's PSRAM (image_cache.h): a
+    // 9 KB copy over QSPI, allowed 1 ms until the board measures it
+    // (read_us_max). Encoding a track: assumed 2.5 ms on the RP2350 until
+    // measured (encode_us_max; bringup.md step 8).
+    const Costs cached{1000, 2500};
     const uint32_t SETTLE_US = 15000;
-    // The longest a load can take after the last step: the step in progress
-    // when the head arrives, then a whole load.
-    const uint32_t bound = 3000 + 2 * 3000 + 2 * 2500;
+    // The longest a load could take after the last step: the step in
+    // progress when the head arrives, then a whole load.
+    const uint32_t bound = 2500 + 2 * 1000 + 2 * 2500;
     struct { int from, to; uint32_t interval; } seeks[] = {
         {0, 1, 3000},     // one step, PC step rate
         {0, 79, 3000},    // a full seek at the PC's fastest rate
@@ -253,17 +255,22 @@ TEST(test_ready_within_settle_time) {
         {40, 41, 26000},
     };
     for (auto& s : seeks) {
-        uint32_t worst = worstReady(s.from, s.to, s.interval, sdio);
+        uint32_t worst = worstReady(s.from, s.to, s.interval, cached);
+        std::printf("    seek %d->%d every %u us: ready %.1f ms after the last step\n", s.from, s.to, s.interval,
+                    worst / 1000.0);
         CHECK(worst <= bound);
         CHECK(worst < SETTLE_US);
     }
 }
 
 TEST(test_slow_card_misses_the_settle_time) {
-    // SPI at about 1 MB/s: 9 ms a track. Too slow for 15 ms; the host then
-    // finds no sectors on its first revolution and retries on the next.
-    const Costs spi{9000, 2500};
-    CHECK(worstReady(0, 1, 3000, spi) > 15000);
+    // Straight from the card, without the cache: SPI at about 1 MB/s (a slow
+    // clock, or no DMA) is 9 ms a track. Even 25 MHz (3.5 ms) left no room
+    // for a panel frame; the cache is why the card can run at 25 MHz. Too slow
+    // for 15 ms; the host then finds no sectors on its first revolution and
+    // retries on the next.
+    const Costs slow{9000, 2500};
+    CHECK(worstReady(0, 1, 3000, slow) > 15000);
 }
 
 }  // namespace

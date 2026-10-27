@@ -52,16 +52,20 @@ static TraceEvent step(uint32_t t, bool in) {
 // ---- Pin layout ------------------------------------------------------------
 
 TEST(test_pin_layout) {
-    // Inputs then outputs, on consecutive pins, inside one PIO window and
-    // clear of GPIO 0-3 (GPIO 2/3 are pulled up) and the LED.
-    CHECK_EQ(cfg::LAST_INPUT_PIN + 1, cfg::FIRST_OUTPUT_PIN);
+    // The inputs on consecutive pins, the outputs around the BB48R's PSRAM
+    // and SD pins, all inside one PIO window and clear of GPIO 0-3 (GPIO 2/3
+    // are pulled up), the LED and the board's own wiring.
     CHECK_EQ(cfg::LAST_INPUT_PIN - cfg::FIRST_INPUT_PIN + 1, 10u);
-    CHECK_EQ(cfg::LAST_OUTPUT_PIN - cfg::FIRST_OUTPUT_PIN + 1, 5u);
+    CHECK_EQ(sizeof cfg::OUTPUT_PINS / sizeof cfg::OUTPUT_PINS[0], 5u);
     CHECK(cfg::BUS_FIRST_PIN >= 4);
     CHECK(cfg::BUS_LAST_PIN <= 31);
     CHECK(cfg::PIN_BOARD_LED > cfg::BUS_LAST_PIN);
-    CHECK_EQ(fdd::INPUT_MASK, 0x3FFu);
-    CHECK_EQ(fdd::OUTPUT_MASK, 0x7C00u);
+    CHECK_EQ(fdd::INPUT_MASK, 0x3FF00u);
+    CHECK_EQ(fdd::OUTPUT_MASK, 0x4000Fu);
+    CHECK_EQ(fdd::INPUT_MASK & fdd::OUTPUT_MASK, 0u);
+    for (unsigned board : {cfg::PIN_PSRAM_CS, cfg::PIN_SD_CS, cfg::PIN_SD_SCK, cfg::PIN_SD_MOSI, cfg::PIN_SD_MISO})
+        if (board >= cfg::BUS_FIRST_PIN && board <= cfg::BUS_LAST_PIN)
+            CHECK(!((fdd::INPUT_MASK | fdd::OUTPUT_MASK) & fdd::maskOf(board)));
     CHECK(!(fdd::WATCHED_MASK & fdd::maskOf(cfg::PIN_WDATA)));
     CHECK(fdd::WATCHED_MASK & fdd::maskOf(cfg::PIN_STEP));
 }
@@ -72,8 +76,7 @@ TEST(test_no_pin_used_twice) {
         cfg::PIN_DENSEL, cfg::PIN_MOTEA, cfg::PIN_DRVSB, cfg::PIN_DRVSA, cfg::PIN_MOTEB, cfg::PIN_DIR,
         cfg::PIN_STEP, cfg::PIN_WDATA, cfg::PIN_WGATE, cfg::PIN_SIDE1, cfg::PIN_INDEX, cfg::PIN_TRK00,
         cfg::PIN_WPT, cfg::PIN_RDATA, cfg::PIN_DSKCHG, cfg::PIN_BOARD_LED,
-        cfg::PIN_SD_CLK, cfg::PIN_SD_CMD, cfg::PIN_SD_DAT0, cfg::PIN_SD_DAT0 + 1, cfg::PIN_SD_DAT0 + 2,
-        cfg::PIN_SD_DAT0 + 3, cfg::PIN_I2S_DATA, cfg::PIN_I2S_BCLK, cfg::PIN_I2S_BCLK + 1,
+        cfg::PIN_PSRAM_CS, cfg::PIN_SD_CS, cfg::PIN_SD_SCK, cfg::PIN_SD_MOSI, cfg::PIN_SD_MISO, cfg::PIN_I2S_DATA, cfg::PIN_I2S_BCLK, cfg::PIN_I2S_BCLK + 1,
         cfg::PIN_OLED_SDA, cfg::PIN_OLED_SCL, cfg::PIN_ENC_A, cfg::PIN_ENC_B, cfg::PIN_ENC_BUTTON,
         cfg::PIN_ACTION_BUTTON,
     };
@@ -92,8 +95,9 @@ TEST(test_no_pin_used_twice) {
 
 TEST(test_signal_names) {
     for (unsigned pin = cfg::BUS_FIRST_PIN; pin <= cfg::BUS_LAST_PIN; ++pin)
-        CHECK(std::string(fdd::signalName(pin)) != "?");
+        CHECK((std::string(fdd::signalName(pin)) != "?") == bool((fdd::INPUT_MASK | fdd::OUTPUT_MASK) & fdd::maskOf(pin)));
     CHECK_STR(fdd::signalName(cfg::PIN_TRK00), "TRK00");
+    CHECK_STR(fdd::signalName(cfg::PIN_SD_CS), "?");
     CHECK_STR(fdd::signalName(cfg::PIN_BOARD_LED), "?");
 }
 
@@ -248,6 +252,7 @@ void runShortTestTests();
 void runDriveTests();
 void runTrackTests();
 void runLoaderTests();
+void runImageCacheTests();
 void runActivityTests();
 void runWriteDecodeTests();
 void runVirtualPcTests();
@@ -277,6 +282,7 @@ int main() {
     runDriveTests();
     runTrackTests();
     runLoaderTests();
+    runImageCacheTests();
     runActivityTests();
     runWriteDecodeTests();
     runVirtualPcTests();

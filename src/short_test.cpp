@@ -3,26 +3,23 @@
 #include <cstdio>
 
 #include "config.h"
+#include "fdd_signals.h"
 
 namespace short_test {
 
-uint32_t drivenMask() {
-    uint32_t m = 0;
-    for (unsigned p = cfg::BUS_FIRST_PIN; p <= cfg::BUS_LAST_PIN; ++p) m |= 1u << p;
-    return m;
-}
+uint32_t drivenMask() { return (fdd::INPUT_MASK | fdd::OUTPUT_MASK) << cfg::BUS_FIRST_PIN; }
 
-uint32_t observedMask() { return drivenMask() | 0xFu | (1u << 19) | EXPECTED_LOW; }
+uint32_t observedMask() { return drivenMask() | 0xFu | (1u << 23) | EXPECTED_LOW; }
 
 const char* signalName(unsigned gpio) {
     static const char* const names[32] = {
         "GPIO0",           "GPIO1",          "GPIO2 (I2C SDA)", "GPIO3 (I2C SCL)",
-        "GPIO4 (DENSEL)",  "GPIO5 (MOTEA)",  "GPIO6 (DRVSB)",   "GPIO7 (DRVSA)",
-        "GPIO8 (MOTEB)",   "GPIO9 (DIR)",    "GPIO10 (STEP)",   "GPIO11 (WDATA)",
-        "GPIO12 (WGATE)",  "GPIO13 (SIDE1)", "GPIO14 (INDEX)",  "GPIO15 (TRK00)",
-        "GPIO16 (WPT)",    "GPIO17 (RDATA)", "GPIO18 (DSKCHG)", "GPIO19",
-        "GPIO20 (ENC A)",  "GPIO21 (ENC B)", "GPIO22 (ENC SW)", "GPIO23 (ACTION)",
-        "GPIO24",          "GPIO25 (LED)",   "GPIO26 (AMP DIN)", "GPIO27 (AMP BCLK)",
+        "GPIO4 (INDEX)",   "GPIO5 (TRK00)",  "GPIO6 (WPT)",     "GPIO7 (RDATA)",
+        "GPIO8 (PSRAM CS)", "GPIO9 (SD CS)", "GPIO10 (SD SCK)", "GPIO11 (SD MOSI)",
+        "GPIO12 (DENSEL)", "GPIO13 (MOTEA)", "GPIO14 (DRVSB)",  "GPIO15 (DRVSA)",
+        "GPIO16 (MOTEB)",  "GPIO17 (DIR)",   "GPIO18 (STEP)",   "GPIO19 (WDATA)",
+        "GPIO20 (WGATE)",  "GPIO21 (SIDE1)", "GPIO22 (DSKCHG)", "GPIO23",
+        "GPIO24 (SD MISO)", "GPIO25 (LED)",  "GPIO26 (AMP DIN)", "GPIO27 (AMP BCLK)",
         "GPIO28 (AMP LRC)", "GPIO29",        "GPIO30",          "GPIO31",
     };
     return gpio < 32 ? names[gpio] : "?";

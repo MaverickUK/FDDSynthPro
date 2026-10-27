@@ -1,6 +1,6 @@
 // A virtual PC drives the whole drive through the cable (virtual_pc.h): a
 // DOS-like session of boot, file reads, writes and a disk swap, with core 0
-// loading cylinders in the background at SDIO speed. The sound events of
+// loading cylinders in the background at the SD card's speed. The sound events of
 // the session are saved for the sample player
 // (.pio/native-tests/pc_session_act.txt).
 #include <cstdint>
@@ -310,7 +310,7 @@ TEST(test_pc_panel_frame_rate) {
 
 // The worst case for the settle time: a frame starts just as the head steps
 // a single cylinder. The load waits for the frame, then takes two reads and
-// two encodes (11 ms with these costs). Returns how long after the step the
+// two encodes (7 ms with these costs). Returns how long after the step the
 // cylinder was ready.
 static uint32_t readyAfterStepDuringFrame(uint32_t draw_us) {
     Core0Costs costs;
@@ -338,7 +338,8 @@ TEST(test_pc_panel_margin) {
     uint32_t slowest_ok = 0;
     for (uint32_t draw_us = 500; draw_us <= 8000; draw_us += 250) {
         uint32_t ready = readyAfterStepDuringFrame(draw_us);
-        CHECK(ready >= 11000 && ready <= draw_us + 11000);  // the frame's rest, then the load
+        const uint32_t load_us = 2 * Core0Costs{}.read_us + 2 * Core0Costs{}.encode_us;
+        CHECK(ready >= load_us && ready <= draw_us + load_us);  // the frame's rest, then the load
         if (ready > VirtualPc::SETTLE_US) break;
         slowest_ok = draw_us;
     }

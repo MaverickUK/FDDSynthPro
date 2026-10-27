@@ -9,8 +9,9 @@
 //               (drive.h) and puts INDEX, TRK00, WPT and DSKCHG on the
 //               SN7407, and the RDATA streamer (rdata_pio.h) sends the
 //               cylinder under the head. Core 0 loads it (cylinder_loader.h)
-//               from the first image on the SD card, or from the generated
-//               1.44 MB disk without one. A read-only disk is in from
+//               from the first image on the SD card, copied into PSRAM
+//               before the disk goes in (image_cache.h), or from the
+//               generated 1.44 MB disk without one. A read-only disk is in from
 //               power-on, writable if the image is. Console `[` and `]`
 //               swap to the previous or next image on the card, GoTek
 //               style. What the drive does
@@ -28,6 +29,7 @@
 #include <Arduino.h>
 
 #include <hardware/gpio.h>
+#include <hardware/regs/addressmap.h>
 
 #include <atomic>
 #include <cstdio>
@@ -46,6 +48,7 @@
 #include "audio.h"
 #include "cylinder_loader.h"
 #include "ibm_track.h"
+#include "image_cache.h"
 #include "panel.h"
 #include "rdata_pio.h"
 #include "sd_image.h"
@@ -63,6 +66,8 @@ static std::atomic<uint32_t> g_steps{0};    // STEP assertions seen
 
 // Pins in sample layout (bit n = GPIO BUS_FIRST_PIN + n).
 static uint32_t pinsAsSample() { return gpio_get_all() >> cfg::BUS_FIRST_PIN; }
+
+constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
 
 static void record(const TraceEvent& e) {
     g_events.fetch_add(1, std::memory_order_relaxed);
@@ -92,11 +97,13 @@ static void watch(PinWatch& w, uint32_t now, uint32_t pins) {
 
 void setup1() {
     setUpInputs();
-    for (unsigned pin = cfg::FIRST_OUTPUT_PIN; pin <= cfg::LAST_OUTPUT_PIN; ++pin) {
-        // Inputs too in slice 0. The pull-up holds the SN7407's input high,
-        // so its output stays released. Never pull-downs (erratum E9).
+    for (unsigned pin : cfg::OUTPUT_PINS) {
+        // Inputs too in slice 0. Through the SN7407, the pull-up holds its
+        // input high, so its output stays released. Wired straight to the
+        // header, the host pulls them up (to 5 V), so ours stay off. Never
+        // pull-downs (erratum E9).
         gpio_init(pin);
-        gpio_set_pulls(pin, true, false);
+        gpio_set_pulls(pin, !cfg::OUTPUTS_OPEN_DRAIN, false);
     }
 }
 
@@ -133,8 +140,6 @@ static std::atomic<int> g_swap{SWAP_NONE};
 static SpscRing<activity::DriveEvent, 256> g_drive_events;
 static std::atomic<uint32_t> g_drive_events_dropped{0};
 
-constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
-
 // The cylinder the RDATA streamer sends: both heads, interleaved
 // (rdata_stream.h), sized for the largest format. Core 0's loader rebuilds it
 // in place when the head moves; the DMA reads it all the time.
@@ -156,13 +161,39 @@ static std::atomic<uint32_t> g_bursts_dropped{0};  // WGATE with no room for its
 // reports write-protect until the disk is inserted again.
 static std::atomic<bool> g_write_fault{false};
 
+static void setUpOutputs() {
+    gpio_init_mask(OUTPUT_GPIO_MASK);
+    if (cfg::OUTPUTS_OPEN_DRAIN) {
+        // Straight to the header: the level is always low, and a line is
+        // asserted by enabling the output. All start as inputs (released),
+        // with no pulls: the host pulls the lines up. 12 mA for the lowest
+        // low level against the host's pull-ups.
+        gpio_put_masked(OUTPUT_GPIO_MASK, 0);
+        gpio_set_dir_in_masked(OUTPUT_GPIO_MASK);
+        for (unsigned pin : cfg::OUTPUT_PINS) {
+            gpio_disable_pulls(pin);
+            gpio_set_drive_strength(pin, GPIO_DRIVE_STRENGTH_12MA);
+        }
+    } else {
+        // Released (high) before they become outputs, so the cable never sees
+        // a glitch. They only ever drive the SN7407's inputs.
+        gpio_put_masked(OUTPUT_GPIO_MASK, OUTPUT_GPIO_MASK);
+        gpio_set_dir_out_masked(OUTPUT_GPIO_MASK);
+    }
+}
+
+// `levels`: the output pins in sample layout, high = released (drive.h).
+static void putOutputs(uint32_t levels) {
+    uint32_t gpio = levels << cfg::BUS_FIRST_PIN;
+    if (cfg::OUTPUTS_OPEN_DRAIN)
+        gpio_set_dir_masked(OUTPUT_GPIO_MASK, ~gpio & OUTPUT_GPIO_MASK);  // output = asserted (low)
+    else
+        gpio_put_masked(OUTPUT_GPIO_MASK, gpio);
+}
+
 void setup1() {
     setUpInputs();
-    // Outputs released (high) before they become outputs, so the cable never
-    // sees a glitch. They only ever drive the SN7407's inputs.
-    gpio_init_mask(OUTPUT_GPIO_MASK);
-    gpio_put_masked(OUTPUT_GPIO_MASK, OUTPUT_GPIO_MASK);
-    gpio_set_dir_out_masked(OUTPUT_GPIO_MASK);
+    setUpOutputs();
     // RDATA then moves to the PIO, held released until the drive is ready.
     // The data rate depends on the disk, which core 0 chooses after mounting
     // the SD card.
@@ -236,7 +267,7 @@ void loop1() {
         for (unsigned i = 0; i < n; ++i)
             if (!g_drive_events.push(changes[i])) g_drive_events_dropped.fetch_add(1, std::memory_order_relaxed);
 
-        gpio_put_masked(OUTPUT_GPIO_MASK, drive::outputPins(d.outputs(now)) << cfg::BUS_FIRST_PIN);
+        putOutputs(drive::outputPins(d.outputs(now)));
 
         // The track starts at each index pulse, and RDATA only carries it
         // while the host could be reading and the buffer holds the cylinder
@@ -289,8 +320,32 @@ static bool g_from_card = false;    // serving images from the card, not the gen
 static size_t g_image_index = 0;
 static uint8_t g_track_data[2][ibm::HD_1440.sectors * gen_disk::SECTOR_BYTES];
 static uint16_t g_track_scratch[ibm::HD_1440.track_bytes];
-static uint32_t g_read_us_max = 0;    // slowest track read (console `s`)
+static uint32_t g_read_us_max = 0;    // slowest track read (console `s`): from the cache
 static uint32_t g_encode_us_max = 0;  // slowest track encode
+static uint32_t g_card_read_us_max = 0;  // slowest track read from the card, filling the cache
+static uint32_t g_fill_ms = 0;           // how long the last fill took
+
+// The image in the drive, in PSRAM: the slot always holds this (or the
+// generated disk), and it reads the card only to fill.
+static ImageCache* g_cache = nullptr;
+
+// One step of filling the cache: a track from the card.
+static bool fillStep() {
+    uint32_t started = time_us_32();
+    bool more = g_cache->fill();
+    uint32_t took = time_us_32() - started;
+    if (more && took > g_card_read_us_max) g_card_read_us_max = took;
+    return more;
+}
+
+static void reportFill(uint32_t started_ms) {
+    g_fill_ms = millis() - started_ms;
+    if (g_cache->fits())
+        Serial.printf("# cached %u/%u tracks in %lu ms\n", g_cache->cachedTracks(), ImageCache::TRACKS,
+                      (unsigned long)g_fill_ms);
+    else
+        Serial.println("# no PSRAM for the image cache: reading tracks from the card (slow seeks)");
+}
 
 // Decoding writes: a full track's data fields, plus room for strays.
 static uint8_t g_write_store[12 * 1024];
@@ -338,6 +393,15 @@ static settings::SaveTimer g_save;
 static bool g_card = false;
 
 static void chooseDisk() {
+    // PSRAM, if the board has it (the BB48R does): pmalloc fails without.
+    // Used through the uncached alias: PSRAM shares the XIP cache with the
+    // flash core 1 runs from, and copying a 9 KB track through it would
+    // evict core 1's loop, stalling it on misses long enough to miss a
+    // short STEP pulse. Uncached, core 1's code stays put.
+    uint8_t* ram = static_cast<uint8_t*>(pmalloc(cfg::IMAGE_CACHE_BYTES));
+    if (ram) ram += XIP_NOCACHE_NOALLOC_BASE - XIP_BASE;
+    static ImageCache cache(ram, ram ? cfg::IMAGE_CACHE_BYTES : 0);
+    g_cache = &cache;
     bool card = sd_image::mount();
     g_card = card;
     if (card) {
@@ -357,7 +421,13 @@ static void chooseDisk() {
     if (!image && index) image = sd_image::open(index = 0);
     g_image_index = index;
     g_from_card = image != nullptr;
-    static DiskSlot slot(image ? *image : static_cast<TrackSource&>(g_generated));
+    if (image) {  // all of it into PSRAM before the drive starts: about 0.6 s
+        uint32_t started = millis();
+        cache.attach(*image);
+        while (fillStep()) {}
+        reportFill(started);
+    }
+    static DiskSlot slot(image ? static_cast<TrackSource&>(cache) : static_cast<TrackSource&>(g_generated));
     g_slot = &slot;
     static CylinderLoader loader(slot, g_cylinder_slots, g_track_scratch, g_track_data[0], g_track_data[1]);
     static BurstWriter writer(slot, loader, g_write_store, sizeof g_write_store, g_write_fields, 64);
@@ -371,10 +441,13 @@ static void chooseDisk() {
     g_loader.store(&loader, std::memory_order_release);
 }
 
-// The disk is out for this long during a swap, as when a person changes
-// disks: the host sees DSKCHG, and the synth plays EJECT then INSERT.
+// The disk is out for at least this long during a swap, as when a person
+// changes disks: the host sees DSKCHG, and the synth plays EJECT then
+// INSERT. Longer if filling the cache takes longer (about 0.6 s).
 constexpr uint32_t SWAP_EJECTED_MS = 500;
 static uint32_t g_ejected_ms = 0;
+static bool g_filling = false;     // the new image is going into the cache
+static uint32_t g_fill_started_ms = 0;
 static size_t g_swap_from = 0;  // the image to go back to if the new one won't open
 static bool g_no_disk = false;  // neither would open (the card failed?): nothing to insert
 
@@ -388,6 +461,7 @@ static void startSwap(size_t index) {
     g_image_index = index;
     Serial.printf("# swapping to %s\n", sd_image::images().name(g_image_index));
     g_ejected_ms = 0;
+    g_filling = false;
     g_swap.store(SWAP_EJECT, std::memory_order_release);
 }
 
@@ -415,12 +489,25 @@ static void toggleDisk() {
     Serial.printf("# disk %s\n", insert ? "inserted" : "ejected");
 }
 
+static void insertCached();
+
 static void serviceSwap() {
     if (g_swap.load(std::memory_order_acquire) != SWAP_EJECTED) return;
     if (!g_ejected_ms) g_ejected_ms = millis() | 1;
-    // Wait out the eject, and any write burst still being decoded: it
-    // belongs to the old disk.
-    if (millis() - g_ejected_ms < SWAP_EJECTED_MS || g_capture->inBurst() || g_capture_marks.size()) return;
+    // Filling the cache with the new image: a track per call, so the rest of
+    // core 0 (audio, the panel) carries on. Then the disk goes in, once it
+    // has been out for SWAP_EJECTED_MS.
+    if (g_filling) {
+        if (fillStep()) return;
+        if (millis() - g_ejected_ms < SWAP_EJECTED_MS) return;
+        g_filling = false;
+        reportFill(g_fill_started_ms);
+        insertCached();
+        return;
+    }
+    // Wait for any write burst still being decoded: it belongs to the old
+    // disk, and opening the new image closes the old one.
+    if (g_capture->inBurst() || g_capture_marks.size()) return;
     TrackSource* image = sd_image::open(g_image_index);
     if (!image) {
         // Opening it closed the old image, so the slot can't keep that one:
@@ -439,13 +526,23 @@ static void serviceSwap() {
         return;
     }
     g_no_disk = false;
-    g_slot->insert(*image);
+    // The cache is free to refill: the disk is out (nothing reads it for the
+    // host) and no write is pending. The loader resets once it's in.
+    g_cache->attach(*image);
+    g_filling = true;
+    g_fill_started_ms = millis();
+}
+
+// The swap's last step: the cached image in the slot, the cylinder under the
+// head loaded, and core 1 told to insert it.
+static void insertCached() {
+    g_slot->insert(*g_cache);
     CylinderLoader& loader = *g_loader.load();
     loader.reset();
     loader.request(g_cylinder.load(std::memory_order_relaxed));
     while (loader.service() != CylinderLoader::Step::Idle) {}
-    g_format.store(&image->format());
-    g_writable.store(image->writable());
+    g_format.store(&g_cache->format());
+    g_writable.store(g_cache->writable());
     g_swap.store(SWAP_INSERT, std::memory_order_release);
 }
 
@@ -639,7 +736,9 @@ static bool printLine(const char* line, size_t n) {
 }
 
 static void printReady() {
-    Serial.printf("READY FDDSynthPro %s slice%d\n", FIRMWARE_VERSION, FIRMWARE_SLICE);
+    // "direct": the outputs are wired straight to the header (config.h).
+    Serial.printf("READY FDDSynthPro %s slice%d%s\n", FIRMWARE_VERSION, FIRMWARE_SLICE,
+                  cfg::OUTPUTS_OPEN_DRAIN ? " direct" : "");
 }
 
 // Current level of every input line: a wiring check. With the host connected
@@ -661,6 +760,8 @@ static void printStats() {
     Serial.printf(" ready=%d loads=%lu restarts=%lu read_us_max=%lu encode_us_max=%lu", loader.ready(),
                   (unsigned long)loader.loads(), (unsigned long)loader.restarts(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
+    Serial.printf(" cached=%u/%u card_read_us_max=%lu fill_ms=%lu", g_cache->cachedTracks(), ImageCache::TRACKS,
+                  (unsigned long)g_card_read_us_max, (unsigned long)g_fill_ms);
     Serial.printf(" writable=%d written=%lu write_bad_crc=%lu write_unplaced=%lu bursts_dropped=%lu "
                   "capture_overruns=%lu write_faults=%lu write_us_max=%lu",
                   (int)g_writable.load(), (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,

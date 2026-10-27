@@ -20,9 +20,9 @@ from fddproto.pio_sim import GPIO_OFFSET, PioSim
 pytestmark = pytest.mark.sim
 
 TOOL = REPO / ".pio/native-tests/build_track"
-RDATA = 17 - GPIO_OFFSET   # sample bits (src/config.h)
-SIDE1 = 13 - GPIO_OFFSET
-IDLE = 0x3FF               # every input released
+RDATA = 7 - GPIO_OFFSET   # sample bits (src/config.h)
+SIDE1 = 21 - GPIO_OFFSET
+IDLE = 0x3FF00             # every input released (GPIO 12-21)
 CYLINDER = 3
 
 

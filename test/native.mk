@@ -14,7 +14,7 @@ OUT := .pio/native-tests
 SRC := src/fdd_signals.cpp src/trace_format.cpp src/short_test.cpp src/head.cpp src/rotation.cpp \
        src/drive.cpp src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp src/activity.cpp \
        src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp src/synth.cpp src/wav.cpp src/ui.cpp \
-       src/screens.cpp src/canvas.cpp src/settings.cpp
+       src/screens.cpp src/canvas.cpp src/settings.cpp src/image_cache.cpp
 TESTS := $(wildcard test/native/*.cpp)
 
 comma := ,
@@ -31,7 +31,7 @@ decode_write_SRC := test/tools/decode_write.cpp src/ibm_track.cpp src/mfm_decode
 render_events_SRC := test/tools/render_events.cpp src/synth.cpp src/wav.cpp
 dos_session_SRC := test/tools/dos_session.cpp src/fdd_signals.cpp src/head.cpp src/rotation.cpp src/drive.cpp \
                    src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp src/activity.cpp \
-                   src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp
+                   src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp src/image_cache.cpp
 showreel_SRC := $(subst test/tools/dos_session.cpp,test/tools/showreel.cpp,$(dos_session_SRC)) \
                 src/synth.cpp src/wav.cpp src/ui.cpp src/screens.cpp src/canvas.cpp
 

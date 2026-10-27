@@ -24,7 +24,7 @@ static uint32_t s_produced = 0;
 void begin(uint8_t* ring, uint32_t ring_bytes, uint32_t data_rate_bps) {
     s_ring = ring;
     s_mask = ring_bytes - 1;
-    // PIO 2 or 1, as for RDATA: PIO 0 belongs to the SD card's SDIO driver.
+    // PIO 2 or 1, as for RDATA.
     bool ok = false;
     for (PIO p : {pio2, pio1}) {
         int sm = pio_claim_unused_sm(p, false);

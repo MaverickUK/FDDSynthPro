@@ -1,5 +1,6 @@
 #include "sd_image.h"
 
+#include <SPI.h>
 #include <SdFat.h>
 
 #include <cstdio>
@@ -47,7 +48,11 @@ private:
 static ImageSource s_source;
 
 bool mount() {
-    if (!s_sd.begin(SdioConfig(cfg::PIN_SD_CLK, cfg::PIN_SD_CMD, cfg::PIN_SD_DAT0))) return false;
+    // The BB48R's slot, in SPI mode on SPI1. SdFat drives the chip select.
+    SPI1.setRX(cfg::PIN_SD_MISO);
+    SPI1.setTX(cfg::PIN_SD_MOSI);
+    SPI1.setSCK(cfg::PIN_SD_SCK);
+    if (!s_sd.begin(SdSpiConfig(cfg::PIN_SD_CS, DEDICATED_SPI, SD_SCK_MHZ(cfg::SD_SPI_MHZ), &SPI1))) return false;
     s_images.clear();
     FsFile root, f;
     if (!root.open("/")) return false;

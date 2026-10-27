@@ -20,8 +20,14 @@ constexpr uint32_t rangeMask(unsigned first, unsigned last) {
     return ((last - first + 1 >= 32) ? ~0u : ((1u << (last - first + 1)) - 1u)) << bitOf(first);
 }
 
+constexpr uint32_t outputMask() {
+    uint32_t m = 0;
+    for (unsigned pin : cfg::OUTPUT_PINS) m |= maskOf(pin);
+    return m;
+}
+
 constexpr uint32_t INPUT_MASK = rangeMask(cfg::FIRST_INPUT_PIN, cfg::LAST_INPUT_PIN);
-constexpr uint32_t OUTPUT_MASK = rangeMask(cfg::FIRST_OUTPUT_PIN, cfg::LAST_OUTPUT_PIN);
+constexpr uint32_t OUTPUT_MASK = outputMask();  // not consecutive: GPIO 4-7 and 22
 
 // The inputs the listener records changes on. WDATA is left out: during a
 // write it toggles every few microseconds, which would flood the trace.

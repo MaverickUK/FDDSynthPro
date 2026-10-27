@@ -15,6 +15,7 @@
 #include "cylinder_loader.h"
 #include "drive.h"
 #include "gen_disk.h"
+#include "image_cache.h"
 #include "rdata_stream.h"
 #include "track_source.h"
 #include "virtual_hosts.h"
@@ -56,7 +57,8 @@ private:
     std::vector<uint8_t> image_;
 };
 
-// Core 0's costs per loader step: SDIO-speed reads, and an assumed encode
+// Core 0's costs per loader step: track reads from the image cache in PSRAM
+// (image_cache.h; test_loader.cpp's estimate), and an assumed encode
 // time until the board measures it (test_loader.cpp uses the same). And the
 // front panel's frame: screens::draw every 100 ms, which takes core 0 for
 // draw_us between other steps, but never while a load is under way
@@ -67,7 +69,7 @@ private:
 // M1, and the board's Cortex-M33 is perhaps 100 times slower. The board
 // reports its own as draw_us_max (console `s`). 0 leaves the panel out.
 struct Core0Costs {
-    uint32_t read_us = 3000;
+    uint32_t read_us = 1000;
     uint32_t encode_us = 2500;
     uint32_t draw_us = 2000;
     uint32_t frame_us = 100000;
@@ -85,6 +87,8 @@ class Machine {
     std::vector<mfm::Field> fields_;
     // The WDATA capture ring, as on the board (16 KB).
     std::vector<uint8_t> ring_ = std::vector<uint8_t>(16384);
+    // The image cache's memory: PSRAM on the board.
+    std::vector<uint8_t> cache_ram_ = std::vector<uint8_t>(1474560);
 
 public:
     explicit Machine(const ibm::Format& fmt = ibm::HD_1440, Core0Costs costs = {}, uint8_t start_cylinder = 0,
@@ -98,12 +102,15 @@ public:
           fields_(64),
           d(config(start_cylinder)),
           source(fmt),
-          slot(source),
+          cache(cache_ram_.data(), cache_ram_.size()),
+          slot(cache),
           loader(slot, slots_.data(), scratch_.data(), data0_.data(), data1_.data()),
           writer(slot, loader, store_.data(), store_.size(), fields_.data(), fields_.size()),
           stream(ring_.data(), uint32_t(ring_.size()), writer) {
         source.writable_ = writable;
-        // As at power-on: cylinder 0 is loaded before the host can ask.
+        // As at power-on: the image is cached, then cylinder 0 is loaded
+        // before the host can ask.
+        fillCache(source);
         while (loader.service() != CylinderLoader::Step::Idle) {}
         d.insertDisk(!writable);
     }
@@ -116,7 +123,8 @@ public:
     // RDATA stays off until the one under the head is ready.
     void eject() { d.ejectDisk(); }
     void insert(TrackSource& disk) {
-        slot.insert(disk);
+        fillCache(disk);  // during the ejected pause, as the firmware does
+        slot.insert(cache);
         loader.reset();
         d.insertDisk(!disk.writable());  // a fresh start: any write fault is cleared
     }
@@ -206,8 +214,9 @@ public:
     static constexpr uint32_t EDGE_TICKS = 2;
 
     drive::Drive d;
-    MemorySource source;  // the disk in the drive at power-on
-    DiskSlot slot;        // whichever disk is in now
+    MemorySource source;  // the disk in the drive at power-on: the card's image
+    ImageCache cache;     // the inserted image, in memory; writes go through to the card
+    DiskSlot slot;        // the cache, always
     CylinderLoader loader;
     BurstWriter writer;
     CaptureStream stream;
@@ -251,6 +260,11 @@ private:
             default:
                 break;
         }
+    }
+
+    void fillCache(TrackSource& disk) {
+        cache.attach(disk);
+        while (cache.fill()) {}
     }
 
     void busy(uint32_t us) {

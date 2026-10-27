@@ -54,10 +54,11 @@ static uint32_t pins(std::initializer_list<unsigned> list) {
 }
 
 TEST(test_short_masks) {
-    CHECK_EQ(drivenMask(), 0x0007FFF0u);  // GPIO 4-18
+    CHECK_EQ(drivenMask(), 0x007FF0F0u);  // GPIO 4-7 and 12-22
     CHECK((observedMask() & 0xF) == 0xF);
-    CHECK((observedMask() >> 19) & 1);
-    CHECK_STR(signalName(10), "GPIO10 (STEP)");
+    CHECK((observedMask() >> 23) & 1);
+    CHECK_EQ(observedMask() & 0x01000F00u, 0u);  // never the PSRAM or SD pins
+    CHECK_STR(signalName(18), "GPIO18 (STEP)");
 }
 
 TEST(test_short_clean_board) {
@@ -70,41 +71,41 @@ TEST(test_short_clean_board) {
 
 TEST(test_short_one_bridge) {
     Result r;
-    auto lines = run(Board{{pins({9, 10})}}, &r);
+    auto lines = run(Board{{pins({17, 18})}}, &r);
     CHECK_EQ(r.pairs, 1u);
     CHECK_EQ(lines.size(), 2u);
-    CHECK_STR(lines[0], "SHORT GPIO9 (DIR) GPIO10 (STEP)");
+    CHECK_STR(lines[0], "SHORT GPIO17 (DIR) GPIO18 (STEP)");
     CHECK_STR(lines[1], "SHORTTEST FAIL 0 stuck, 1 bridged");
 }
 
 TEST(test_short_three_way_bridge) {
     Result r;
-    run(Board{{pins({9, 10, 11})}}, &r);
+    run(Board{{pins({17, 18, 19})}}, &r);
     CHECK_EQ(r.pairs, 3u);
 }
 
 TEST(test_short_to_an_observed_neighbour) {
-    // DENSEL (GPIO4) bridged to GPIO3 before it on the header, and DSKCHG
-    // (GPIO18) to GPIO19 after it.
-    auto lines = run(Board{{pins({3, 4}), pins({18, 19})}});
-    CHECK_STR(lines[0], "SHORT GPIO3 (I2C SCL) GPIO4 (DENSEL)");
-    CHECK_STR(lines[1], "SHORT GPIO18 (DSKCHG) GPIO19");
+    // INDEX (GPIO4) bridged to GPIO3 before it on the header, and DSKCHG
+    // (GPIO22) to GPIO23 after it.
+    auto lines = run(Board{{pins({3, 4}), pins({22, 23})}});
+    CHECK_STR(lines[0], "SHORT GPIO3 (I2C SCL) GPIO4 (INDEX)");
+    CHECK_STR(lines[1], "SHORT GPIO22 (DSKCHG) GPIO23");
 }
 
 TEST(test_short_to_ground) {
     Result r;
-    auto lines = run(Board{{}, pins({15})}, &r);
-    CHECK_EQ(r.stuck_low, pins({15}));
-    CHECK_EQ(r.untested, pins({15}));  // never driven
-    CHECK_STR(lines[0], "STUCK GPIO15 (TRK00) low");
+    auto lines = run(Board{{}, pins({5})}, &r);
+    CHECK_EQ(r.stuck_low, pins({5}));
+    CHECK_EQ(r.untested, pins({5}));  // never driven
+    CHECK_STR(lines[0], "STUCK GPIO5 (TRK00) low");
     CHECK_STR(lines.back(), "SHORTTEST FAIL 1 stuck, 0 bridged");
 }
 
 TEST(test_short_separate_faults) {
     Result r;
-    run(Board{{pins({5, 6}), pins({12, 13})}, pins({16})}, &r);
+    run(Board{{pins({13, 14}), pins({20, 21})}, pins({6})}, &r);
     CHECK_EQ(r.pairs, 2u);
-    CHECK_EQ(r.stuck_low, pins({16}));
+    CHECK_EQ(r.stuck_low, pins({6}));
     CHECK(!r.ok());
 }
 

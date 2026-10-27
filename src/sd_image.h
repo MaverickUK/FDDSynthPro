@@ -1,4 +1,4 @@
-// Disk images on the SD card (SDIO, 4-bit), as a TrackSource. Core 0 only.
+// Disk images on the SD card (the BB48R's slot, SPI), as a TrackSource. Core 0 only.
 //
 // mount() lists every image in the card's root (image_list.h: .img or .ima,
 // 720 KB or 1.44 MB, in name order); open() serves one. Only one is open at

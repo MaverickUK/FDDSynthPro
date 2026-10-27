@@ -4,6 +4,26 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-26
+
+### Added
+- **The disk is served from PSRAM.** Each image is copied into the BB48R's 8 MB PSRAM before it goes in (`ImageCache`, `src/image_cache.*`): at power-on, about 0.6 s, and during a swap's ejected pause, a track per pass so the panel and sound carry on. Track reads become memory copies, so a cylinder is ready about 7 ms after the head stops (it was 11), and a panel frame can take 8 ms before the settle time is at risk (it was 4). Writes go to the card first, then the cache, so a refused write never shows as written. Without PSRAM it reads from the card as before. The cache is read through PSRAM's uncached alias, so the copies don't evict core 1's code from the XIP cache it shares.
+- **Builds for wiring the outputs straight to the header** while the SN7407 is on order: `bb48_direct` and `bb48_drive_direct`. The five outputs work as open drain (the host's pull-ups take them to 5 V); RDATA uses the same PIO program with its side-set driving the pin's direction. FeatherWing host only, never a real PC. The READY line ends in `direct`, and `docs/wiring.html` has a **Without the SN7407** switch.
+- `s` reports `cached`, `card_read_us_max` and `fill_ms`.
+
+### Changed
+- **The SD card runs at 25 MHz**, the spec's default speed, instead of 37.5 MHz: the cache takes the card off the seek path.
+
+### Fixed
+- Restarting RDATA at each index pulse could send one stray flux pulse: the jump that restarts the program carried side-set 0 (asserted). It now carries side-set 1.
+
+## [0.9.0] - 2026-10-26
+
+### Changed
+- **The pin map is now for the BB48R**, the BB48 with PSRAM and a microSD slot. The old map put MOTEB, DIR, STEP and WDATA on GPIO 8–11, which the R uses for its PSRAM select and SD slot. **Rewire before flashing:** inputs DENSEL–SIDE1 move to GPIO 12–21 (same order), the outputs to GPIO 4–7 (INDEX, TRK00, WPT, RDATA) and 22 (DSKCHG), and the encoder and action button to GPIO 32–35. The I2S amp and the OLED stay where they were. `docs/wiring.html` draws the new wiring.
+- **The SD card is read through the BB48R's own slot**, in SPI mode on SPI1 (GPIO 9, 10, 11, 24), instead of a 4-bit SDIO breakout on GPIO 32–37. It runs at 37.5 MHz: about 2 ms a track, inside the 3 ms the settle-time tests allow. 25 MHz would take 3.5 ms, and a panel frame starting as the head steps could then make a cylinder late.
+- The solder-bridge test drives only the fifteen floppy pins, never the board's PSRAM and SD pins, and watches GPIO 0–3 and 23 as neighbours.
+
 ## [0.8.1] - 2026-10-23
 
 ### Changed

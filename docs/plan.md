@@ -51,14 +51,13 @@ The Mac that builds the firmware also flashes it, drives the host (the floppy co
 
 | Part | Role |
 |---|---|
-| Olimex RP2350-PICO2-BB48 on a Perma-Proto board | The emulated drive |
+| Olimex RP2350-PICO2-BB48R on a Perma-Proto board | The emulated drive, with its own microSD slot |
 | 34-pin IDC breakout + floppy ribbons (one straight, one PC cable with the twist) | Host connection, wired per [wiring.md](wiring.md) |
 | SN7407N (DIP, hex open-collector buffer, 40 mA sink) | The drive's five outputs |
 | Two 11-pin bussed SIP resistor networks (ten resistors each), 10 kΩ and 1 kΩ, in a socket, to 3.3 V | Termination pull-ups on the drive's ten inputs: 10 kΩ with the FeatherWing, 1 kΩ for a real PC |
 | Feather RP2040 + Adafruit Floppy FeatherWing | The host under test: Adafruit's Greaseweazle-compatible firmware, driven by `gw` from the Mac |
 | Optional: Greaseweazle V4.1 | A second host, running the real Greaseweazle firmware, with both drive selects and full pin access |
 | A real 3.5-inch PC floppy drive + 5 V 2 A supply | The known-good reference: proves the host setup, and gives real timings and flux to compare with |
-| Adafruit SDIO microSD breakout + five 10 kΩ pull-ups | Image storage from slice 3 (as on HDDSynthPro) |
 | Spare Pico 2 as a logic analyser (sigrok) | Traces when a test fails; floppy signals are slow enough for it |
 | Later: a retro PC with a 1.44 MB controller | The real-host test (slice 6) |
 
@@ -66,11 +65,12 @@ The Mac that builds the firmware also flashes it, drives the host (the floppy co
 
 | Lines | GPIO |
 |---|---|
-| Inputs: DENSEL, MOTEA, DRVSB, DRVSA, MOTEB, DIR, STEP, WDATA, WGATE, SIDE1 | 4–13 |
-| Outputs (through the SN7407): INDEX, TRK00, WPT, RDATA, DSKCHG | 14–18 |
-| SD card (slice 3) | 32–37, as on HDDSynthPro |
+| Inputs: DENSEL, MOTEA, DRVSB, DRVSA, MOTEB, DIR, STEP, WDATA, WGATE, SIDE1 | 12–21 |
+| Outputs (through the SN7407): INDEX, TRK00, WPT, RDATA | 4–7 |
+| Output (through the SN7407): DSKCHG | 22 |
+| The BB48R's own: PSRAM select; SD card (SPI1: CS, SCK, MOSI, MISO) | 8; 9, 10, 11, 24 |
 
-GPIO 0–3 and 25 are avoided for the same reasons as on HDDSynthPro (the BB48's I2C pull-ups and LED). The inputs are on consecutive pins so one read captures them all, and everything is inside one PIO block's GPIO 0–31 window.
+GPIO 0–3 and 25 are avoided for the same reasons as on HDDSynthPro (the BB48R's I2C pull-ups and LED), and GPIO 8–11 and 24 are the board's. The inputs are on consecutive pins so one read captures them all, and everything is inside one PIO block's GPIO 0–31 window.
 
 **Drive select:** the firmware watches all four select and motor lines (floppy pins 10, 12, 14, 16). A real PC drive answers on pins 12 (select) and 16 (motor); the cable's twist routes the host's drive A lines there. The Feather host has one select, `gw --drive A`, on pins 12/16, so a straight cable reaches our drive directly. A Greaseweazle on a straight cable needs `--drive B` for the same pins. Slice 0 records which pins each letter uses.
 
