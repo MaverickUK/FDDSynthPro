@@ -7,3 +7,14 @@ host/runs/
 host/.venv/
 src/*.pio.h
 host/rig.env
+
+# KiCad: per-user and generated files
+*.kicad_prl
+*-backups/
+fp-info-cache
+_autosave-*
+\#auto_saved_files\#
+hardware/fab/
+hardware/*_fab.zip
+~*.lck
+*.kicad_pcb.zip

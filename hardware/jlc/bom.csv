@@ -1,0 +1,11 @@
+Comment,Designator,Footprint,LCSC Part #
+100n,C1,C_0603_1608Metric,C14663
+Floppy 34-pin,J1,IDC-Header_2x17_P2.54mm_Vertical,C9042
+"OLED (SSD1306, I2C)",J2,PinHeader_1x04_P2.54mm_Vertical,C124378
+Rotary encoder (CLK DT SW + GND),J3,PinHeader_1x05_P2.54mm_Vertical,C124379
+Action button / PC termination (jumper),"J4,J7",PinHeader_1x02_P2.54mm_Vertical,C124375
+MAX98357A amp,J5,PinHeader_1x07_P2.54mm_Vertical,C492406
+Debug UART,J6,PinHeader_1x03_P2.54mm_Vertical,C124376
+10k,"R1,R2,R3,R4,R5,R6,R7,R8,R9,R10",R_0402_1005Metric,C25744
+1k,"R11,R12,R13,R14,R15,R16,R17,R18,R19,R20",R_0402_1005Metric,C11702
+SN7407DR,U2,SOIC-14_3.9x8.7mm_P1.27mm,C40481

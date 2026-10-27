@@ -1,0 +1,8 @@
+(version 1)
+
+# Ground pins are routed to each other by tracks as well as poured, so a
+# thermal relief with one spoke (where the pour is squeezed between tracks)
+# is still a sound connection.
+(rule "One spoke is enough on ground"
+    (condition "A.NetName == 'GND'")
+    (constraint min_resolved_spokes 1))

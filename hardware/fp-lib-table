@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "FDDSynthPro")(type "KiCad")(uri "${KIPRJMOD}/FDDSynthPro.pretty")(options "")(descr "The Olimex RP2350-PICO2-BB48R footprint"))
+)
