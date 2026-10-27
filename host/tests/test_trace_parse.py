@@ -41,6 +41,22 @@ def test_derived_values():
     assert t.final_state() == {"DRVSB": False, "MOTEB": False, "SIDE1": False, "DIR": True}
 
 
+def test_held_signals_ignore_glitches():
+    # The Feather's start-of-command glitches (microseconds), then a real
+    # select held 20 ms, and a motor still on at the end.
+    t = trace.parse([
+        "SIG 1000 DRVSB=ON MOTEB=ON", "SIG 1005 DRVSB=OFF MOTEB=OFF",
+        "SIG 2000 DRVSB=ON", "SIG 22000 DRVSB=OFF",
+        "SIG 30000 MOTEB=ON",
+        "SIG 4294967000 SIDE1=ON", "SIG 1500 SIDE1=OFF",  # across the 32-bit wrap
+    ])
+    assert t.asserted_signals() == {"DRVSB", "MOTEB", "SIDE1"}
+    assert t.held_signals() == {"DRVSB", "MOTEB", "SIDE1"}
+    assert t.held_signals(min_us=30000) == {"MOTEB"}
+    glitch = trace.parse(["SIG 1000 DRVSB=ON", "SIG 1005 DRVSB=OFF"])
+    assert glitch.asserted_signals() == {"DRVSB"} and glitch.held_signals() == set()
+
+
 def test_activity_lines():
     t = trace.parse([
         "ACT 10 MOTOR_ON",

@@ -54,10 +54,14 @@ def capture(drive, gw, run_dir, request):
 
 
 def test_idle_lines(drive, gw):
-    """With the Greaseweazle reset, every input line is released (OFF).
-    DENSEL is a level, not a request, so a host may hold it either way."""
+    """With the Greaseweazle reset, no request line is asserted: no select,
+    motor, step or write gate. DENSEL, DIR, SIDE1 and WDATA are levels, which
+    a host may leave either way: the Feather leaves DIR where its last seek
+    put it, and holds WDATA low from its first command on (a drive ignores
+    WDATA without WGATE)."""
     pins = drive.command("p", "PINS")
-    asserted = [item for item in pins.split()[1:] if item.endswith("=ON") and not item.startswith("DENSEL")]
+    requests = ("DRVSA", "DRVSB", "MOTEA", "MOTEB", "STEP", "WGATE")
+    asserted = [item for item in pins.split()[1:] if item.endswith("=ON") and item.split("=")[0] in requests]
     assert not asserted, f"lines asserted while idle (wiring?): {asserted} in {pins}"
 
 
@@ -67,8 +71,15 @@ def test_seek_trace(capture, gw):
     _, t = capture("seek", lambda: gw.seek(2))
     assert not t.empty, "no activity on the cable during gw seek"
     assert not t.dropped, "the trace lost events"
-    assert {"DRVSA", "DRVSB"} & t.asserted_signals(), "no drive select during the seek"
+    assert {"DRVSA", "DRVSB"} & t.held_signals(), "no drive select during the seek"
     assert any(s.direction == "OUT" for s in t.steps), "no steps outwards (towards track 0)"
+    if "Adafruit" in gw.info().output:
+        # Adafruit_Floppy's search for track 0, with no TRK00: 100 steps out,
+        # then 20 in (VirtualAdafruitFloppy). The STEP glitch at the start of
+        # each command adds one more step out. No inward steps means DIR
+        # isn't reaching the drive.
+        moves = [(s.direction, s.count) for s in t.steps if s.count > 1]
+        assert ("IN", 20) in moves, f"no 20 steps inwards after the search (DIR wiring?): {moves}"
     state = t.final_state()
     assert not state.get("DRVSA") and not state.get("DRVSB"), "a drive is still selected afterwards"
 
@@ -76,22 +87,28 @@ def test_seek_trace(capture, gw):
 def test_rpm_trace(capture, gw):
     """An RPM check turns the motor on and waits for index pulses, which
     don't come yet."""
-    _, t = capture("rpm", gw.rpm)
+    r, t = capture("rpm", gw.rpm)
     assert not t.dropped, "the trace lost events"
-    assert {"MOTEA", "MOTEB"} & t.asserted_signals(), "no motor enable during gw rpm"
+    assert {"MOTEA", "MOTEB"} & t.held_signals(), "no motor enable during gw rpm"
     state = t.final_state()
-    assert not state.get("MOTEA") and not state.get("MOTEB"), "a motor is still on afterwards"
+    if r.ok:
+        assert not state.get("MOTEA") and not state.get("MOTEB"), "a motor is still on afterwards"
+    else:
+        # With no index pulses, gw 1.23 dies dividing by zero before it turns
+        # the motor off; the gw fixture's reset does it instead.
+        print(f"gw rpm failed (exit {r.returncode}); motor left {'on' if state.get('MOTEB') or state.get('MOTEA') else 'off'}")
 
 
 def test_drive_letters(capture, gw):
     """Which select and motor pins `--drive A` and `--drive B` use, so the
     firmware answers on the right ones. A host with one drive select (the
-    Feather + FeatherWing) refuses the other letter."""
+    Feather + FeatherWing) refuses the other letter: "Command Failed: Select",
+    though gw still exits 0, after the glitches every command starts with."""
     seen, refused = {}, []
     for letter in "AB":
         r, t = capture(f"drive_{letter}", lambda: gw.seek(0, motor_on=True, drive=letter))
-        pins = t.asserted_signals() & {"DRVSA", "DRVSB", "MOTEA", "MOTEB"}
-        if not r.ok and not pins:
+        pins = t.held_signals() & {"DRVSA", "DRVSB", "MOTEA", "MOTEB"}
+        if "Command Failed: Select" in r.output or (not r.ok and not pins):
             refused.append(letter)
         else:
             seen[letter] = pins

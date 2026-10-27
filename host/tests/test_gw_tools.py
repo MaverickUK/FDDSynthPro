@@ -33,6 +33,16 @@ def test_drive_only_on_drive_actions(gw):
     assert gw.log[-1].ok
 
 
+def test_reset_is_not_gw_reset(tmp_path):
+    """The reset sends only the reset command (gw_reset.py), never `gw reset`,
+    which hangs on the Feather. With no host there, it fails at once."""
+    g = Greaseweazle(device=str(tmp_path / "no-such-port"), gw="gw")
+    r = g.reset(timeout=20)
+    assert r.command[1:3] == ["-m", "fddproto.gw_reset"]
+    assert r.command[-2:] == ["--device", str(tmp_path / "no-such-port")]
+    assert not r.ok
+
+
 def test_convert_round_trip(gw, tmp_path):
     """IMG -> flux (.scp) -> IMG gives back the same bytes, for one track."""
     data = os.urandom(IMAGE_BYTES)

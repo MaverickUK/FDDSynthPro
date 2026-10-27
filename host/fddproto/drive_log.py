@@ -108,11 +108,15 @@ class DriveLog:
             time.sleep(0.05)
 
     def wait_quiet(self, quiet: float, timeout: float):
-        """Waits until the drive has printed nothing for `quiet` seconds."""
-        deadline = time.monotonic() + timeout
+        """Waits until the drive has printed nothing for `quiet` seconds, counted
+        from now at the earliest. A run of steps prints as one line when it
+        ends, so a trace can look quiet for seconds while the host is still
+        stepping; its line (and what followed) arrives just after the run."""
+        started = time.monotonic()
+        deadline = started + timeout
         while time.monotonic() < deadline:
             with self._lock:
-                last = self._last_line_at
+                last = max(self._last_line_at, started)
             if time.monotonic() - last >= quiet:
                 return
             time.sleep(0.1)

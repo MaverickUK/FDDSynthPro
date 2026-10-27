@@ -70,6 +70,22 @@ class Trace:
         """Every signal that was asserted at some point."""
         return {name for c in self.changes for name, on in c.signals.items() if on}
 
+    def held_signals(self, min_us: int = 1000) -> set[str]:
+        """Signals asserted for at least `min_us` at a time (or still asserted
+        at the end). The Feather host glitches its lines for a few
+        microseconds as it sets up its pins at the start of every command;
+        those don't count."""
+        held: set[str] = set()
+        since: dict[str, int] = {}
+        for c in self.changes:
+            for name, on in c.signals.items():
+                if on:
+                    since.setdefault(name, c.t_us)
+                elif name in since:
+                    if (c.t_us - since.pop(name)) & 0xFFFFFFFF >= min_us:
+                        held.add(name)
+        return held | set(since)
+
     def sounds(self) -> list[str]:
         return [a.sound for a in self.activity]
 

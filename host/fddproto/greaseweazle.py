@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,9 +72,17 @@ class Greaseweazle:
     def info(self) -> GwResult:
         return self.run("info")
 
-    def reset(self) -> GwResult:
-        """Back to power-on state: every drive deselected, motors off."""
-        return self.run("reset")
+    def reset(self, timeout: float = 30) -> GwResult:
+        """Back to power-on state: every drive deselected, motors off. Not
+        `gw reset`, which hangs on the Feather's firmware (gw_reset.py)."""
+        command = [sys.executable, "-m", "fddproto.gw_reset"]
+        if self.device:
+            command += ["--device", self.device]
+        p = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, timeout=timeout, cwd=HOST)
+        result = GwResult(command, p.returncode, p.stdout)
+        self.log.append(result)
+        return result
 
     def seek(self, cylinder: int, motor_on: bool = False, drive: str | None = None) -> GwResult:
         args = [str(cylinder)] + (["--motor-on"] if motor_on else [])
