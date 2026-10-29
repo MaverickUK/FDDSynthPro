@@ -49,7 +49,8 @@ SETTINGS
 
 The drive keeps its settings in FDDSYNTH.CFG on the card. It remembers the
 disk, the sample pack and the volume by itself. Edit the file on a computer
-to set the rest:
+to set the rest. There's a sample FDDSYNTH.CFG on this disk, with notes:
+copy it to the card's root folder and edit it there.
 
   image=GAMES.IMG    the disk to start with, every time (else the last one)
   image2=WORK.IMG    the second drive's, with drive=a,b

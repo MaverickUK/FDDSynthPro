@@ -1,7 +1,7 @@
 """The welcome disk, the drive's disk with no card or image
 (src/welcome_disk.*), judged by tools independent of our code: fsck.fat finds
-it a sound FAT12 volume, and mtools reads its label and README.TXT, which
-must be welcome/README.TXT with DOS line endings and the version filled in.
+it a sound FAT12 volume, and mtools reads its label and every file in
+welcome/, each with DOS line endings and the version filled in.
 """
 from __future__ import annotations
 
@@ -49,11 +49,13 @@ def test_label_and_files(image):
     listing = mtools("mdir", "-i", str(image), "::")
     assert "FDDSYNTHPRO" in listing
     assert re.search(r"README\s+TXT", listing), listing
+    assert re.search(r"FDDSYNTH\s+CFG", listing), listing
 
 
-def test_readme_is_the_repos(image, tmp_path):
-    out = tmp_path / "README.TXT"
-    mtools("mcopy", "-n", "-i", str(image), "::README.TXT", str(out))
+@pytest.mark.parametrize("name", sorted(p.name for p in (REPO / "welcome").iterdir() if not p.name.startswith(".")))
+def test_files_are_the_repos(image, tmp_path, name):
+    out = tmp_path / name
+    mtools("mcopy", "-n", "-i", str(image), f"::{name}", str(out))
     version = re.search(r'#define FIRMWARE_VERSION "([^"]+)"', (REPO / "src/version.h").read_text()).group(1)
-    want = (REPO / "welcome/README.TXT").read_text().replace("{VERSION}", version)
+    want = (REPO / "welcome" / name).read_text().replace("{VERSION}", version)
     assert out.read_bytes() == want.replace("\n", "\r\n").encode("ascii")

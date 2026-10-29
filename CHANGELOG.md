@@ -4,6 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-29
+
+### Added
+- **A sample settings file on the welcome disk:** `FDDSYNTH.CFG` ([welcome/FDDSYNTH.CFG](welcome/FDDSYNTH.CFG)), with a note on each setting, to copy to the card. `scripts/embed_welcome.py` now puts every file in `welcome/` on the disk, README.TXT first.
+
+### Fixed
+- **A settings file with notes in it was read only as far as 512 bytes**, so settings after a long comment were lost. The drive now reads up to 4 KB.
+
 ## [0.16.0] - 2026-10-29
 
 ### Added

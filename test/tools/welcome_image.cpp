@@ -12,7 +12,6 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "usage: welcome_image <out.img>\n");
         return 2;
     }
-    const welcome_disk::File files[] = {{"README.TXT", welcome_text::README, welcome_text::README_SIZE}};
     FILE* f = std::fopen(argv[1], "wb");
     if (!f) {
         std::perror(argv[1]);
@@ -20,7 +19,7 @@ int main(int argc, char** argv) {
     }
     uint8_t sector[welcome_disk::SECTOR_BYTES];
     for (uint32_t lba = 0; lba < welcome_disk::SECTORS; ++lba) {
-        welcome_disk::sector(lba, files, 1, welcome_text::FAT_DATE, sector);
+        welcome_disk::sector(lba, welcome_text::FILES, welcome_text::FILE_COUNT, welcome_text::FAT_DATE, sector);
         std::fwrite(sector, 1, sizeof sector, f);
     }
     return std::fclose(f) == 0 ? 0 : 1;

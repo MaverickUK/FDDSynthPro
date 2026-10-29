@@ -30,7 +30,10 @@ namespace settings {
 
 constexpr const char* PATH = "/FDDSYNTH.CFG";
 constexpr size_t NAME = 64;  // as ImageList::NAME
-constexpr size_t FILE_MAX = 512;
+// Room for a file with notes in it (the welcome disk's sample is 1 KB);
+// the drive's own, without notes, is under 512 bytes. A longer file is read
+// as far as this.
+constexpr size_t FILE_MAX = 4096;
 
 struct Settings {
     // Each drive's disk at power-on, if set: by hand only, never by the

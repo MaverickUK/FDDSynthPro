@@ -422,10 +422,7 @@ struct DriveState {
 static DriveState g_drv[bus::MAX_DRIVES];
 
 static GeneratedSource g_generated(ibm::HD_1440);
-static const welcome_disk::File WELCOME_FILES[] = {
-    {"README.TXT", welcome_text::README, welcome_text::README_SIZE},
-};
-static WelcomeSource g_welcome(WELCOME_FILES, 1, welcome_text::FAT_DATE);
+static WelcomeSource g_welcome(welcome_text::FILES, welcome_text::FILE_COUNT, welcome_text::FAT_DATE);
 
 static TrackSource& builtinSource(Builtin b) {
     return b == Builtin::Generated ? static_cast<TrackSource&>(g_generated) : static_cast<TrackSource&>(g_welcome);
@@ -574,7 +571,7 @@ static void chooseDisks() {
     bool card = sd_image::mount();
     g_card = card;
     if (card) {
-        char text[settings::FILE_MAX];
+        static char text[settings::FILE_MAX];  // off core 0's stack
         g_settings = settings::parse(text, sd_image::readSettings(text, sizeof text));
         g_latest = g_settings;
         const PackList& packs = sd_image::packs();
@@ -929,7 +926,7 @@ static void serviceSettings() {
     if (!g_save.due(ms, driveIdle())) return;
     g_save.saved();
     if (g_latest == g_settings) return;  // changed back again
-    char text[settings::FILE_MAX];
+    static char text[settings::FILE_MAX];  // off core 0's stack
     if (sd_image::writeSettings(text, settings::format(g_latest, text, sizeof text)))
         g_settings = g_latest;
     else

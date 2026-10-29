@@ -54,6 +54,20 @@ TEST(test_settings_fixed_image) {
           std::string::npos);
 }
 
+TEST(test_settings_with_notes) {
+    // A hand-written file full of notes: settings well past the first 512
+    // bytes still count.
+    std::string text;
+    for (int i = 0; i < 30; ++i) text += "# a note about the settings, as the sample file has them\n";
+    text += "#image=NOT.IMG\ninterface=shugart\ndrive=ds1\nvolume=30\n";
+    CHECK(text.size() > 1500 && text.size() < settings::FILE_MAX);
+    settings::Settings s = parse(text);
+    CHECK_STR(s.image[0], "");  // commented out
+    CHECK(s.bus.interface == bus::Interface::Shugart);
+    CHECK_EQ(s.bus.units, 0b10);
+    CHECK_EQ(s.volume, 30);
+}
+
 TEST(test_settings_bus) {
     // An old file, from before the bus settings: a PC drive past the twist.
     settings::Settings s = parse("image=GAMES.IMG\npack=Recorded\nvolume=75\n");
@@ -171,6 +185,7 @@ TEST(test_pack_list) {
 void runSettingsTests() {
     RUN(test_settings_round_trip);
     RUN(test_settings_fixed_image);
+    RUN(test_settings_with_notes);
     RUN(test_settings_bus);
     RUN(test_settings_defaults);
     RUN(test_settings_hand_edited);

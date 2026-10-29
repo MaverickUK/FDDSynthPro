@@ -10,17 +10,19 @@
 #include "check.h"
 #include "dos.h"
 #include "machine.h"
+#include "settings.h"
 #include "virtual_pc.h"
 #include "welcome_disk.h"
 #include "welcome_text.h"
 
 namespace {  // this file's own helpers and tests
 
-const welcome_disk::File FILES[] = {{"README.TXT", welcome_text::README, welcome_text::README_SIZE}};
+using welcome_text::FILE_COUNT;
+using welcome_text::FILES;
 
 std::vector<uint8_t> sector(uint32_t lba) {
     std::vector<uint8_t> s(512);
-    welcome_disk::sector(lba, FILES, 1, welcome_text::FAT_DATE, s.data());
+    welcome_disk::sector(lba, FILES, FILE_COUNT, welcome_text::FAT_DATE, s.data());
     return s;
 }
 
@@ -45,10 +47,12 @@ TEST(test_welcome_boot_sector) {
 }
 
 TEST(test_welcome_fat) {
-    // FAT12: F0 FF FF, then README's chain, cluster 2 onwards.
+    // FAT12: F0 FF FF, then README's chain, cluster 2 onwards, then the
+    // next file's straight after.
     std::vector<uint8_t> f = sector(welcome_disk::FAT_START);
     CHECK(f[0] == 0xF0 && f[1] == 0xFF && f[2] == 0xFF);
-    uint32_t clusters = (welcome_text::README_SIZE + 511) / 512;
+    CHECK_STR(FILES[0].name, "README.TXT");
+    uint32_t clusters = (FILES[0].size + 511) / 512;
     auto entry = [&](uint32_t n) {
         uint32_t at = n * 3 / 2;
         uint16_t v = uint16_t(f[at] | f[at + 1] << 8);
@@ -58,13 +62,16 @@ TEST(test_welcome_fat) {
     for (uint32_t n = 2; n + 1 < 2 + clusters; ++n) chained = chained && entry(n) == n + 1;
     CHECK(chained);
     CHECK_EQ(entry(2 + clusters - 1), 0xFFFu);
-    CHECK_EQ(entry(2 + clusters), 0u);  // free from there
+    uint32_t all = 0;
+    for (size_t i = 0; i < FILE_COUNT; ++i) all += (FILES[i].size + 511) / 512;
+    CHECK_EQ(entry(2 + all - 1), 0xFFFu);
+    CHECK_EQ(entry(2 + all), 0u);  // free from there
     CHECK(sector(welcome_disk::FAT_START + welcome_disk::FAT_SECTORS) == f);  // the second copy
 }
 
 TEST(test_welcome_disk_through_dos) {
     // The drive as it starts with no card: the welcome disk, cached in PSRAM.
-    WelcomeSource welcome(FILES, 1, welcome_text::FAT_DATE);
+    WelcomeSource welcome(FILES, FILE_COUNT, welcome_text::FAT_DATE);
     welcome.keepsWrites(true);
     Machine m;
     m.eject();
@@ -76,10 +83,12 @@ TEST(test_welcome_disk_through_dos) {
     Dos dos(pc);
     CHECK(dos.mount());
     std::vector<Dos::Entry> files = dos.dir();
-    CHECK_EQ(files.size(), 1u);
-    std::vector<uint8_t> text;
-    CHECK(!files.empty() && files[0].name == "README.TXT" && dos.readFile(files[0], text));
-    CHECK(std::string(text.begin(), text.end()) == std::string(welcome_text::README));
+    CHECK_EQ(files.size(), FILE_COUNT);
+    for (size_t i = 0; i < files.size() && i < FILE_COUNT; ++i) {
+        std::vector<uint8_t> text;
+        CHECK(files[i].name == FILES[i].name && dos.readFile(files[i], text));
+        CHECK(std::string(text.begin(), text.end()) == std::string(FILES[i].data, FILES[i].size));
+    }
     // A file saved to it stays, until the drive restarts.
     std::vector<uint8_t> note(3000, 'x');
     CHECK(dos.writeFile("NOTES.TXT", note));
@@ -92,10 +101,22 @@ TEST(test_welcome_disk_through_dos) {
     CHECK_EQ(pc.retries, 0u);
 }
 
+TEST(test_welcome_sample_settings) {
+    // The sample FDDSYNTH.CFG reads as the defaults it describes, and its
+    // commented-out lines (#image=...) are only notes.
+    const welcome_disk::File* cfg = nullptr;
+    for (const auto& f : FILES)
+        if (std::string(f.name) == "FDDSYNTH.CFG") cfg = &f;
+    CHECK(cfg != nullptr);
+    if (!cfg) return;
+    settings::Settings s = settings::parse(cfg->data, cfg->size);
+    CHECK(s == settings::Settings{});
+}
+
 TEST(test_welcome_disk_read_only_without_psram) {
     // Nowhere to keep writes: it says so (write-protected), rather than
     // losing them.
-    WelcomeSource welcome(FILES, 1, welcome_text::FAT_DATE);
+    WelcomeSource welcome(FILES, FILE_COUNT, welcome_text::FAT_DATE);
     CHECK(!welcome.writable());
     std::vector<uint8_t> data(512);
     CHECK(!welcome.writeSector(0, 0, 0, data.data()));
@@ -107,5 +128,6 @@ void runWelcomeDiskTests() {
     RUN(test_welcome_boot_sector);
     RUN(test_welcome_fat);
     RUN(test_welcome_disk_through_dos);
+    RUN(test_welcome_sample_settings);
     RUN(test_welcome_disk_read_only_without_psram);
 }
