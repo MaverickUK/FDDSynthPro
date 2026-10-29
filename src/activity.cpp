@@ -6,22 +6,27 @@ namespace activity {
 
 // ---- DriveObserver -------------------------------------------------------------------
 
-unsigned DriveObserver::observe(uint32_t now_us, drive::Drive& d, const drive::StepEvent& step, DriveEvent out[3]) {
+unsigned DriveObserver::observe(uint32_t now_us, drive::Drive* const drives[], unsigned count,
+                                const drive::StepEvent& step, DriveEvent out[]) {
+    if (count > bus::MAX_DRIVES) count = bus::MAX_DRIVES;
     unsigned n = 0;
-    bool motor = d.spindle().motorOn();
-    bool disk = d.diskPresent();
+    bool motor = false;
+    for (unsigned i = 0; i < count; ++i) motor = motor || drives[i]->spindle().motorOn();
     if (!started_) {
         // The state at power-on isn't an event, except a motor already on.
         started_ = true;
-        disk_ = disk;
+        for (unsigned i = 0; i < count; ++i) disk_[i] = drives[i]->diskPresent();
     }
     if (motor != motor_) {
         out[n++] = DriveEvent{now_us, motor ? Input::MotorOn : Input::MotorOff, head::Step::In, 0};
         motor_ = motor;
     }
-    if (disk != disk_) {
-        out[n++] = DriveEvent{now_us, disk ? Input::Insert : Input::Eject, head::Step::In, 0};
-        disk_ = disk;
+    for (unsigned i = 0; i < count; ++i) {
+        bool disk = drives[i]->diskPresent();
+        if (disk != disk_[i]) {
+            out[n++] = DriveEvent{now_us, disk ? Input::Insert : Input::Eject, head::Step::In, 0};
+            disk_[i] = disk;
+        }
     }
     if (step.stepped) out[n++] = DriveEvent{now_us, Input::Step, step.outcome, step.cylinder};
     return n;

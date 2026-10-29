@@ -120,6 +120,87 @@ TEST(test_pc_dos_session) {
     saveSounds(ev, ".pio/native-tests/pc_session_act.txt");
 }
 
+TEST(test_pc_two_drives) {
+    // The emulator as A (1.44 MB) and B (720 KB) on one cable: the BIOS
+    // changes drives with A's motor still running, finds B's data rate, and
+    // reads and writes both. Each drive keeps its own head, disk and rate.
+    Machine m(bus::Setup{bus::Interface::IbmPc, bus::Cable::Twisted, 0b11}, {&ibm::HD_1440, &ibm::DD_720});
+    MemorySource& a = m.unit(0).source;
+    MemorySource& b = m.unit(1).source;
+    VirtualPc pc(m);
+    std::vector<uint8_t> buf(18 * 512);
+
+    pc.motorOn();
+    CHECK(pc.recalibrate());
+    CHECK(pc.readSectors(40, 1, 1, 18, buf.data()) == Status::Ok);
+    CHECK(buf == sectors(a, 40, 1, 1, 18));
+    CHECK_EQ(m.unit(0).d.head().cylinder(), 40);
+
+    pc.useDrive(1);
+    CHECK(pc.diskChanged());  // B's own, set since power-on
+    CHECK(pc.detectRate());
+    CHECK_EQ(pc.rate_bps, 250000u);
+    pc.clearDiskChange();
+    CHECK(pc.readSectors(10, 0, 1, 9, buf.data()) == Status::Ok);
+    CHECK(std::vector<uint8_t>(buf.begin(), buf.begin() + 9 * 512) == sectors(b, 10, 0, 1, 9));
+    CHECK_EQ(m.unit(0).d.head().cylinder(), 40);  // A's head stayed put
+    CHECK_EQ(m.unit(1).d.head().cylinder(), 10);
+
+    std::vector<uint8_t> file(9 * 512);
+    for (size_t i = 0; i < file.size(); ++i) file[i] = uint8_t(i * 13 + 5);
+    CHECK(pc.writeSectors(20, 1, 1, 9, file.data()) == Status::Ok);
+    CHECK_EQ(b.writes, 9u);
+    CHECK_EQ(a.writes, 0u);
+    CHECK(std::memcmp(b.sector(20, 1, 0), file.data(), file.size()) == 0);
+
+    // Back to A, at its own rate, where its head was: no recalibration.
+    unsigned recalibrations = pc.recalibrations;
+    pc.useDrive(0);
+    CHECK_EQ(pc.rate_bps, 500000u);
+    CHECK(pc.readSectors(41, 0, 1, 18, buf.data()) == Status::Ok);
+    CHECK(buf == sectors(a, 41, 0, 1, 18));
+    CHECK(pc.writeSectors(41, 0, 5, 1, file.data()) == Status::Ok);
+    CHECK_EQ(a.writes, 1u);
+    CHECK_EQ(b.writes, 9u);
+    CHECK_EQ(pc.recalibrations, recalibrations);
+
+    // B again, read back what was written: from its own buffer.
+    pc.useDrive(1);
+    CHECK(pc.readSectors(20, 1, 1, 9, buf.data()) == Status::Ok);
+    CHECK(std::vector<uint8_t>(buf.begin(), buf.begin() + 9 * 512) == file);
+    CHECK_EQ(pc.retries, 0u);
+    for (const auto& w : m.writes) CHECK(w.decoded.bad_crc == 0 && w.decoded.unplaced == 0);
+
+    // One mechanism to hear: the motor started once, though both now run.
+    CHECK_EQ(countSounds(m.sounds, activity::Sound::MotorOn), 1u);
+    CHECK_EQ(movingSteps(m.sounds), unsigned(pc.steps.size()));
+    pc.motorOff();  // B's
+    CHECK_EQ(countSounds(m.sounds, activity::Sound::MotorOff), 0u);  // A's still runs
+    pc.useDrive(0);
+    pc.motorOff();
+    CHECK_EQ(countSounds(m.sounds, activity::Sound::MotorOff), 1u);
+}
+
+TEST(test_pc_second_drive_ignores_the_first_drives_lines) {
+    // Ejecting B leaves A's disk in, and A never sees B's steps.
+    Machine m(bus::Setup{bus::Interface::IbmPc, bus::Cable::Straight, 0b11}, {&ibm::HD_1440, &ibm::HD_1440});
+    // On a straight cable, A is the 14/10 pair: the virtual PC's twisted A
+    // (12/16) reaches drive B.
+    CHECK(m.unit(1).d.config().lines.select == cfg::PIN_DRVSB);
+    VirtualPc pc(m);
+    pc.motorOn();
+    CHECK(pc.recalibrate());
+    CHECK(pc.seekTo(30));
+    CHECK_EQ(m.unit(1).d.head().cylinder(), 30);
+    CHECK_EQ(m.unit(0).d.head().cylinder(), 0);
+    m.eject(1);
+    pc.run(10000);
+    CHECK(pc.diskChanged());
+    pc.useDrive(1);  // 14/10: drive 0 here
+    CHECK(m.unit(0).d.selected());
+    CHECK(m.unit(0).d.diskPresent());
+}
+
 TEST(test_pc_head_switch_without_settle) {
     // DOS reads clusters across the end of a track: the last sector of
     // head 0, then head 1 straight away, with no step and no settle.
@@ -373,6 +454,8 @@ TEST(test_image_list) {
 
 void runVirtualPcTests() {
     RUN(test_pc_dos_session);
+    RUN(test_pc_two_drives);
+    RUN(test_pc_second_drive_ignores_the_first_drives_lines);
     RUN(test_pc_head_switch_without_settle);
     RUN(test_pc_write_protected);
     RUN(test_pc_dd_disk);

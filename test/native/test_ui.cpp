@@ -328,6 +328,55 @@ TEST(test_ui_action_cycles_screens) {
     CHECK(m.screen() == ui::Screen::HeadTrace);
 }
 
+TEST(test_ui_two_drives) {
+    // A home screen for each drive: the action goes A, B, head trace...
+    // and what's chosen on B's goes to B.
+    Card k;
+    k.s.drives = 2;
+    ui::Model m;
+    CHECK_EQ(m.drive(), 0);
+    m.input(ui::Input::Action, k.s, 0);
+    CHECK(m.screen() == ui::Screen::Home);
+    CHECK_EQ(m.drive(), 1);
+    m.input(ui::Input::Press, k.s, 10);
+    m.input(ui::Input::TurnDown, k.s, 20);
+    m.input(ui::Input::Press, k.s, 30);
+    size_t to = 0;
+    uint8_t drive = 0;
+    CHECK(m.takeSwap(to, drive));
+    CHECK_EQ(to, 2u);
+    CHECK_EQ(drive, 1);
+    k.s.swapping = true;
+    m.tick(k.s, 100);
+    k.s.swapping = false;
+    m.tick(k.s, 700);
+    CHECK(m.screen() == ui::Screen::Home);
+    CHECK_EQ(m.drive(), 1);  // still B's
+    m.input(ui::Input::LongAction, k.s, 800);
+    CHECK(m.takeEjectToggle(drive));
+    CHECK_EQ(drive, 1);
+    ui::Screen order[] = {ui::Screen::HeadTrace, ui::Screen::Sounds, ui::Screen::Stats, ui::Screen::Home};
+    for (ui::Screen want : order) m.input(ui::Input::Action, k.s, 900);
+    CHECK(m.screen() == order[3]);
+    CHECK_EQ(m.drive(), 0);  // round to A's
+    m.input(ui::Input::LongAction, k.s, 1000);
+    CHECK(m.takeEjectToggle(drive));
+    CHECK_EQ(drive, 0);
+}
+
+TEST(test_screen_home_two_drives) {
+    Card k;
+    k.s.drives = 2;
+    k.s.drive_name = "B";
+    Canvas c;
+    screens::home(c, k.s);
+    preview(c, "home_drive_b");
+    Canvas one;
+    k.s.drives = 1;
+    screens::home(one, k.s);
+    CHECK(lit(c, 0, 0, 127, 9) != lit(one, 0, 0, 127, 9));  // "B: GAMES.IMG" in the title
+}
+
 TEST(test_ui_long_action_ejects) {
     Card k;
     ui::Model m;
@@ -575,6 +624,8 @@ void runUiTests() {
     RUN(test_ui_choose_and_insert_a_disk);
     RUN(test_ui_disk_list_wraps_and_cancels);
     RUN(test_ui_action_cycles_screens);
+    RUN(test_ui_two_drives);
+    RUN(test_screen_home_two_drives);
     RUN(test_ui_long_action_ejects);
     RUN(test_ui_generated_disk_has_no_list);
     RUN(test_ui_choose_a_pack);

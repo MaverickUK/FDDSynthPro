@@ -22,10 +22,12 @@ public:
         uint32_t size;
     };
 
-    explicit Dos(VirtualPc& pc) : pc_(pc) {}
+    // DOS on drive A (0) or B (1): each call selects it first.
+    explicit Dos(VirtualPc& pc, int drive = 0) : pc_(pc), drive_(drive) {}
 
     // Reads the BIOS parameter block, the FAT and the root directory.
     bool mount() {
+        pc_.useDrive(drive_);
         std::vector<uint8_t> boot(512);
         if (pc_.readSectors(0, 0, 1, 1, boot.data()) != VirtualPc::Status::Ok) return false;
         if (boot[510] != 0x55 || boot[511] != 0xAA) return false;
@@ -157,6 +159,7 @@ private:
     bool read(uint32_t lba, uint32_t count, uint8_t* out) { return transfer(lba, count, out, nullptr); }
     bool write(uint32_t lba, uint32_t count, const uint8_t* data) { return transfer(lba, count, nullptr, data); }
     bool transfer(uint32_t lba, uint32_t count, uint8_t* out, const uint8_t* data) {
+        pc_.useDrive(drive_);
         while (count) {
             uint8_t cyl = uint8_t(lba / (spt_ * heads_)), head = uint8_t((lba / spt_) % heads_);
             uint8_t sector = uint8_t(lba % spt_ + 1);
@@ -174,6 +177,7 @@ private:
     }
 
     VirtualPc& pc_;
+    int drive_;
     uint16_t bps_ = 0, reserved_ = 0, root_entries_ = 0, total_ = 0, spf_ = 0, spt_ = 0, heads_ = 0;
     uint8_t spc_ = 0, fats_ = 0;
     uint32_t root_sectors_ = 0, data_start_ = 0, clusters_ = 0;

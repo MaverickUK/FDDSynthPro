@@ -57,6 +57,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSample()` with the pins, then `outputs()` onto the SN7407. It never waits.
 - Which lines select it and run its motor, and what pin 34 carries, come from the bus setup (`src/bus.h`: `interface`, `cable` and `drive` in `/FDDSYNTH.CFG`, [docs/config.md](docs/config.md)), read at power-on. The default is a PC drive past the twist: 12/16, DISK CHANGE on pin 34. Shugart puts READY on pin 34; pin 2 (Shugart's DISK CHANGE) is an input on the carrier.
+- **Two drives** (`drive=a,b`): core 1 runs a `Drive` for each on the same samples and ANDs their output levels (each releases its lines while deselected). The streamer and the capture serve the selected drive (`active` in `loop1`); a change of drive moves the streamer to that drive's buffer at the word under its head (`rdata_pio::switchTo`), never mid-capture. Per-drive state shared between the cores is `g_shared[]` (`DriveShared`); core 0's is `g_drv[]` (`DriveState`). Bursts carry `WriteBurst::drive`. `DriveObserver` sounds both as one mechanism.
 - Outputs are released while the drive is deselected; steps count only while selected.
 - The head knocks against its outer stop on a step out at cylinder 0 (`head::Step::AtOuterStop`): that's a sound event, not an error.
 - Time is `time_us_32()`, which wraps every 71 minutes. Take differences in unsigned arithmetic; `rotation::Spindle` keeps its anchor close to now.
@@ -113,6 +114,7 @@ The loader and `BurstWriter` work through a `DiskSlot`, never an image directly.
 - Core 1's per-sample work (sound events, `WriteGate`) runs on every pin change and on every `tick`.
 - Core 0's loader steps take `Core0Costs` (3 ms a read, 2.5 ms an encode until the board measures them).
 - The PC reads by watching `Machine::rdataCells` (nothing while `Drive::streams` is false), and writes by feeding `captureInterval`.
+- A `Machine` built with a `bus::Setup` of two drives has a `Unit` each (`unit(i)`); `d`, `source`, `loader` and the rest name drive 0's. `VirtualPc::useDrive` changes drives as the BIOS does (the last motor keeps running), and `Dos(pc, drive)` works on one.
 
 `test/native/dos.h` adds just enough DOS (FAT12) on top, and `test/tools/dos_session` runs a session on a real image. `host/tests/test_dos_disk.py` builds that image with `mtools` and checks the result with `mtools` and `fsck.fat` (`brew install mtools dosfstools`; CI installs them). Those tools are the independent judge: don't relax a check to make it pass.
 
@@ -156,6 +158,7 @@ Console:
 - `p`: input pin levels (wiring check);
 - `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
 - `d`: eject or insert the disk (drive build);
+- `1` / `2`: which drive `i`, `[`, `]` and `d` act on, with two drives (drive build);
 - `k`: load the next sample pack, once the drive is idle (drive build);
 - `i`: the image being served (drive build);
 - `[` / `]`: swap to the previous or next image on the card (drive build);

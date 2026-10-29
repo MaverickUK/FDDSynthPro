@@ -5,8 +5,10 @@
 // model, loader, streamer buffer, write path, image.
 //
 // What it models, from the BIOS and controller's behaviour:
-//   - The drive is A: after the cable's twist, select and motor on pins
-//     12/16. Motor on, then 500 ms before the first access.
+//   - Drive A, after the cable's twist: select and motor on pins 12/16.
+//     Drive B on 14/10 (useDrive). Motor on, then 500 ms before the first
+//     access. Changing drives leaves the last one's motor running, as the
+//     BIOS does until its motor-off timeout.
 //   - Steps every 3 ms (SRT for 1.44 MB), STEP held 2 us; 15 ms head settle.
 //   - RECALIBRATE steps out until TRK00, checking it before each step, up
 //     to 79 steps.
@@ -42,9 +44,27 @@ public:
     static constexpr uint32_t MOTOR_START_US = 500000;
     static constexpr int TRIES = 3;
 
-    explicit VirtualPc(Machine& m) : VirtualHost(m.d, cfg::PIN_DRVSB, cfg::PIN_MOTEB), m_(m) {
+    explicit VirtualPc(Machine& m) : VirtualHost(m.driveModels(), cfg::PIN_DRVSB, cfg::PIN_MOTEB), m_(m) {
         m_.attach(*this);
     }
+
+    // Drive A (0) or B (1) for what follows, as the BIOS changes drives:
+    // the last one's motor keeps running, and the new one's starts (500 ms)
+    // unless it already runs. The BIOS keeps each drive's head position and
+    // data rate; a drive it hasn't used yet is recalibrated.
+    void useDrive(int drive) {
+        if (drive == drive_) return;
+        set(select_, false);
+        known_cylinder_[drive_] = cylinder;
+        known_rate_[drive_] = rate_bps;
+        drive_ = drive;
+        select_ = drive ? cfg::PIN_DRVSA : cfg::PIN_DRVSB;
+        motor_ = drive ? cfg::PIN_MOTEA : cfg::PIN_MOTEB;
+        cylinder = known_cylinder_[drive];
+        rate_bps = known_rate_[drive];
+        motorOn();
+    }
+    int drive() const { return drive_; }
 
     // Lets time pass, with the drive's core 0 working in the background.
     void run(uint32_t us) {
@@ -58,12 +78,15 @@ public:
 
     void motorOn() {
         set(select_, true);
+        if (motor_on_[drive_]) return;
         set(motor_, true);
+        motor_on_[drive_] = true;
         run(MOTOR_START_US);
     }
     void motorOff() {
         set(motor_, false);
         set(select_, false);
+        motor_on_[drive_] = false;
         run(10000);
     }
 
@@ -86,7 +109,7 @@ public:
         return true;
     }
 
-    bool diskChanged() { return d_.outputs(now).dskchg; }
+    bool diskChanged() { return cable().dskchg; }
 
     // The BIOS's way of clearing a disk change: step away and back.
     void clearDiskChange() {
@@ -101,7 +124,7 @@ public:
     }
     // INT 13h, function 3.
     Status writeSectors(uint8_t cyl, uint8_t head, uint8_t first, uint8_t count, const uint8_t* data) {
-        if (d_.outputs(now).wpt) return Status::WriteProtected;
+        if (cable().wpt) return Status::WriteProtected;
         return access(cyl, head, first, count, nullptr, data);
     }
 
@@ -235,8 +258,12 @@ private:
 
     // Where the disk is under the head, in bytes from the index.
     uint32_t position() {
-        return uint32_t(uint64_t(d_.spindle().phaseUs(now)) * m_.format().dataRate() / 8000000u);
+        return uint32_t(uint64_t(selectedDrive().spindle().phaseUs(now)) * m_.format().dataRate() / 8000000u);
     }
 
     Machine& m_;
+    int drive_ = 0;
+    int known_cylinder_[2] = {-1, -1};
+    uint32_t known_rate_[2] = {500000, 500000};
+    bool motor_on_[2] = {false, false};
 };

@@ -25,6 +25,12 @@ void restartAtIndex();
 // RDATA should be held released (no disk) while it happens.
 void setFormat(uint32_t words, uint32_t data_rate_bps);
 
+// The host selected the other drive (bus.h: two drives): stream its
+// cylinder buffer, at its format's rate, from `start_word`, the word under
+// its head now, so its track stays in step with its own index. Then from
+// the start at each of its index pulses, as before.
+void switchTo(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps, uint32_t start_word);
+
 // Lets the program drive RDATA, or holds it released (deselected, no disk,
 // motor not at speed). The program keeps running either way.
 void enable(bool on);

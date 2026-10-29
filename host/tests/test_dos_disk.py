@@ -1,7 +1,7 @@
 """A real DOS disk through the whole drive, with no hardware: mtools builds a
 FAT12 image, the virtual PC (test/tools/dos_session) mounts it, reads every
 file and writes a new one through the drive, then mtools and fsck.fat check
-what it left. They're independent of our code: if the drive or the PC got a
+what it left. And two disks, with the drive as A and B: COPY A:*.* B:. They're independent of our code: if the drive or the PC got a
 sector, the FAT or a directory entry wrong, they'd say so.
 """
 from __future__ import annotations
@@ -110,3 +110,25 @@ def test_big_file_across_tracks_and_heads(tmp_path):
     """100 KB: over 200 sectors, across several tracks and both heads."""
     img, files = make_disk(tmp_path, 1440)
     check(tmp_path, img, files, "BIG.DAT", random.Random(3).randbytes(100_000))
+
+
+def test_copy_from_a_to_b(tmp_path):
+    """The drive as A (1.44 MB) and B (a blank 720 KB disk) on one cable: DOS
+    copies every file from A to B, changing drives for each. B must hold them
+    all, A must be untouched, and both must pass fsck."""
+    a_img, files = make_disk(tmp_path, 1440)
+    b_img = tmp_path / "b.img"
+    mtools("mformat", "-i", str(b_img), "-C", "-f", "720", "-v", "DRIVEB", "::")
+    a_out, b_out = tmp_path / "a_after.img", tmp_path / "b_after.img"
+    r = subprocess.run([str(TOOL), "--copy", str(a_img), str(b_img), str(a_out), str(b_out)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "retries=0" in r.stdout and "a_writes=0" in r.stdout, r.stdout
+    assert a_out.read_bytes() == a_img.read_bytes()
+    for img in (a_out, b_out):
+        fsck = subprocess.run(["fsck.fat", "-n", str(img)], capture_output=True, text=True)
+        assert fsck.returncode == 0, fsck.stdout + fsck.stderr
+    got = tmp_path / "got"
+    for name, data in files.items():
+        mtools("mcopy", "-n", "-i", str(b_out), f"::{name}", str(got))
+        assert got.read_bytes() == data, name

@@ -40,16 +40,28 @@ struct DriveEvent {
     uint8_t cylinder;    // Step only: after the step
 };
 
+// With two drives (bus.h) the synth still sounds one mechanism: the motor
+// runs while either drive's does, and steps, inserts and ejects come from
+// both. A PC rarely runs both motors, and never steps both heads at once.
 class DriveObserver {
 public:
+    static constexpr unsigned MAX_EVENTS = 2 + bus::MAX_DRIVES;  // motor, step, a disk each
+
     // Call after every Drive::onSample (and after an insert or eject) with
     // what it returned. Writes up to three events to `out`; returns how many.
-    unsigned observe(uint32_t now_us, drive::Drive& d, const drive::StepEvent& step, DriveEvent out[3]);
+    unsigned observe(uint32_t now_us, drive::Drive& d, const drive::StepEvent& step, DriveEvent out[3]) {
+        drive::Drive* drives[1] = {&d};
+        return observe(now_us, drives, 1, step, out);
+    }
+    // The same for `count` drives; `step` is whichever stepped (only the
+    // selected one can). Up to MAX_EVENTS events.
+    unsigned observe(uint32_t now_us, drive::Drive* const drives[], unsigned count, const drive::StepEvent& step,
+                     DriveEvent out[]);
 
 private:
     bool started_ = false;
     bool motor_ = false;
-    bool disk_ = false;
+    bool disk_[bus::MAX_DRIVES] = {};
 };
 
 // ---- Core 0: what it sounds like ---------------------------------------------------

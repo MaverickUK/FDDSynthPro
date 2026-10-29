@@ -99,7 +99,14 @@ static const char* formatName(unsigned kb) { return kb == 720 ? "720K" : "1.44M"
 // ---- The screens --------------------------------------------------------------------------
 
 void home(Canvas& c, const ui::Status& s) {
-    title(c, s.image_name[0] ? s.image_name : "Generated disk");
+    // With two drives, which one this is: "A: GAMES.IMG".
+    const char* name = s.image_name[0] ? s.image_name : "Generated disk";
+    char named[32];
+    if (s.drives > 1) {
+        std::snprintf(named, sizeof named, "%s: %s", s.drive_name, name);
+        name = named;
+    }
+    title(c, name);
 
     // The track, big, and the head.
     c.text(2, 13, "TRACK");

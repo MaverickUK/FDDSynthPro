@@ -22,6 +22,7 @@ static int s_data_dma;  // cylinder -> TX FIFO
 static int s_ctrl_dma;  // rewinds the data channel when it finishes
 static const uint32_t* s_cylinder;
 static uint32_t s_words;
+static uint32_t s_rate;
 static const uint32_t* s_rewind_addr;  // what the control channel writes: the buffer's start
 
 // RDATA held released, whatever the program does.
@@ -42,7 +43,7 @@ static void release() {
         gpio_set_outover(cfg::PIN_RDATA, GPIO_OVERRIDE_NORMAL);
 }
 
-static void configureData(bool chain) {
+static void configureData(bool chain, uint32_t start_word = 0) {
     dma_channel_config c = dma_channel_get_default_config(s_data_dma);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_read_increment(&c, true);
@@ -51,12 +52,13 @@ static void configureData(bool chain) {
     // Chaining to itself means "no chain": used while aborting, because an
     // abort can otherwise trigger the chained channel.
     channel_config_set_chain_to(&c, chain ? s_ctrl_dma : s_data_dma);
-    dma_channel_configure(s_data_dma, &c, &s_pio->txf[s_sm], s_cylinder, s_words, false);
+    dma_channel_configure(s_data_dma, &c, &s_pio->txf[s_sm], s_cylinder + start_word, s_words - start_word, false);
 }
 
 void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps) {
     s_cylinder = cylinder;
     s_words = words;
+    s_rate = data_rate_bps;
     s_rewind_addr = cylinder;
 
     // PIO 2 or 1, with the GPIO 0-31 window. PIO 0 is left to libraries that
@@ -111,7 +113,8 @@ void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps) {
     restartAtIndex();
 }
 
-void restartAtIndex() {
+// Starts the stream again from slot `start_word`.
+static void restartAt(uint32_t start_word) {
     pio_sm_set_enabled(s_pio, s_sm, false);
     configureData(false);
     dma_channel_abort(s_data_dma);
@@ -121,16 +124,35 @@ void restartAtIndex() {
     // Side 1 on the jump: a bare jmp would be side 0, a stray flux pulse
     // until the program's first instruction.
     pio_sm_exec(s_pio, s_sm, pio_encode_jmp(s_offset) | pio_encode_sideset(1, 1));
-    configureData(true);
+    configureData(true, start_word);
     dma_channel_start(s_data_dma);
+    // The channel reloads its count from the last one written each time the
+    // control channel retriggers it: the whole buffer from the second pass.
+    if (start_word) dma_channel_set_trans_count(s_data_dma, s_words, false);
     pio_sm_set_enabled(s_pio, s_sm, true);
+}
+
+void restartAtIndex() { restartAt(0); }
+
+static void setRate(uint32_t data_rate_bps) {
+    if (data_rate_bps == s_rate) return;
+    s_rate = data_rate_bps;
+    rdata::Divider div = rdata::clockDivider(clock_get_hz(clk_sys), data_rate_bps);
+    pio_sm_set_clkdiv_int_frac8(s_pio, s_sm, div.integer, div.frac);
 }
 
 void setFormat(uint32_t words, uint32_t data_rate_bps) {
     s_words = words;
-    rdata::Divider div = rdata::clockDivider(clock_get_hz(clk_sys), data_rate_bps);
-    pio_sm_set_clkdiv_int_frac8(s_pio, s_sm, div.integer, div.frac);
+    setRate(data_rate_bps);
     restartAtIndex();
+}
+
+void switchTo(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps, uint32_t start_word) {
+    s_cylinder = cylinder;
+    s_rewind_addr = cylinder;
+    s_words = words;
+    setRate(data_rate_bps);
+    restartAt(start_word < words ? start_word : 0);
 }
 
 void enable(bool on) {
