@@ -35,13 +35,19 @@ constexpr unsigned PIN_WGATE = 20;   // floppy pin 24: write gate
 constexpr unsigned PIN_SIDE1 = 21;   // floppy pin 32: asserted = head 1
 
 // Outputs (drive -> host), through the SN7407. Four below the PSRAM and SD
-// pins, one after the inputs.
+// pins, two after the inputs.
 constexpr unsigned PIN_INDEX = 4;    // floppy pin 8: once per revolution
 constexpr unsigned PIN_TRK00 = 5;    // floppy pin 26: head on cylinder 0
 constexpr unsigned PIN_WPT = 6;      // floppy pin 28: write protected
 constexpr unsigned PIN_RDATA = 7;    // floppy pin 30: read data (flux pulses)
-constexpr unsigned PIN_DSKCHG = 22;  // floppy pin 34: disk changed
-constexpr unsigned OUTPUT_PINS[] = {PIN_INDEX, PIN_TRK00, PIN_WPT, PIN_RDATA, PIN_DSKCHG};
+constexpr unsigned PIN_DSKCHG = 22;  // floppy pin 34: disk changed (PC), or READY (Shugart, Amiga)
+// Floppy pin 2 as an output: DISK CHANGE for Shugart and Amiga hosts
+// (/CHNG), which a PC uses as its density select instead. Not on the rev B
+// carrier as built: it needs a rework, the SN7407's spare gate (input pin
+// 13 lifted from ground to GP23, output pin 12 to floppy pin 2;
+// docs/wiring.md). Released unless `pin02=chg` is set (docs/config.md).
+constexpr unsigned PIN_CHNG = 23;
+constexpr unsigned OUTPUT_PINS[] = {PIN_INDEX, PIN_TRK00, PIN_WPT, PIN_RDATA, PIN_DSKCHG, PIN_CHNG};
 
 // How the outputs reach the cable, set per build in platformio.ini:
 //   0  through the SN7407 (the default): the GPIOs drive its inputs high and
@@ -127,7 +133,7 @@ constexpr unsigned LAST_INPUT_PIN = PIN_SIDE1;
 // The span a pin sample covers. It includes the PSRAM and SD pins (8-11),
 // which INPUT_MASK and OUTPUT_MASK (fdd_signals.h) leave out.
 constexpr unsigned BUS_FIRST_PIN = PIN_INDEX;
-constexpr unsigned BUS_LAST_PIN = PIN_DSKCHG;
+constexpr unsigned BUS_LAST_PIN = PIN_CHNG;
 
 // Trace ring between core 1 (producer) and core 0 (consumer):
 // 4096 events x 16 bytes = 64 KB.

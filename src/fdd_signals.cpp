@@ -19,6 +19,7 @@ const char* signalName(unsigned pin) {
         case cfg::PIN_WPT: return "WPT";
         case cfg::PIN_RDATA: return "RDATA";
         case cfg::PIN_DSKCHG: return "DSKCHG";
+        case cfg::PIN_CHNG: return "CHNG";
         default: return "?";
     }
 }

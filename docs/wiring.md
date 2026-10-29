@@ -11,7 +11,7 @@ The board is the **BB48R**: the BB48 with 8 MB of PSRAM and a microSD slot, so t
 - **GPIO 0–3 are not used.** The BB48R pulls GPIO 2 and 3 up to 3.3 V through 2.2 kΩ (R17/R18, for the UEXT and Qwiic I2C connectors). GPIO 0/1 stay free for a debug UART.
 - **GPIO 8–11 and 24 belong to the board.** GPIO 8 is the PSRAM's chip select (the core sets it up at start-up), and GPIO 9, 10, 11 and 24 are the microSD slot's CS (DAT3), CLK, CMD and DAT0 (Olimex's schematic). They still come out on the headers: leave EXT1-12 to 15 and EXT2-4 unwired.
 - **GPIO 25 is not used.** It drives the board's LED.
-- **The ten inputs are on consecutive pins (GPIO 12–21)**, so one read captures them all. The five outputs go around the board's pins: GPIO 4–7 below them, GPIO 22 after the inputs.
+- **The ten inputs are on consecutive pins (GPIO 12–21)**, so one read captures them all. The outputs go around the board's pins: GPIO 4–7 below them, GPIO 22 (and 23, pin 2 after a rework) after the inputs.
 - **Everything is within GPIO 0–31**, the range one PIO block can reach.
 
 BB48R header pins: GPIO 0–23 are on EXT1 pins 4–27. EXT1 pin 1 is +3.3 V and pin 2 is GND. On EXT2, pin 1 is VBUS and pin 3 is GND.
@@ -31,6 +31,7 @@ Odd floppy pins 1–33 are all ground.
 | Floppy pin | Signal | Direction (drive's view) | GPIO | BB48R pin | Via |
 |---|---|---|---|---|---|
 | 2 | DENSEL | in | 12 | EXT1-16 | pull-up |
+| 2 | CHNG (Shugart, Amiga: disk change) | out | 23 | EXT1-27 | SN7407 6A (13) → 6Y (12): **only after the rework below** |
 | 8 | INDEX | out | 4 | EXT1-8 | SN7407 1A (1) → 1Y (2) |
 | 10 | MOTEA (motor enable A) | in | 13 | EXT1-17 | pull-up |
 | 12 | DRVSB (drive select B) | in | 14 | EXT1-18 | pull-up |
@@ -44,7 +45,7 @@ Odd floppy pins 1–33 are all ground.
 | 28 | WPT (write protect) | out | 6 | EXT1-10 | SN7407 3A (5) → 3Y (6) |
 | 30 | RDATA | out | 7 | EXT1-11 | SN7407 4A (9) → 4Y (8) |
 | 32 | SIDE1 | in | 21 | EXT1-25 | pull-up |
-| 34 | DSKCHG | out | 22 | EXT1-26 | SN7407 5A (11) → 5Y (10) |
+| 34 | DSKCHG (PC), READY (Shugart, Amiga) | out | 22 | EXT1-26 | SN7407 5A (11) → 5Y (10) |
 | 1, 3, … 33 | GND | | | EXT1-2, EXT2-3 | |
 
 **Not connected:** 4 and 6 (unused on 3.5-inch PC drives).
@@ -57,7 +58,18 @@ Odd floppy pins 1–33 are all ground.
 | 7 (GND) | GND |
 | 1, 3, 5, 9, 11 (1A–5A) | GPIO 4, 5, 6, 7 and 22, as in the table |
 | 2, 4, 6, 8, 10 (1Y–5Y) | Floppy pins 8, 26, 28, 30, 34 |
-| 13 (6A) | GND (unused gate) |
+| 13 (6A) | GND (unused gate); GPIO 23 after the rework |
+| 12 (6Y) | not connected; floppy pin 2 after the rework |
+
+### Pin 2 for Shugart and Amiga hosts (a rework)
+
+A PC drives floppy pin 2 (density select), so the carrier only reads it. Shugart and Amiga hosts expect the drive to drive it, with DISK CHANGE (/CHNG): without it, an Amiga never notices a disk swap. The SN7407's sixth gate is spare for it. On the rev B carrier:
+
+1. Lift U2 pin 13 (6A) from its ground pad, or cut its track, and wire it to GPIO 23 (BB48R EXT1-27).
+2. Wire U2 pin 12 (6Y) to floppy pin 2 (J1-2).
+3. Set `pin02=chg` in `/FDDSYNTH.CFG` ([config.md](config.md)), with `interface=shugart` or `interface=amiga`.
+
+Pin 2 then works both ways: the SN7407 releases it unless the disk has changed, and the drive still reads it on GPIO 12. With `interface=ibmpc` the firmware never drives it, whatever `pin02` says. Without the rework, GPIO 23 goes nowhere, so the setting does nothing.
 | 12 (6Y) | Not connected |
 
 Its TTL inputs read the RP2350's 3.3 V as high. Running it from VBUS means it is only powered when the BB48R is.

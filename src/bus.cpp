@@ -7,6 +7,7 @@ namespace bus {
 bool parseInterface(const char* name, Interface& out) {
     if (std::strcmp(name, "ibmpc") == 0) out = Interface::IbmPc;
     else if (std::strcmp(name, "shugart") == 0) out = Interface::Shugart;
+    else if (std::strcmp(name, "amiga") == 0) out = Interface::Amiga;
     else return false;
     return true;
 }
@@ -23,6 +24,8 @@ static bool parseUnit(const char* name, size_t len, uint8_t& out) {
     if (len == 1 && (name[0] == 'a' || name[0] == 'A')) out = 0;
     else if (len == 1 && (name[0] == 'b' || name[0] == 'B')) out = 1;
     else if (len == 3 && std::strncmp(name, "ds", 2) == 0 && name[2] >= '0' && name[2] < char('0' + SHUGART_UNITS))
+        out = uint8_t(name[2] - '0');
+    else if (len == 3 && std::strncmp(name, "df", 2) == 0 && name[2] >= '0' && name[2] < char('0' + AMIGA_UNITS))
         out = uint8_t(name[2] - '0');
     else return false;
     return true;
@@ -44,11 +47,14 @@ bool parseUnits(const char* names, uint8_t& out) {
     return true;
 }
 
-const char* interfaceName(Interface i) { return i == Interface::Shugart ? "shugart" : "ibmpc"; }
+const char* interfaceName(Interface i) {
+    return i == Interface::Shugart ? "shugart" : i == Interface::Amiga ? "amiga" : "ibmpc";
+}
 
 const char* cableName(Cable c) { return c == Cable::Straight ? "straight" : "twisted"; }
 
 const char* unitName(const Setup& s, uint8_t unit) {
+    if (s.interface == Interface::Amiga) return unit == 1 ? "df1" : "df0";
     if (s.interface == Interface::Shugart) {
         static const char* const NAMES[SHUGART_UNITS] = {"ds0", "ds1", "ds2"};
         return NAMES[unit < SHUGART_UNITS ? unit : 0];

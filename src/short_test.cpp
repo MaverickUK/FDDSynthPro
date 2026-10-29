@@ -18,7 +18,7 @@ const char* signalName(unsigned gpio) {
         "GPIO8 (PSRAM CS)", "GPIO9 (SD CS)", "GPIO10 (SD SCK)", "GPIO11 (SD MOSI)",
         "GPIO12 (DENSEL)", "GPIO13 (MOTEA)", "GPIO14 (DRVSB)",  "GPIO15 (DRVSA)",
         "GPIO16 (MOTEB)",  "GPIO17 (DIR)",   "GPIO18 (STEP)",   "GPIO19 (WDATA)",
-        "GPIO20 (WGATE)",  "GPIO21 (SIDE1)", "GPIO22 (DSKCHG)", "GPIO23",
+        "GPIO20 (WGATE)",  "GPIO21 (SIDE1)", "GPIO22 (DSKCHG)", "GPIO23 (CHNG)",
         "GPIO24 (SD MISO)", "GPIO25 (LED)",  "GPIO26 (AMP DIN)", "GPIO27 (AMP BCLK)",
         "GPIO28 (AMP LRC)", "GPIO29",        "GPIO30",          "GPIO31",
     };

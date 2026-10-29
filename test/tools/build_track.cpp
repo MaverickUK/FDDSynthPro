@@ -9,7 +9,7 @@
 //       Cylinder N as the RDATA streamer is fed it (rdata_stream.h):
 //       track_bytes 32-bit slot words, big-endian.
 //
-// FORMAT is 1440 or 720 (the PC formats), size:BYTES (a raw image's format
+// FORMAT is 1440 or 720 (the PC formats), adf (an Amiga disk), size:BYTES (a raw image's format
 // by its size: ibm::formatForSize), or cfg:IMG.CFG:NAME:BYTES (the IMG.CFG
 // section for an image of that name and size). Without an image, the
 // tracks hold the generated disk.
@@ -42,6 +42,7 @@ static std::vector<uint8_t> readFile(const char* path) {
 static bool parseFormat(const char* arg, ibm::Format& fmt) {
     if (std::strcmp(arg, "1440") == 0) return fmt = ibm::HD_1440, true;
     if (std::strcmp(arg, "720") == 0) return fmt = ibm::DD_720, true;
+    if (std::strcmp(arg, "adf") == 0) return fmt = ibm::amigaDD(), true;
     if (std::strncmp(arg, "size:", 5) == 0) return ibm::formatForSize(uint32_t(std::atol(arg + 5)), fmt);
     if (std::strncmp(arg, "cfg:", 4) == 0) {
         // cfg:PATH:NAME:BYTES

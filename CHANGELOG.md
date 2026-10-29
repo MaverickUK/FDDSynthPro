@@ -4,6 +4,13 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-29
+
+### Added
+- **The Amiga:** `interface=amiga` with `drive=df0` (pin 10), `df1` (pin 12) or both. The motor line is latched as the drive is selected, and pin 34 is /RDY, giving a standard drive's ID while the motor is off.
+- **ADF images** (`.adf`, 880 KB): AmigaDOS tracks (`src/amiga_track.*`), matched cell for cell against Greaseweazle's `amiga.amigados`. The Amiga's whole-track writes, from anywhere round the track, are decoded (`amiga::SectorScanner`) and written back to the image. A virtual Amiga reads and writes tracks through the whole drive in the tests.
+- **Pin 2 as an output** (`pin02=chg`, GPIO 23): DISK CHANGE for Shugart and Amiga hosts, through the SN7407's spare gate after a rework of the rev B carrier ([docs/wiring.md](docs/wiring.md)). Never driven with `interface=ibmpc`. The solder-bridge test now drives GPIO 23 too.
+
 ## [0.13.0] - 2026-10-29
 
 ### Added

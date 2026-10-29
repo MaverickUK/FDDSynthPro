@@ -22,7 +22,7 @@ A KiCad 10 project for the board the Olimex RP2350-PICO2-BB48R plugs onto: the S
 | Ref | Part | LCSC | Fitted by | Notes |
 |---|---|---|---|---|
 | U1 | Olimex RP2350-PICO2-BB48R | — | You (DNP) | Two 1×27 female headers are best: they give the microSD card room underneath and let you swap the board |
-| U2 | SN7407DR, SOIC-14 | C40481 | JLCPCB | The five outputs: GPIO → A, Y → floppy header. Powered from VBUS; the sixth gate's input is tied to GND |
+| U2 | SN7407DR, SOIC-14 | C40481 | JLCPCB | The five outputs: GPIO → A, Y → floppy header. Powered from VBUS; the sixth gate's input is tied to GND (see the pin 2 rework below) |
 | C1 | 100 nF, 0603 | C14663 | JLCPCB | U2's decoupling |
 | R1–R10 | 10 kΩ, 0402 | C25744 | JLCPCB | Pull-ups on the ten inputs to 3.3 V: right for the FeatherWing host |
 | R11–R20 | 1 kΩ, 0402 | C11702 | JLCPCB | Pull-ups to PC_TERM, which J7 joins to 3.3 V |
@@ -35,6 +35,8 @@ A KiCad 10 project for the board the Olimex RP2350-PICO2-BB48R plugs onto: the S
 | J7 | 1×2 header and a jumper | C124375 | JLCPCB (the jumper cap: you) | **The termination switch:** off for the FeatherWing host (10 kΩ); on for a real PC (the 1 kΩ in parallel: 909 Ω) |
 
 The BB48R's own pins are left alone: GP8 (PSRAM select), GP9–11 and GP24 (the microSD slot), and GP25 (the LED).
+
+**Rework for Shugart and Amiga hosts:** rev B only reads floppy pin 2 (a PC's density select). Shugart and Amiga hosts want the drive to drive it, with DISK CHANGE. Lift U2 pin 13 from ground and wire it to GP23 (EXT1-27), wire U2 pin 12 to J1 pin 2, and set `pin02=chg` ([docs/wiring.md](../docs/wiring.md#pin-2-for-shugart-and-amiga-hosts-a-rework)). A rev C should route the sixth gate that way from the start.
 
 Rev A had a socketed DIP SN7407 and solder jumpers (JP1–JP5) to bypass it for the `direct` builds. A soldered SOIC can't be taken out, so rev B always has its SN7407. The `direct` builds remain for hand-wired rigs.
 

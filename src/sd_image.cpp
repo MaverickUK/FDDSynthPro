@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "config.h"
+#include "amiga_track.h"
 #include "img_cfg.h"
 #include "settings.h"
 #include "wav.h"
@@ -28,6 +29,11 @@ static size_t s_img_cfg_len = 0;
 // An image's format: its IMG.CFG section if one matches, else its size.
 // `report` prints why a matching section can't be used.
 static bool formatOf(const char* name, uint32_t size, ibm::Format& out, bool report) {
+    if (ImageList::adfName(name)) {  // an Amiga disk: DD (HD ADFs need a 150 RPM drive)
+        if (size != amiga::ADF_BYTES) return false;
+        out = ibm::amigaDD();
+        return true;
+    }
     if (s_img_cfg) {
         img_cfg::Match m = img_cfg::find(s_img_cfg, s_img_cfg_len, name, size, out);
         if (m.result == img_cfg::Result::Ok) return true;

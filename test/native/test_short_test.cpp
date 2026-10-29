@@ -54,7 +54,7 @@ static uint32_t pins(std::initializer_list<unsigned> list) {
 }
 
 TEST(test_short_masks) {
-    CHECK_EQ(drivenMask(), 0x007FF0F0u);  // GPIO 4-7 and 12-22
+    CHECK_EQ(drivenMask(), 0x00FFF0F0u);  // GPIO 4-7 and 12-23
     CHECK((observedMask() & 0xF) == 0xF);
     CHECK((observedMask() >> 23) & 1);
     CHECK_EQ(observedMask() & 0x01000F00u, 0u);  // never the PSRAM or SD pins
@@ -66,7 +66,7 @@ TEST(test_short_clean_board) {
     auto lines = run(Board{}, &r);
     CHECK(r.ok());
     CHECK_EQ(lines.size(), 1u);
-    CHECK_STR(lines[0], "SHORTTEST OK 15 pins");
+    CHECK_STR(lines[0], "SHORTTEST OK 16 pins");
 }
 
 TEST(test_short_one_bridge) {
@@ -86,10 +86,10 @@ TEST(test_short_three_way_bridge) {
 
 TEST(test_short_to_an_observed_neighbour) {
     // INDEX (GPIO4) bridged to GPIO3 before it on the header, and DSKCHG
-    // (GPIO22) to GPIO23 after it.
+    // (GPIO22) to CHNG (GPIO23) after it.
     auto lines = run(Board{{pins({3, 4}), pins({22, 23})}});
     CHECK_STR(lines[0], "SHORT GPIO3 (I2C SCL) GPIO4 (INDEX)");
-    CHECK_STR(lines[1], "SHORT GPIO22 (DSKCHG) GPIO23");
+    CHECK_STR(lines[1], "SHORT GPIO22 (DSKCHG) GPIO23 (CHNG)");
 }
 
 TEST(test_short_to_ground) {
