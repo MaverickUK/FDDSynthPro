@@ -34,9 +34,10 @@ struct Result {
     unsigned unplaced = 0;      // good data fields that matched no sector
 };
 
-// How far a sector write's sync may land from where the layout puts it, in
-// bytes. Sectors are hundreds of bytes apart; a host's timing is within a
-// few. Each gap is longer than this on both sides.
+// How far a sector write's sync (FM: its mark) may land from where the
+// layout puts it, in words at the disk's rate. Sectors are hundreds of
+// bytes apart; a host's timing is within a few. Each gap is longer than
+// this on both sides.
 constexpr uint32_t POSITION_SLACK_BYTES = 16;
 
 // `cylinder`: the image's (-1 where the head is on no track of the image,

@@ -4,6 +4,13 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-29
+
+### Added
+- **FM (single density)** in `IMG.CFG` (`mode = fm`): the recording of 1970s and early-1980s disks, as on the Osborne 1, 8-inch CP/M systems, the BBC Micro's DFS and the Spectrum's Sandy FDD2. Whole disks of it, or an FM boot track on an MFM disk. Tracks match Greaseweazle's `ibm.fm` cell for cell (the Osborne 1, TSC Flex and CompuPro's 8-inch disks from FlashFloppy's examples), and writes are decoded and placed as MFM's are.
+- **Tracks at half a disk's rate:** an FM boot track at 125 kbit/s on a 250 kbit/s MFM disk goes out with each cell doubled, since the streamer runs at one rate per disk.
+- **A track up to 5% too long** for a revolution (CompuPro's 8-inch FM boot track) lengthens the revolution to fit, as Greaseweazle and a GoTek do.
+
 ## [0.16.1] - 2026-10-29
 
 ### Added

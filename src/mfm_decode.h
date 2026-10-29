@@ -63,13 +63,17 @@ struct Field {
 // Finds fields in a stream of cells: three A1 sync words (0x4489, which only
 // a sync can produce), a mark, then the field and its CRC. A data field's
 // length comes from the last good ID field's N, or the default given.
+//
+// In FM there are no sync words: the mark itself is missing clocks (clock C7
+// where every other byte's is FF), which only a mark can produce. A field's
+// `cell` is then where its mark began.
 class FieldScanner {
 public:
     // `store` holds data fields' bytes; `fields` the fields found.
     FieldScanner(uint8_t* store, size_t store_len, Field* fields, size_t max_fields)
         : store_(store), store_len_(store_len), fields_(fields), max_fields_(max_fields) {}
 
-    void reset(uint16_t default_data_len);
+    void reset(uint16_t default_data_len, bool fm = false);
     void addCell(bool one);
 
     size_t count() const { return count_; }
@@ -87,6 +91,7 @@ private:
     Field* fields_;
     size_t max_fields_;
 
+    bool fm_ = false;
     uint16_t default_len_ = 512;
     uint16_t next_len_ = 512;
     State state_ = State::Hunting;

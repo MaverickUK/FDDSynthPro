@@ -17,10 +17,14 @@
 // hskew, gap2, gap3, gap4a, iam, mode, rate, rpm, img_bps; gaps and the
 // rate may be `auto`, resolved as Greaseweazle does (ibm::resolve).
 //
-// Not yet: FM recording (mode = fm), mixed sector sizes on one track (a
-// bps list), img_bps padding, and a rate or rpm that differs between
-// tracks. A section that needs one is refused (Unsupported), and the image
-// falls back to its size.
+// FM tracks (mode = fm) are served, alone or mixed with MFM; a track may
+// run at half the disk's rate (an FM boot track on an MFM disk). A layout up
+// to 5% too long for a revolution stretches it, as Greaseweazle does.
+//
+// Not yet: mixed sector sizes on one track (a bps list), img_bps padding,
+// tracks at other rates than the disk's or half of it, and an rpm that
+// differs between tracks. A section that needs one is refused
+// (Unsupported), and the image falls back to its size.
 #pragma once
 
 #include <cstddef>

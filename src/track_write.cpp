@@ -5,11 +5,11 @@
 namespace track_write {
 
 // The sector a data field belongs to, or -1: the one whose data field the
-// layout puts at `sync_byte`.
-static int placeByPosition(const ibm::Track& t, const uint16_t* order, uint32_t sync_byte) {
+// layout puts at `sync_word` (words from the index, at the disk's rate).
+static int placeByPosition(const ibm::Track& t, const uint16_t* order, uint32_t sync_word) {
     for (uint16_t slot = 0; slot < t.sectors; ++slot) {
-        uint32_t expected = t.dataFieldStart(slot) + ibm::PRESYNC_BYTES;
-        uint32_t d = sync_byte > expected ? sync_byte - expected : expected - sync_byte;
+        uint32_t expected = t.dataFieldStart(slot) + t.presyncBytes() * t.scale;
+        uint32_t d = sync_word > expected ? sync_word - expected : expected - sync_word;
         if (d <= POSITION_SLACK_BYTES) return order[slot];
     }
     return -1;
@@ -47,7 +47,7 @@ Result interpret(const ibm::Format& fmt, int cylinder, uint8_t head, uint32_t st
                 sector = id[2] - t.first_id;
         } else if (f.data_len == t.sectorBytes()) {
             // A sector write: where it landed names the sector.
-            sector = placeByPosition(t, order, start_byte + f.cell / 16);
+            sector = placeByPosition(t, order, start_byte + f.cell / 16 * t.scale);
         }
         last_id = nullptr;
         if (sector < 0) {

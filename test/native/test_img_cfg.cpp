@@ -299,11 +299,11 @@ rate = 250
 
 TEST(test_img_cfg_refuses_what_it_cant_do) {
     ibm::Format f;
-    // FM recording (CompuPro's boot track, the Sinclair QL...).
-    CHECK(find("[::204800]\ncyls=40\nheads=2\nsecs=10\nbps=256\nmode = fm\n", "A.IMG", 204800, f).result ==
+    // Tracks at a quarter of the disk's rate: the streamer can only double.
+    CHECK(find("[]\ncyls=80\nheads=2\nsecs=9\nbps=512\nrate=125\ntracks=0\n rate=500\n", "A.IMG", 1, f).result ==
           img_cfg::Result::Unsupported);
-    // A different rate on some tracks.
-    CHECK(find("[]\ncyls=80\nheads=2\nsecs=9\nbps=512\nrate=250\ntracks=0\n rate=500\n", "A.IMG", 1, f).result ==
+    // A different speed on some tracks: the drive spins at one.
+    CHECK(find("[]\ncyls=80\nheads=2\nsecs=9\nbps=512\nrpm=300\ntracks=0\n rpm=360\n", "A.IMG", 1, f).result ==
           img_cfg::Result::Unsupported);
     // Mistakes: no cyls, no bps, a disk parameter in a tracks section, a bad
     // list, a typo, and a layout too long for a track.
@@ -318,6 +318,55 @@ TEST(test_img_cfg_refuses_what_it_cant_do) {
     // An unmatched section's mistakes don't matter.
     CHECK(find("[other]\nnonsense\n[]\ncyls=80\nheads=2\nsecs=9\nbps=512\n", "A.IMG", 1, f).result ==
           img_cfg::Result::Ok);
+}
+
+TEST(test_img_cfg_fm) {
+    // All FM: the Osborne 1's 100 KB disks. Auto rate: 125 kbit/s.
+    const std::string OSBORNE = "[::102400]\ncyls = 40\nheads = 1\nsecs = 10\nbps = 256\nmode = fm\n";
+    ibm::Format f;
+    CHECK(find(OSBORNE, "OS1.IMG", 102400, f).result == img_cfg::Result::Ok);
+    CHECK(f.track(0, 0).fm);
+    CHECK_EQ(f.rate, 125000u);
+    CHECK_EQ(f.track_bytes, 3125);
+    CHECK_EQ(f.track(0, 0).scale, 1);
+    CHECK_EQ(f.track(0, 0).gap2, 11);   // FM's standard gaps
+    CHECK_EQ(f.track(0, 0).gap4a, 20);  // FM's 40, halved: the layout nearly fills the track
+    // TSC Flex: an FM boot track on an MFM disk, at half its rate.
+    const std::string FLEX = R"([::733184]
+cyls = 80
+heads = 2
+bps = 256
+tracks = 0.0
+  secs = 10
+  mode = fm
+  interleave = 4
+  id = 1
+tracks = 0.1
+  secs = 10
+  mode = fm
+  interleave = 4
+  hskew = 1
+  id = 11
+tracks = 1-79.0
+  secs = 18
+  mode = mfm
+  interleave = 6
+  id = 1
+tracks = 1-79.1
+  secs = 18
+  mode = mfm
+  interleave = 6
+  hskew = 5
+  id = 19
+)";
+    CHECK(find(FLEX, "FLEX.IMG", 733184, f).result == img_cfg::Result::Ok);
+    CHECK_EQ(f.rate, 250000u);
+    CHECK(f.track(0, 1).fm);
+    CHECK_EQ(f.track(0, 1).scale, 2);
+    CHECK_EQ(f.track(0, 1).first_id, 11);
+    CHECK(!f.track(1, 0).fm);
+    CHECK_EQ(f.track(1, 0).scale, 1);
+    CHECK_EQ(f.imageBytes(), 733184u);
 }
 
 TEST(test_img_cfg_garbage_never_crashes) {
@@ -349,5 +398,6 @@ void runImgCfgTests() {
     RUN(test_img_cfg_track_sizes_differ);
     RUN(test_img_cfg_ensoniq);
     RUN(test_img_cfg_refuses_what_it_cant_do);
+    RUN(test_img_cfg_fm);
     RUN(test_img_cfg_garbage_never_crashes);
 }

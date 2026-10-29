@@ -100,7 +100,7 @@ struct Parse {
     Match m;
     unsigned cyls = 0, heads = 0, step = 1;
     uint8_t layout = 0;
-    long rate = -1, rpm = -1;  // -1: not given (rate 0: auto)
+    long rpm = -1;  // -1: not given
     ibm::TrackSpec base;
     Override overrides[ibm::MAX_KINDS - 1];
     unsigned override_count = 0;
@@ -164,14 +164,18 @@ bool trackParam(Parse& p, ibm::TrackSpec& spec, bool sub, const char* key, size_
         else if (equalsNoCase(v.text, v.len, "no")) spec.iam = false;
         else return p.fail(Result::Bad, "iam is yes or no", line);
     } else if (is("mode")) {
-        if (equalsNoCase(v.text, v.len, "fm")) return p.fail(Result::Unsupported, "FM recording", line);
-        if (!equalsNoCase(v.text, v.len, "mfm")) return p.fail(Result::Bad, "mode is fm or mfm", line);
-    } else if (is("rate") || is("rpm")) {
-        long& field = is("rate") ? p.rate : p.rpm;
-        if (!number(v.text, v.len, is("rate") ? 0 : 1, 2000, n)) return p.fail(Result::Bad, "bad rate or rpm", line);
-        // One speed for the whole disk: the streamer runs at one rate.
-        if (sub && field >= 0 && field != n) return p.fail(Result::Unsupported, "a rate or rpm for some tracks", line);
-        field = n;
+        if (equalsNoCase(v.text, v.len, "fm")) spec.fm = true;
+        else if (equalsNoCase(v.text, v.len, "mfm")) spec.fm = false;
+        else return p.fail(Result::Bad, "mode is fm or mfm", line);
+    } else if (is("rate")) {
+        // kbit/s, 0 for auto. A track may run at half the disk's rate.
+        if (!number(v.text, v.len, 0, 2000, n)) return p.fail(Result::Bad, "bad rate", line);
+        spec.rate = int(n) * 1000;
+    } else if (is("rpm")) {
+        if (!number(v.text, v.len, 1, 2000, n)) return p.fail(Result::Bad, "bad rpm", line);
+        // One speed for the whole disk: the drive spins at one.
+        if (sub && p.rpm >= 0 && p.rpm != n) return p.fail(Result::Unsupported, "an rpm for some tracks", line);
+        p.rpm = n;
     } else if (is("img_bps")) {
         if (!number(v.text, v.len, 0, 8192, n)) return p.fail(Result::Bad, "bad img_bps", line);
         if (n && (spec.size_code < 0 || n != (128L << spec.size_code)))
@@ -324,14 +328,18 @@ Match find(const char* text, size_t len, const char* name, uint32_t size, ibm::F
             return p.m;
         }
 
+    // Each layout's own rate (as given, or auto); the disk's is the fastest,
+    // and the streamer sends a track at half of it with each cell doubled.
     uint32_t rpm = p.rpm > 0 ? uint32_t(p.rpm) : 300;
-    uint32_t rate = p.rate > 0 ? uint32_t(p.rate) * 1000 : 0;
-    if (!rate) {  // auto: fast enough for the longest track
-        rate = ibm::autoRate(p.base, rpm);
-        for (unsigned i = 0; i < p.override_count; ++i) {
-            uint32_t r = ibm::autoRate(p.overrides[i].spec, rpm);
-            if (r > rate) rate = r;
-        }
+    ibm::TrackSpec* specs[ibm::MAX_KINDS];
+    uint32_t rates[ibm::MAX_KINDS];
+    unsigned kinds = 1 + p.override_count;
+    specs[0] = &p.base;
+    for (unsigned i = 0; i < p.override_count; ++i) specs[i + 1] = &p.overrides[i].spec;
+    uint32_t rate = 0;
+    for (unsigned k = 0; k < kinds; ++k) {
+        rates[k] = specs[k]->rate > 0 ? uint32_t(specs[k]->rate) : ibm::autoRate(*specs[k], rpm);
+        if (rates[k] > rate) rate = rates[k];
     }
 
     ibm::Format f{};
@@ -341,17 +349,29 @@ Match find(const char* text, size_t len, const char* name, uint32_t size, ibm::F
     f.file_layout = p.layout;
     f.rpm = uint16_t(rpm);
     f.rate = rate;
-    f.kind_count = uint8_t(1 + p.override_count);
-    if (!ibm::resolve(p.base, rate, rpm, f.kinds[0])) {
+    f.kind_count = uint8_t(kinds);
+    if (!ibm::resolve(p.base, rates[0], rpm, f.kinds[0])) {
         p.fail(Result::Bad, "the layout doesn't fit a track", first_line);
         return p.m;
     }
     for (unsigned i = 0; i < p.override_count; ++i) {
-        if (!ibm::resolve(p.overrides[i].spec, rate, rpm, f.kinds[i + 1]) ||
+        if (!ibm::resolve(p.overrides[i].spec, rates[i + 1], rpm, f.kinds[i + 1]) ||
             !applyList(p.overrides[i].list, p, uint8_t(i + 1), f)) {
             p.fail(Result::Bad, "bad tracks section", first_line);
             return p.m;
         }
+    }
+    // Each layout in use runs at the disk's rate or half of it.
+    bool used[ibm::MAX_KINDS] = {};
+    for (unsigned c = 0; c < p.cyls; ++c)
+        for (unsigned h = 0; h < p.heads; ++h) used[f.kind_of[c][h]] = true;
+    for (unsigned k = 0; k < kinds; ++k) {
+        if (rates[k] == rate || !used[k]) continue;
+        if (rates[k] * 2 != rate) {
+            p.fail(Result::Unsupported, "tracks at rates other than the disk's or half of it", first_line);
+            return p.m;
+        }
+        f.kinds[k].scale = 2;
     }
     if (!f.finish()) {
         p.fail(Result::Bad, "the layout doesn't fit a track", first_line);

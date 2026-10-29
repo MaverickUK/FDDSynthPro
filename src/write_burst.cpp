@@ -32,13 +32,16 @@ BurstResult BurstWriter::apply(const WriteBurst& burst, uint32_t ticks_per_cell,
 void BurstWriter::begin(const WriteBurst& burst, uint32_t ticks_per_cell, uint32_t edge_ticks) {
     burst_ = burst;
     edge_ticks_ = edge_ticks;
-    separator_.reset(ticks_per_cell);
-    // Data fields are this track's sector size, unless an ID field says otherwise.
+    // Data fields are this track's sector size, unless an ID field says
+    // otherwise; FM or MFM; and its cells at its own rate (a track at half
+    // the disk's has cells twice as long).
     const ibm::Format& fmt = source_.format();
     amiga_disk_ = fmt.encoding == ibm::ENCODING_AMIGA;
     amiga_.reset();
     int cylinder = fmt.imageCylinder(burst.cylinder);
-    scanner_.reset(uint16_t(fmt.track(cylinder < 0 ? 0 : uint8_t(cylinder), burst.head).sectorBytes()));
+    const ibm::Track& t = fmt.track(cylinder < 0 ? 0 : uint8_t(cylinder), burst.head);
+    separator_.reset(ticks_per_cell * t.scale);
+    scanner_.reset(uint16_t(t.sectorBytes()), t.fm);
 }
 
 void BurstWriter::feed(const uint8_t* intervals, size_t count) {

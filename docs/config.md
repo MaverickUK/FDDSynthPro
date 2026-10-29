@@ -118,5 +118,7 @@ tracks = 0-39.1
 
 - **Matching:** a section `[tag::size]` matches images named `*.tag.img` of exactly that size. Leave either out: `[::409600]` matches by size alone, and `[roland]` any `*.roland.img`. An image with no matching section goes by its size.
 - **Parameters:** the disk's `cyls`, `heads`, `step` and `file-layout`. Each track's `secs`, `bps`, `id`, `h`, `interleave`, `cskew`, `hskew`, `gap2`, `gap3`, `gap4a`, `iam`, `rate` and `rpm`. `tracks = ...` starts settings for some tracks only.
-- **Not yet supported:** FM recording (`mode = fm`), different sector sizes within one track, `img_bps` padding, and a different rate or speed on some tracks. A section that needs one is reported on the console when the card is read, and the image goes by its size instead.
+- **FM** (`mode = fm`, single density) works, on its own (the Osborne 1, the Spectrum's Sandy FDD2, BBC Micro DFS disks) or mixed with MFM: an FM boot track on an MFM disk (CompuPro, TSC Flex) can run at half the disk's rate.
+- **A track a little too long** for a revolution (up to 5%, as some 8-inch CompuPro boot tracks are) makes the drive's revolution that much longer, as a GoTek does.
+- **Not yet supported:** different sector sizes within one track (Ensoniq's Mirage), `img_bps` padding, tracks at rates other than the disk's or half of it, and a different speed on some tracks. A section that needs one is reported on the console when the card is read, and the image goes by its size instead.
 - **Size:** images up to 2 MB are copied into PSRAM before they go in. A bigger one (Ensoniq's 5 MB SuperDisk) works, but its tracks are read from the card as the head moves, so seeks are slow.

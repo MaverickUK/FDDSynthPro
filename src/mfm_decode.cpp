@@ -23,7 +23,15 @@ unsigned DataSeparator::cells(uint32_t interval_ticks) {
     return unsigned(n);
 }
 
-void FieldScanner::reset(uint16_t default_data_len) {
+// An FM mark's cells: its data bits with clock C7.
+static constexpr uint16_t fmMark(uint8_t mark) {
+    uint16_t w = 0;
+    for (int i = 7; i >= 0; --i) w = uint16_t(w << 2 | ((0xC7 >> i) & 1) << 1 | ((mark >> i) & 1));
+    return w;
+}
+
+void FieldScanner::reset(uint16_t default_data_len, bool fm) {
+    fm_ = fm;
     default_len_ = next_len_ = default_data_len;
     state_ = State::Hunting;
     cells_ = shift_ = 0;
@@ -37,7 +45,8 @@ void FieldScanner::startField(uint8_t mark) {
     current_.mark = mark;
     current_.cell = sync_cell_;
     crc_ = crc16::INITIAL;
-    for (int i = 0; i < 3; ++i) crc_ = crc16::update(crc_, 0xA1);
+    if (!fm_)
+        for (int i = 0; i < 3; ++i) crc_ = crc16::update(crc_, 0xA1);
     crc_ = crc16::update(crc_, mark);
     body_pos_ = 0;
     if (mark == MARK_IDAM) {
@@ -77,6 +86,15 @@ void FieldScanner::addCell(bool one) {
     ++cells_;
 
     if (state_ == State::Hunting) {
+        if (fm_) {
+            uint16_t w = uint16_t(shift_);
+            if (w == fmMark(MARK_IDAM) || w == fmMark(MARK_DAM) || w == fmMark(MARK_DDAM)) {
+                sync_cell_ = cells_ - 16;
+                word_bits_ = 0;
+                startField(decodeWord(w));  // the body follows, word-aligned
+            }
+            return;
+        }
         if ((shift_ & 0xFFFF) == SYNC_A1) {
             state_ = State::Syncs;
             syncs_ = 1;

@@ -1,5 +1,5 @@
-// IBM-style MFM disks: a disk's geometry and each track's layout, and the
-// encoder that builds a track from its sector data. Pure C++, host-tested
+// IBM-style disks, MFM or FM: a disk's geometry and each track's layout,
+// and the encoder that builds a track from its sector data. Pure C++, host-tested
 // against Greaseweazle's own encoder (host/tests/test_track_encoder.py),
 // which builds the same tracks cell for cell from the same definitions.
 //
@@ -13,6 +13,17 @@
 //     gap 3  gap3 x 4E
 //   gap 4b   4E to the end of the track
 // C, H, R, N: cylinder, head, sector ID, size code (2 = 512 bytes).
+//
+// FM (single density, the 1970s' recording, as on 8-inch disks, the Osborne
+// and the BBC Micro) is the same layout with every byte's clock cells set:
+// 6 x 00 before each field, and no sync bytes; the marks themselves carry
+// missing clocks (FE and FB with clock C7, the index mark FC with D7). Gaps
+// are FF. At the same data rate a track holds half as many bytes.
+//
+// A track can run at half the disk's rate (`scale` 2: an FM boot track on
+// an MFM disk): the streamer runs at the disk's rate, so each of its cells
+// goes out as two, the second empty. Positions on a track are in words
+// (16 cells) at the disk's rate: bytes x scale.
 //
 // The parameters are FlashFloppy's IMG.CFG ones (img_cfg.h), resolved the
 // way Greaseweazle resolves its disk definitions: gaps and the data rate
@@ -46,14 +57,20 @@ struct Track {
     uint8_t gap2 = 22;
     uint8_t gap3 = 84;
     uint8_t gap4a = 80;
+    bool fm = false;    // FM, not MFM
+    uint8_t scale = 1;  // the disk's rate over this track's: 1 or 2
 
     constexpr uint32_t sectorBytes() const { return 128u << size_code; }
     constexpr uint32_t dataBytes() const { return sectors * sectorBytes(); }
-    // The bytes the layout uses before gap 4b.
+    // Zeros before each field's sync (or, in FM, its mark), and the sync
+    // and mark bytes: 12 and 4 in MFM, 6 and 1 in FM.
+    constexpr uint32_t presyncBytes() const { return fm ? 6 : 12; }
+    constexpr uint32_t syncBytes() const { return fm ? 1 : 4; }
+    // The words (at the disk's rate) the layout uses before gap 4b.
     uint32_t usedBytes() const;
-    // Where things are, in bytes from the index: the start of the 12 x 00
+    // Where things are, in words from the index: the start of the zeros
     // before the ID field and the data field at rotational `slot`. Their
-    // sync words follow PRESYNC_BYTES later.
+    // syncs follow presyncBytes() x scale words later.
     uint32_t idFieldStart(uint16_t slot) const;
     uint32_t dataFieldStart(uint16_t slot) const;
     // Which sector (from 0, in ID order) each rotational slot holds on
@@ -85,6 +102,9 @@ struct Format {
     uint16_t rpm = 300;
     uint32_t rate = 500000;        // data bits per second
     uint16_t track_bytes = 12500;  // cell words a revolution: rate x 60 / rpm / 8
+    // A layout a few percent too long for a revolution (an 8-inch FM boot
+    // track with wide gaps) gets a longer track, and the revolution takes
+    // that long: up to STRETCH_PCT more. 0: the rpm's.
     Track kinds[MAX_KINDS] = {};
     uint8_t kind_count = 1;
     uint8_t kind_of[MAX_CYLINDERS][2] = {};  // each track's entry in kinds: 0 unless overridden
@@ -94,7 +114,8 @@ struct Format {
     }
     uint32_t trackDataBytes(uint8_t cylinder, uint8_t head) const { return track(cylinder, head).dataBytes(); }
     uint32_t dataRate() const { return rate; }
-    uint32_t periodUs() const { return 60000000u / rpm; }
+    uint32_t stretched_period_us = 0;
+    uint32_t periodUs() const { return stretched_period_us ? stretched_period_us : 60000000u / rpm; }
     bool uniform() const { return kind_count == 1; }
 
     // The image cylinder under the head at `physical` (the drive's head
@@ -123,6 +144,10 @@ struct Format {
     uint32_t sectorBytes() const { return kinds[0].sectorBytes(); }
 };
 
+// How much longer than a revolution a track may be: Greaseweazle warns
+// beyond this, and a host's controller tolerates it.
+constexpr uint32_t STRETCH_PCT = 5;
+
 // Words in a revolution at `rate` bit/s and `rpm`.
 constexpr uint16_t trackWords(uint32_t rate, uint32_t rpm) { return uint16_t(uint64_t(rate) * 15 / (2 * rpm)); }
 
@@ -136,15 +161,19 @@ struct TrackSpec {
     int interleave = 1, cskew = 0, hskew = 0;
     bool iam = true;
     int gap1 = -1, gap2 = -1, gap3 = -1, gap4a = -1;
+    bool fm = false;
+    int rate = 0;  // this track's data rate in bit/s; 0: auto
 };
 
 // Greaseweazle's rules for the auto data rate: the lowest of 250, 500 and
-// 1000 kbit/s whose revolution holds the layout (with 3% to spare).
+// 1000 kbit/s (FM: 125 and 250) whose revolution holds the layout (with 3%
+// to spare).
 uint32_t autoRate(const TrackSpec& spec, uint32_t rpm);
 
-// Resolves the gaps left on auto, as Greaseweazle does (IBMTrack_Fixed):
-// gap 3 as big as fits, up to the size's standard; then gap 4a halved if a
-// 1% pre-index gap wouldn't fit. False if the layout can't fit at all.
+// Resolves the gaps left on auto, as Greaseweazle does (IBMTrack_Fixed),
+// for a track at `rate` (its own): gap 3 as big as fits, up to the size's
+// standard; then gap 4a halved if a 1% pre-index gap wouldn't fit. False if
+// the layout can't fit at all. The track's scale is the caller's to set.
 bool resolve(const TrackSpec& spec, uint32_t rate, uint32_t rpm, Track& out);
 
 // A whole disk of one layout: cyls x heads tracks of `spec`.
