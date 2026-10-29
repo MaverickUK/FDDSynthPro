@@ -1,12 +1,17 @@
 // What the drive remembers across power-off, GoTek style: the disk that was
-// in, the sample pack and the volume. Pure C++, host-tested; sd_image.cpp
-// reads and writes the file, main.cpp decides when.
+// in, the sample pack and the volume; and how it sits on the cable (bus.h),
+// which only an edit of the file changes. Pure C++, host-tested;
+// sd_image.cpp reads and writes the file, main.cpp decides when.
 //
-// The file is /FDDSYNTH.CFG on the card, plain text, one setting a line:
+// The file is /FDDSYNTH.CFG on the card, plain text, one setting a line
+// (docs/config.md):
 //
 //   image=GAMES.IMG
 //   pack=Recorded
 //   volume=75
+//   interface=ibmpc
+//   cable=twisted
+//   drive=a
 //
 // By name, not position, so adding files to the card doesn't change which
 // disk comes back. Unknown lines are ignored and a bad value keeps the
@@ -16,16 +21,19 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "bus.h"
+
 namespace settings {
 
 constexpr const char* PATH = "/FDDSYNTH.CFG";
 constexpr size_t NAME = 64;  // as ImageList::NAME
-constexpr size_t FILE_MAX = 256;
+constexpr size_t FILE_MAX = 384;
 
 struct Settings {
     char image[NAME] = "";  // "": the card's first
     char pack[NAME] = "";   // "": the first folder under /samples
     int volume = 75;        // 0-100, ui::Model's
+    bus::Setup bus;         // read at power-on
 
     bool operator==(const Settings& o) const;
     bool operator!=(const Settings& o) const { return !(*this == o); }

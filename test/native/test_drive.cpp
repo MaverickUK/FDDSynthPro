@@ -138,12 +138,71 @@ TEST(test_drive_answers_on_its_own_select_only) {
     CHECK(!d.selected());
     CHECK(!d.spindle().motorOn());
     drive::Config c;
-    c.select_pin = cfg::PIN_DRVSA;
-    c.motor_pin = cfg::PIN_MOTEA;
+    c.lines = {cfg::PIN_DRVSA, cfg::PIN_MOTEA};
     drive::Drive a(c);
     a.onSample(0, sample({cfg::PIN_DRVSA, cfg::PIN_MOTEA}));
     CHECK(a.selected());
     CHECK(a.spindle().motorOn());
+}
+
+TEST(test_bus_lines) {
+    using bus::Cable;
+    using bus::Interface;
+    auto lines = [](Interface i, Cable c, uint8_t unit) { return bus::lines(bus::Setup{i, c, unit}); };
+    // A PC drive past the twist is the host's A on 12/16; B on a straight
+    // cable is the same pair. The other pair (14/10) is A on a straight cable.
+    bus::Lines pair_12_16{cfg::PIN_DRVSB, cfg::PIN_MOTEB}, pair_14_10{cfg::PIN_DRVSA, cfg::PIN_MOTEA};
+    CHECK(bus::lines(bus::Setup{}) == pair_12_16);
+    CHECK(lines(Interface::IbmPc, Cable::Twisted, 0) == pair_12_16);
+    CHECK(lines(Interface::IbmPc, Cable::Twisted, 1) == pair_14_10);
+    CHECK(lines(Interface::IbmPc, Cable::Straight, 0) == pair_14_10);
+    CHECK(lines(Interface::IbmPc, Cable::Straight, 1) == pair_12_16);
+    CHECK(lines(Interface::IbmPc, Cable::Twisted, 2) == pair_12_16);  // no C: A
+    // Shugart: DS0-DS2 on pins 10, 12 and 14, the motor on 16 for all; the cable doesn't matter.
+    CHECK(lines(Interface::Shugart, Cable::Twisted, 0) == (bus::Lines{cfg::PIN_MOTEA, cfg::PIN_MOTEB}));
+    CHECK(lines(Interface::Shugart, Cable::Straight, 1) == (bus::Lines{cfg::PIN_DRVSB, cfg::PIN_MOTEB}));
+    CHECK(lines(Interface::Shugart, Cable::Twisted, 2) == (bus::Lines{cfg::PIN_DRVSA, cfg::PIN_MOTEB}));
+    CHECK_STR(bus::unitName(bus::Setup{Interface::Shugart, Cable::Twisted, 2}), "ds2");
+    CHECK_STR(bus::unitName(bus::Setup{Interface::IbmPc, Cable::Twisted, 1}), "b");
+}
+
+TEST(test_shugart_drive_answers_on_its_ds_line) {
+    // DS0 is pin 10, which a PC calls MOTEA: as a Shugart drive, that line selects.
+    drive::Config c;
+    c.lines = bus::lines(bus::Setup{bus::Interface::Shugart, bus::Cable::Twisted, 0});
+    c.interface = bus::Interface::Shugart;
+    drive::Drive d(c);
+    d.insertDisk(false);
+    d.onSample(0, sample({cfg::PIN_DRVSB, cfg::PIN_MOTEB}));  // DS1 selected: not us
+    CHECK(!d.selected());
+    CHECK(d.spindle().motorOn());  // MOTOR ON runs every drive's motor
+    d.onSample(10, sample({cfg::PIN_MOTEA, cfg::PIN_MOTEB, cfg::PIN_STEP, cfg::PIN_DIR}));
+    CHECK(d.selected());
+    CHECK_EQ(d.head().cylinder(), 1);
+}
+
+TEST(test_shugart_pin_34_is_ready) {
+    drive::Config c;
+    c.lines = bus::lines(bus::Setup{bus::Interface::Shugart, bus::Cable::Twisted, 1});
+    c.interface = bus::Interface::Shugart;
+    c.spindle.spin_up_us = 1000;
+    drive::Drive d(c);
+    d.onSample(0, sample({cfg::PIN_DRVSB, cfg::PIN_MOTEB}));
+    // No disk: not ready, though DISK CHANGE is set, which a PC would see on pin 34.
+    drive::Outputs o = d.outputs(5000);
+    CHECK(!o.ready);
+    CHECK(o.dskchg);
+    CHECK(!fdd::asserted(drive::outputPins(o, bus::Interface::Shugart), cfg::PIN_DSKCHG));
+    CHECK(fdd::asserted(drive::outputPins(o, bus::Interface::IbmPc), cfg::PIN_DSKCHG));
+    d.insertDisk(false);
+    d.onSample(6000, sample({cfg::PIN_DRVSB}));  // motor off
+    d.onSample(7000, sample({cfg::PIN_DRVSB, cfg::PIN_MOTEB}));
+    CHECK(!d.outputs(7500).ready);  // spinning up
+    o = d.outputs(8000);
+    CHECK(o.ready);
+    CHECK(fdd::asserted(drive::outputPins(o, bus::Interface::Shugart), cfg::PIN_DSKCHG));
+    d.onSample(9000, sample({cfg::PIN_MOTEB}));  // deselected: released
+    CHECK(!fdd::asserted(drive::outputPins(d.outputs(9000), bus::Interface::Shugart), cfg::PIN_DSKCHG));
 }
 
 TEST(test_drive_steps_once_per_assertion_and_only_when_selected) {
@@ -362,8 +421,7 @@ TEST(test_adafruit_seeks_every_cylinder_and_back) {
 
 TEST(test_adafruit_cannot_reach_a_drive_on_other_pins) {
     drive::Config c;
-    c.select_pin = cfg::PIN_DRVSA;
-    c.motor_pin = cfg::PIN_MOTEA;
+    c.lines = {cfg::PIN_DRVSA, cfg::PIN_MOTEA};
     drive::Drive d(c);
     VirtualAdafruitFloppy host(d);  // only ever pins 12/16
     host.select(true);
@@ -397,6 +455,9 @@ void runDriveTests() {
     RUN(test_spindle_runs_longer_than_the_timer);
     RUN(test_drive_power_on_state);
     RUN(test_drive_answers_on_its_own_select_only);
+    RUN(test_bus_lines);
+    RUN(test_shugart_drive_answers_on_its_ds_line);
+    RUN(test_shugart_pin_34_is_ready);
     RUN(test_drive_steps_once_per_assertion_and_only_when_selected);
     RUN(test_drive_side);
     RUN(test_drive_disk_change);

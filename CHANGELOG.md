@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-29
+
+### Added
+- **Drive select, as a real drive's jumpers:** `interface`, `cable` and `drive` in `/FDDSYNTH.CFG` (`src/bus.*`, [docs/config.md](docs/config.md)). An IBM PC drive is A or B, past a twist or on a straight cable, and answers on 12/16 or 14/10 to match. A Shugart drive answers on DS0, DS1 or DS2 (pins 10, 12, 14) with MOTOR ON on pin 16, and puts READY on pin 34 instead of DISK CHANGE. The default is unchanged: a PC drive past the twist, on 12/16. `s` reports the setup in use.
+
 ## [0.10.0] - 2026-10-26
 
 ### Added

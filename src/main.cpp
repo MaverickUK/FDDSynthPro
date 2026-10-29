@@ -149,6 +149,9 @@ static uint32_t g_cylinder_slots[ibm::HD_1440.track_bytes];
 static std::atomic<const ibm::Format*> g_format{nullptr};
 static std::atomic<bool> g_writable{false};
 static std::atomic<CylinderLoader*> g_loader{nullptr};
+// How the drive sits on the cable (bus.h), from the card's settings. Core 0
+// sets it before publishing g_loader, so core 1 sees it.
+static drive::Config g_drive_config;
 
 // Writes stream from core 1's capture to core 0's decoder through a ring
 // (CaptureStream, write_burst.h): the DMA fills it, core 1 marks where each
@@ -207,7 +210,8 @@ void loop1() {
     // Never returns. Each pass: sample the inputs, update the drive, put its
     // outputs on the pins. The index pulse is timed from this loop, so its
     // edges are late by at most one pass (well under a microsecond).
-    static drive::Drive d;
+    static drive::Drive d(g_drive_config);
+    const bus::Interface interface = g_drive_config.interface;
     const CylinderLoader& loader = *g_loader.load();
     const ibm::Format* fmt = g_format.load();
     uint32_t data_rate = fmt->dataRate();
@@ -267,7 +271,7 @@ void loop1() {
         for (unsigned i = 0; i < n; ++i)
             if (!g_drive_events.push(changes[i])) g_drive_events_dropped.fetch_add(1, std::memory_order_relaxed);
 
-        putOutputs(drive::outputPins(d.outputs(now)));
+        putOutputs(drive::outputPins(d.outputs(now), interface));
 
         // The track starts at each index pulse, and RDATA only carries it
         // while the host could be reading and the buffer holds the cylinder
@@ -438,6 +442,8 @@ static void chooseDisk() {
     while (loader.service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
     g_format.store(&slot.format());
     g_writable.store(slot.writable());
+    g_drive_config.lines = bus::lines(g_settings.bus);
+    g_drive_config.interface = g_settings.bus.interface;
     g_loader.store(&loader, std::memory_order_release);
 }
 
@@ -704,6 +710,7 @@ static void serviceSettings() {
     if (g_from_card && !g_no_disk) std::strncpy(now.image, sd_image::name(), settings::NAME - 1);
     if (sd_image::packs().count()) std::strncpy(now.pack, sd_image::packs().name(g_pack_index), settings::NAME - 1);
     now.volume = panel::model().volume();
+    now.bus = g_settings.bus;  // only an edit of the file changes it
     uint32_t ms = millis();
     if (now != g_latest) {
         g_latest = now;
@@ -754,6 +761,8 @@ static void printStats() {
                   (unsigned long)g_dropped.load(), (unsigned long)g_steps.load(), (unsigned)g_trace.size());
 #if FIRMWARE_SLICE != 0
     const CylinderLoader& loader = *g_loader.load();
+    Serial.printf(" interface=%s cable=%s drive=%s", bus::interfaceName(g_settings.bus.interface),
+                  bus::cableName(g_settings.bus.cable), bus::unitName(g_settings.bus));
     Serial.printf(" cyl=%u side=%u selected=%d disk=%d outer_knocks=%lu inner_knocks=%lu", (unsigned)g_cylinder.load(),
                   (unsigned)g_side.load(), (int)g_selected.load(), (int)g_disk_in.load(),
                   (unsigned long)g_outer_knocks.load(), (unsigned long)g_inner_knocks.load());

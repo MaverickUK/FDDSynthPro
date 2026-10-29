@@ -12,10 +12,14 @@
 //   - DSKCHG is asserted from power-on and after an eject, and cleared by a
 //     step while a disk is in.
 //   - WPT is asserted for a write-protected disk, or no disk.
+//   - READY (Shugart's pin 34) needs a disk and the motor at speed.
+// Which lines select it, and what pin 34 carries, come from the bus setup
+// (bus.h).
 #pragma once
 
 #include <cstdint>
 
+#include "bus.h"
 #include "config.h"
 #include "fdd_signals.h"
 #include "head.h"
@@ -26,8 +30,8 @@ namespace drive {
 struct Config {
     // A PC drive answers on pins 12 and 16; the cable's twist routes the
     // host's drive A there. Greaseweazle: --drive B on a straight cable.
-    unsigned select_pin = cfg::PIN_DRVSB;
-    unsigned motor_pin = cfg::PIN_MOTEB;
+    bus::Lines lines = bus::lines(bus::Setup{});
+    bus::Interface interface = bus::Interface::IbmPc;
     uint8_t last_cylinder = head::DEFAULT_LAST_CYLINDER;
     uint8_t start_cylinder = 0;  // where the head is at power-on
     rotation::Config spindle;
@@ -39,20 +43,22 @@ struct Outputs {
     bool trk00 = false;
     bool wpt = false;
     bool dskchg = false;
+    bool ready = false;
     bool operator==(const Outputs& o) const {
-        return index == o.index && trk00 == o.trk00 && wpt == o.wpt && dskchg == o.dskchg;
+        return index == o.index && trk00 == o.trk00 && wpt == o.wpt && dskchg == o.dskchg && ready == o.ready;
     }
 };
 
 // The GPIO levels for the outputs, in sample layout (only OUTPUT_MASK bits
 // set or clear). Asserted lines are low: the SN7407 then pulls the cable low.
-inline uint32_t outputPins(const Outputs& o) {
+// Pin 34 (PIN_DSKCHG's GPIO) carries DISK CHANGE on a PC, READY on Shugart.
+inline uint32_t outputPins(const Outputs& o, bus::Interface interface = bus::Interface::IbmPc) {
     uint32_t s = fdd::OUTPUT_MASK;
     if (o.index) s &= ~fdd::maskOf(cfg::PIN_INDEX);
     if (o.trk00) s &= ~fdd::maskOf(cfg::PIN_TRK00);
     if (o.wpt) s &= ~fdd::maskOf(cfg::PIN_WPT);
-    if (o.dskchg) s &= ~fdd::maskOf(cfg::PIN_DSKCHG);
-    return s;  // RDATA stays released until slice 2
+    if (interface == bus::Interface::Shugart ? o.ready : o.dskchg) s &= ~fdd::maskOf(cfg::PIN_DSKCHG);
+    return s;  // RDATA is the streamer's
 }
 
 // What one sample did to the head, for the trace and (slice 4) the sounds.
@@ -86,6 +92,7 @@ public:
     // Protects the disk that's in, after a lost write (write_burst.h: lostWrite).
     void setWriteProtected(bool write_protected) { write_protected_ = write_protected; }
 
+    const Config& config() const { return cfg_; }
     bool selected() const { return selected_; }
     bool diskPresent() const { return disk_present_; }
     bool diskChanged() const { return disk_changed_; }

@@ -6,7 +6,7 @@
 namespace settings {
 
 bool Settings::operator==(const Settings& o) const {
-    return std::strcmp(image, o.image) == 0 && std::strcmp(pack, o.pack) == 0 && volume == o.volume;
+    return std::strcmp(image, o.image) == 0 && std::strcmp(pack, o.pack) == 0 && volume == o.volume && bus == o.bus;
 }
 
 // Copies a value, refusing one too long rather than cutting it short (a cut
@@ -34,6 +34,15 @@ Settings parse(const char* text, size_t len) {
             size_t vlen = n - key - 1;
             if (key == 5 && std::strncmp(line, "image", 5) == 0) setName(s.image, value, vlen);
             if (key == 4 && std::strncmp(line, "pack", 4) == 0) setName(s.pack, value, vlen);
+            // The bus: a word each, so a copy that ends at the line's end.
+            char word[12] = "";
+            if (vlen < sizeof word) {
+                std::memcpy(word, value, vlen);
+                word[vlen] = 0;
+            }
+            if (key == 9 && std::strncmp(line, "interface", 9) == 0) bus::parseInterface(word, s.bus.interface);
+            if (key == 5 && std::strncmp(line, "cable", 5) == 0) bus::parseCable(word, s.bus.cable);
+            if (key == 5 && std::strncmp(line, "drive", 5) == 0) bus::parseUnit(word, s.bus.unit);
             if (key == 6 && std::strncmp(line, "volume", 6) == 0 && vlen > 0 && vlen <= 3) {
                 int v = 0;
                 bool digits = true;
@@ -50,7 +59,9 @@ Settings parse(const char* text, size_t len) {
 }
 
 size_t format(const Settings& s, char* out, size_t cap) {
-    int n = std::snprintf(out, cap, "image=%s\npack=%s\nvolume=%d\n", s.image, s.pack, s.volume);
+    int n = std::snprintf(out, cap, "image=%s\npack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n", s.image,
+                          s.pack, s.volume, bus::interfaceName(s.bus.interface), bus::cableName(s.bus.cable),
+                          bus::unitName(s.bus));
     return n < 0 ? 0 : size_t(n) < cap ? size_t(n) : cap - 1;
 }
 
