@@ -79,11 +79,12 @@ Note the numbers in `docs/plan.md`, under the open questions.
   - `gw rpm` within 0.1 of 300;
   - no index without a disk;
   - DSKCHG, if the host can read pin 34 (the Feather can't; the test skips).
-- [ ] If your host reaches the drive on other pins, change `select_pin` and `motor_pin` in `drive::Config` instead.
+- [ ] If your host reaches the drive on other pins, set `cable` and `drive` in `/FDDSYNTH.CFG` instead ([config.md](config.md)).
 
 ## 8. Slice 2: reading
 
-- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice2`. The checks:
+- [ ] With no SD card in, the drive serves the welcome disk: `i` prints `IMAGE welcome 1440`. Read it, `gw read --format ibm.1440 welcome.img`, and check it on the Mac: `mtype -i welcome.img ::README.TXT` shows `welcome/README.TXT`.
+- [ ] Run `PIO_ENV=bb48_drive NO_FLASH=1 scripts/rig.sh -m slice2`. It types `g` first, which swaps in the generated disk (card or not). The checks:
   - ten full `gw read`s of the generated disk, byte for byte;
   - 20 random single tracks;
   - every cylinder build within the 15 ms settle time;

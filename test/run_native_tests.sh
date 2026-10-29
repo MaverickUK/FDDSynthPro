@@ -6,6 +6,7 @@
 #        SANITIZE=thread test/run_native_tests.sh   # ThreadSanitizer, for cross-core code
 set -e
 cd "$(dirname "$0")/.."
+python3 scripts/embed_welcome.py  # src/welcome_text.h, the welcome disk's README
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 SANITIZE="${SANITIZE:-address,undefined}"
 make -s -f test/native.mk -j"$JOBS" CXX="${CXX:-c++}" SANITIZE="$SANITIZE"

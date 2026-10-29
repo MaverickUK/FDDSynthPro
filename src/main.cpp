@@ -55,6 +55,8 @@
 #include "settings.h"
 #include "synth.h"
 #include "track_source.h"
+#include "welcome_disk.h"
+#include "welcome_text.h"
 #include "wdata_pio.h"
 #include "write_burst.h"
 #endif
@@ -393,26 +395,41 @@ void loop1() {
     }
 }
 
-// Core 0's share of each drive: its disk (the card's image in PSRAM, or the
-// generated disk), the loader that keeps its cylinder buffer filled with the
+// The disks the firmware holds itself: the welcome disk (welcome_disk.h),
+// served without a card or an image; and the generated test disk
+// (gen_disk.h), which console `g` swaps in for the rig's slice 2 test.
+enum class Builtin : uint8_t { None, Welcome, Generated };
+
+// Core 0's share of each drive: its disk (the card's image, or a built-in
+// one, in PSRAM), the loader that keeps its cylinder buffer filled with the
 // cylinder under its head, its writer, and its swaps.
 struct DriveState {
-    ImageCache* cache = nullptr;  // in PSRAM: the slot holds this (or the generated disk)
+    ImageCache* cache = nullptr;  // in PSRAM: the slot holds this
     DiskSlot* slot = nullptr;     // the disk in the drive
     CylinderLoader* loader = nullptr;
     BurstWriter* writer = nullptr;
-    bool from_card = false;  // serving images from the card, not the generated disk
+    bool from_card = false;             // serving an image from the card
+    Builtin builtin = Builtin::None;    // ...or this one
     size_t image_index = 0;
     // A swap under way.
     uint32_t ejected_ms = 0;
     bool filling = false;  // the new image is going into the cache
     uint32_t fill_started_ms = 0;
+    Builtin swap_builtin = Builtin::None;  // what goes in: a built-in disk, or the card's image_index
     size_t swap_from = 0;  // the image to go back to if the new one won't open
     bool no_disk = false;  // neither would open (the card failed?): nothing to insert
 };
 static DriveState g_drv[bus::MAX_DRIVES];
 
 static GeneratedSource g_generated(ibm::HD_1440);
+static const welcome_disk::File WELCOME_FILES[] = {
+    {"README.TXT", welcome_text::README, welcome_text::README_SIZE},
+};
+static WelcomeSource g_welcome(WELCOME_FILES, 1, welcome_text::FAT_DATE);
+
+static TrackSource& builtinSource(Builtin b) {
+    return b == Builtin::Generated ? static_cast<TrackSource&>(g_generated) : static_cast<TrackSource&>(g_welcome);
+}
 static uint8_t g_track_data[bus::MAX_DRIVES][2][ibm::MAX_TRACK_DATA];
 static uint16_t g_track_scratch[ibm::MAX_TRACK_WORDS];  // used within one loader step: shared
 static uint32_t g_read_us_max = 0;    // slowest track read (console `s`): from the cache
@@ -506,7 +523,7 @@ static void publishDisk(unsigned i, const ibm::Format& fmt, bool writable) {
 }
 
 // Drive `i`'s disk at power-on: the one that was in, else the card's i-th
-// (so two drives start with different disks), else the generated disk.
+// (so two drives start with different disks), else the welcome disk.
 static void chooseDisk(unsigned i) {
     DriveState& s = g_drv[i];
     // PSRAM, if the board has it (the BB48R does): pmalloc fails without.
@@ -524,13 +541,21 @@ static void chooseDisk(unsigned i) {
     if (!image && index) image = sd_image::open(index = 0, i);
     s.image_index = index;
     s.from_card = image != nullptr;
-    if (image) {  // all of it into PSRAM before the drive starts: about 0.6 s
-        uint32_t started = millis();
-        s.cache->attach(*image);
-        while (fillStep(s)) {}
-        reportFill(s, started);
+    if (!image) {
+        // The welcome disk. Writes to it stay in PSRAM until a restart; with
+        // no PSRAM to keep them, it's read-only.
+        s.builtin = Builtin::Welcome;
+        image = &g_welcome;
+        Serial.println(g_card ? "# no disk image on the card: serving the welcome disk"
+                              : "# no microSD card: serving the welcome disk");
     }
-    s.slot = new DiskSlot(image ? static_cast<TrackSource&>(*s.cache) : static_cast<TrackSource&>(g_generated));
+    // All of it into PSRAM before the drive starts: about 0.6 s from the card.
+    uint32_t started = millis();
+    s.cache->attach(*image);
+    g_welcome.keepsWrites(s.cache->fits());
+    while (fillStep(s)) {}
+    reportFill(s, started);
+    s.slot = new DiskSlot(*s.cache);
     s.loader = new CylinderLoader(*s.slot, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
     s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
     while (s.loader->service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
@@ -576,8 +601,9 @@ constexpr uint32_t SWAP_EJECTED_MS = 500;
 // The drive the console's `[`, `]`, `d` and `i` act on: `1` or `2` picks it.
 static unsigned g_console_drive = 0;
 
-// From the panel's disk list, or console `[` / `]`.
-static void startSwap(unsigned drive, size_t index) {
+// From the panel's disk list, or console `[` / `]`: image `index` on the
+// card; or, console `g`, a built-in disk.
+static void startSwap(unsigned drive, size_t index, Builtin builtin = Builtin::None) {
     DriveState& s = g_drv[drive];
     if (g_shared[drive].swap.load() != SWAP_NONE) {
         Serial.println("# a swap is already under way");
@@ -585,7 +611,11 @@ static void startSwap(unsigned drive, size_t index) {
     }
     s.swap_from = s.image_index;
     s.image_index = index;
-    Serial.printf("# swapping %s to %s\n", driveName(drive), sd_image::images().name(index));
+    s.swap_builtin = builtin;
+    Serial.printf("# swapping %s to %s\n", driveName(drive),
+                  builtin == Builtin::Generated ? "the generated disk"
+                  : builtin == Builtin::Welcome ? "the welcome disk"
+                                                : sd_image::images().name(index));
     s.ejected_ms = 0;
     s.filling = false;
     g_shared[drive].swap.store(SWAP_EJECT, std::memory_order_release);
@@ -594,11 +624,23 @@ static void startSwap(unsigned drive, size_t index) {
 static void requestSwap(bool next) {
     const ImageList& images = sd_image::images();
     DriveState& s = g_drv[g_console_drive];
-    if (!s.from_card || images.count() < 2) {
+    if (!images.count() || (s.from_card && images.count() < 2)) {
         Serial.println("# no other image on the card");
         return;
     }
-    startSwap(g_console_drive, next ? images.next(s.image_index) : images.prev(s.image_index));
+    // From a built-in disk, back to the image that was in.
+    size_t index = !s.from_card ? s.image_index : next ? images.next(s.image_index) : images.prev(s.image_index);
+    startSwap(g_console_drive, index);
+}
+
+// Console `g`: the generated disk, for the rig's slice 2 test; `g` again
+// puts back the card's image, or the welcome disk.
+static void toggleGenerated() {
+    DriveState& s = g_drv[g_console_drive];
+    if (s.builtin != Builtin::Generated)
+        startSwap(g_console_drive, s.image_index, Builtin::Generated);
+    else
+        startSwap(g_console_drive, s.image_index, sd_image::images().count() ? Builtin::None : Builtin::Welcome);
 }
 
 // From the panel's long action, or console `d` (the rig's way to set DSKCHG).
@@ -650,7 +692,10 @@ static void serviceSwap(unsigned drive) {
     // disk, and opening the new image closes the old one.
     if (g_capture->inBurst() || g_capture_marks.size()) return;
     const ImageList& images = sd_image::images();
-    TrackSource* image = sd_image::open(s.image_index, drive);
+    TrackSource* image =
+        s.swap_builtin != Builtin::None ? &builtinSource(s.swap_builtin) : sd_image::open(s.image_index, drive);
+    s.builtin = s.swap_builtin;
+    s.from_card = s.builtin == Builtin::None;
     if (!image) {
         // Opening it closed the old image, so the slot can't keep that one:
         // put the old disk back in, freshly opened, as if the swap was undone.
@@ -763,8 +808,9 @@ static void printImage(unsigned drive) {
     unsigned kb = imageKb(drive);
     const char* prefix = g_drive_count > 1 ? driveName(drive) : "";
     const char* gap = g_drive_count > 1 ? " " : "";
-    if (!g_drv[drive].from_card)
-        Serial.printf("IMAGE %s%sgenerated %u\n", prefix, gap, kb);
+    if (!g_drv[drive].from_card)  // "IMAGE welcome 1440", "IMAGE generated 1440"
+        Serial.printf("IMAGE %s%s%s %u\n", prefix, gap,
+                      g_drv[drive].builtin == Builtin::Generated ? "generated" : "welcome", kb);
     else
         Serial.printf("IMAGE %s%s%s %u contiguous=%d writable=%d index=%u/%u\n", prefix, gap, sd_image::name(drive),
                       kb, (int)sd_image::contiguous(drive), (int)g_shared[drive].writable.load(),
@@ -782,7 +828,9 @@ static ui::Status panelStatus() {
     s.drive_name = driveName(i);
     s.images = d.from_card ? &sd_image::images() : nullptr;
     s.image = d.image_index;
-    s.image_name = d.from_card ? sd_image::name(i) : "Generated";
+    s.image_name = d.from_card                         ? sd_image::name(i)
+                   : d.builtin == Builtin::Generated ? "Generated disk"
+                                                     : "Welcome disk";
     s.kb = imageKb(i);
     s.disk_in = sh.disk_in.load(std::memory_order_relaxed);
     s.write_protected = sh.write_protected.load(std::memory_order_relaxed);
@@ -854,8 +902,13 @@ static void servicePack() {
 static void serviceSettings() {
     if (!g_card) return;
     settings::Settings now;
-    for (unsigned i = 0; i < g_drive_count; ++i)
-        if (g_drv[i].from_card && !g_drv[i].no_disk) std::strncpy(now.image[i], sd_image::name(i), settings::NAME - 1);
+    for (unsigned i = 0; i < g_drive_count; ++i) {
+        // A built-in disk isn't remembered: the card's image comes back.
+        if (g_drv[i].from_card && !g_drv[i].no_disk)
+            std::strncpy(now.image[i], sd_image::name(i), settings::NAME - 1);
+        else
+            std::strncpy(now.image[i], g_settings.image[i], settings::NAME - 1);
+    }
     if (sd_image::packs().count()) std::strncpy(now.pack, sd_image::packs().name(g_pack_index), settings::NAME - 1);
     now.volume = panel::model().volume();
     now.bus = g_settings.bus;  // only an edit of the file changes it
@@ -1000,7 +1053,7 @@ static void handleConsole() {
                                "b reboot to bootloader");
 #else
                 Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, "
-                               "1 2 which drive i [ ] d act on, k next sample pack, m mark, "
+                               "g generated disk on/off, 1 2 which drive i [ ] d g act on, k next sample pack, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
@@ -1033,6 +1086,7 @@ static void handleConsole() {
             case '[': requestSwap(false); break;
             case ']': requestSwap(true); break;
             case 'd': toggleDisk(g_console_drive); break;
+            case 'g': toggleGenerated(); break;
 #endif
             case 'b':
                 Serial.println("# rebooting to bootloader");

@@ -38,8 +38,8 @@ def image(drive):
     """(name, original bytes, format, sectors per track) of a writable image."""
     line = drive.command("i", "IMAGE")
     parts = line.split()
-    if parts[1] == "generated":
-        pytest.skip("no image on the SD card: the generated disk is read-only")
+    if parts[1] in ("welcome", "generated"):
+        pytest.skip(f"the drive serves the {parts[1]} disk, not an image on the SD card")
     if "writable=1" not in line:
         pytest.skip(f"{parts[1]} is read-only on the card")
     folder = os.environ.get("FDDPRO_IMAGES")

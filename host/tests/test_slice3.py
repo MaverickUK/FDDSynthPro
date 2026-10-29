@@ -37,10 +37,12 @@ def stats(drive) -> dict[str, str]:
 @pytest.fixture
 def image(drive) -> tuple[str, bytes]:
     """The served image's name and its bytes, from the local copy."""
-    line = drive.command("i", "IMAGE")  # "IMAGE <name> <kb> contiguous=<0|1>" or "IMAGE generated <kb>"
+    # "IMAGE <name> <kb> contiguous=<0|1> ...", or "IMAGE welcome <kb>" or
+    # "IMAGE generated <kb>" for a built-in disk.
+    line = drive.command("i", "IMAGE")
     parts = line.split()
-    if parts[1] == "generated":
-        pytest.skip("no image on the SD card: the drive serves the generated disk")
+    if parts[1] in ("welcome", "generated"):
+        pytest.skip(f"the drive serves the {parts[1]} disk, not an image on the SD card")
     folder = os.environ.get("FDDPRO_IMAGES")
     if not folder:
         pytest.skip("set FDDPRO_IMAGES to the folder holding a copy of the card's image")

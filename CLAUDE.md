@@ -31,7 +31,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - The variant defines `PIN_LED` as a macro, so don't reuse Arduino pin-macro names for constants.
 - **Host unit tests:** `test/run_native_tests.sh` (plain `c++` with ASan/UBSan). It runs `test/native.mk` in parallel (`JOBS=n` to limit it) and rebuilds only what changed, so after an edit a run takes seconds. Add new `src/` files to `SRC` there, and to a tool's `_SRC` list if a tool needs them. CI builds them with GCC on Linux, the Mac with Clang: anything the two may treat differently (undefined behaviour, ODR) shows up there first.
   - Each test file's own types and tests live in an anonymous namespace; only its `run...Tests()` is outside. Two test files once defined different `MemorySource` classes: an ODR violation that Clang's link happened to survive and GCC's didn't.
-  - To run them with GCC locally: `docker run --rm -v "$PWD":/src:ro gcc:13 bash -c 'cp -r /src /tmp/w && cd /tmp/w && rm -rf .pio && test/run_native_tests.sh'` (ThreadSanitizer doesn't run in Docker). Keep `bus`, `fdd_signals`, `image_cache`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write`, `write_burst`, `synth`, `wav`, `ui`, `screens`, `canvas`, `controls`, `ssd1306`, `quadrature` and `button` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
+  - To run them with GCC locally: `docker run --rm -v "$PWD":/src:ro gcc:13 bash -c 'cp -r /src /tmp/w && cd /tmp/w && rm -rf .pio && test/run_native_tests.sh'` (ThreadSanitizer doesn't run in Docker). Keep `bus`, `welcome_disk`, `fdd_signals`, `image_cache`, `pin_watch`, `trace_format`, `spsc_ring`, `short_test`, `head`, `rotation`, `drive`, `crc16`, `mfm`, `ibm_track`, `rdata_stream`, `gen_disk`, `track_source`, `cylinder_loader`, `activity`, `mfm_decode`, `track_write`, `write_burst`, `synth`, `wav`, `ui`, `screens`, `canvas`, `controls`, `ssd1306`, `quadrature` and `button` free of Arduino and SDK headers so they stay testable here; new logic (image, activity, MFM decoding) follows the same rule. When touching the ring or anything shared between cores, also run `SANITIZE=thread test/run_native_tests.sh`.
 - **CI:** `.github/workflows/build.yml` builds the firmware in one job and runs the C++ tests and `pytest -m sim` in another, side by side, on every push. The tests job fetches only `pioasm` (`$PIOASM`), not PlatformIO. A `vX.Y.Z` tag that matches `FIRMWARE_VERSION` publishes a release with the UF2.
 - **Versioning:** SemVer in `src/version.h`. Bump it in the same commit as any firmware change, and add a `CHANGELOG.md` entry.
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
@@ -81,13 +81,17 @@ A track is an array of 16-bit cell words, one per encoded byte, first cell in th
 
 ## Loading cylinders
 
-At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, else `GeneratedSource`), and copies the image into PSRAM (`ImageCache`, `image_cache.h`; about 0.6 s). Only then does core 1 start the streamer, since the data rate depends on the format. From then on core 0 calls `CylinderLoader::service()` on every pass: one bounded step (read a track, or encode one into the live buffer).
+At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, else the welcome disk), and copies the image into PSRAM (`ImageCache`, `image_cache.h`; about 0.6 s). Only then does core 1 start the streamer, since the data rate depends on the format. From then on core 0 calls `CylinderLoader::service()` on every pass: one bounded step (read a track, or encode one into the live buffer).
 - `ready()` is atomic: -1 before the first write into the buffer, the cylinder after the last. Core 1 only lets RDATA out when it equals the head's cylinder.
 - A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
 - **The image cache** holds up to 2 MB a drive (`IMAGE_CACHE_BYTES`); a bigger image is read from the card.
 - **The SD card** is the BB48R's slot in SPI mode (only DAT0 and DAT3 are wired), at 25 MHz: 3.5 ms a track, too slow to read as the head moves. So the drive serves every disk from its `ImageCache` in PSRAM, filled **before the disk goes in** (at power-on, and in a swap's ejected pause), and the virtual PC's reads cost 1 ms. Writes go to the card first, then the cache.
 - **PSRAM is used through its uncached alias** (`XIP_NOCACHE_NOALLOC_BASE`): it shares the 16 KB XIP cache with the flash core 1 runs from, and copying tracks through that cache would evict core 1's loop. Without PSRAM (`pmalloc` fails), the cache holds nothing and reads go to the card.
 - **PIO blocks:** `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window, leaving PIO 0 to libraries. Keep new programs off PIO 0.
+
+## The welcome disk
+
+With no card, or no image on it, each drive serves the welcome disk (`src/welcome_disk.*`, as HDDSynthPro's): a 1.44 MB FAT12 floppy computed sector by sector, volume `FDDSYNTHPRO`, holding `README.TXT`. Its text is [welcome/README.TXT](welcome/README.TXT), which `scripts/embed_welcome.py` turns into the git-ignored `src/welcome_text.h` before every build (PlatformIO's `extra_scripts`, and `test/run_native_tests.sh`): plain ASCII, lines of at most 80 characters, CRLF, `{VERSION}` filled in. Edit the text there, never the header. It goes through the image cache like any image, so writes stay in PSRAM until a restart (`WelcomeSource::keepsWrites`; read-only without PSRAM). Its boot sector prints a "not a system disk" message, waits for a key and boots again (the code is assembled by hand in `welcome_disk.cpp`). mtools and fsck.fat check it (`host/tests/test_welcome_disk.py`), and the virtual PC reads and writes it (`test_welcome_disk.cpp`). Console `g` swaps the generated test disk in (slice 2's rig test does that itself) and back. `i` prints `IMAGE welcome 1440` or `IMAGE generated 1440`; neither is saved as the remembered disk.
 
 ## Writes
 
@@ -162,6 +166,7 @@ Console:
 - `p`: input pin levels (wiring check);
 - `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
 - `d`: eject or insert the disk (drive build);
+- `g`: swap in the generated test disk, or back (drive build);
 - `1` / `2`: which drive `i`, `[`, `]` and `d` act on, with two drives (drive build);
 - `k`: load the next sample pack, once the drive is idle (drive build);
 - `i`: the image being served (drive build);

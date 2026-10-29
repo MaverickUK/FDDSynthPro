@@ -4,6 +4,15 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-29
+
+### Added
+- **The welcome disk,** as HDDSynthPro has: with no SD card, or no image on it, the drive serves a 1.44 MB DOS floppy (volume FDDSYNTHPRO) holding `README.TXT`, which explains how to set the drive up. Its text is [welcome/README.TXT](welcome/README.TXT) in the repo, embedded at build time by `scripts/embed_welcome.py`. Every sector is computed, so it costs no RAM; writes stay in PSRAM until a restart. A PC that boots it is told it isn't a system disk. Checked by mtools and fsck.fat, and read and written by the virtual PC.
+- Console `g` swaps the generated test disk in, and back. Slice 2's rig test uses it, so it no longer needs the card taken out.
+
+### Changed
+- Without a card, the drive serves the welcome disk instead of the generated one. `i` prints `IMAGE welcome 1440` (or `IMAGE generated 1440`).
+
 ## [0.14.0] - 2026-10-29
 
 ### Added

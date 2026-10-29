@@ -8,6 +8,8 @@ from __future__ import annotations
 import random
 import re
 
+import time
+
 import pytest
 
 from conftest import require_build
@@ -25,8 +27,15 @@ SETTLE_US = 15000  # the host's settle time: a cylinder must be loaded within it
 @pytest.fixture(autouse=True)
 def drive_build(firmware_slice, drive):
     require_build(firmware_slice, drive_build=True)
+    # The generated disk: console `g` swaps it in for the welcome disk or the
+    # card's image (and back again, after slice 2).
     if not drive.command("i", "IMAGE").startswith("IMAGE generated"):
-        pytest.skip("an image is on the SD card: slice 2 needs the generated disk (no card)")
+        drive.command("g", "# swapping")
+        deadline = time.monotonic() + 5
+        while not drive.command("i", "IMAGE").startswith("IMAGE generated"):
+            if time.monotonic() > deadline:
+                pytest.fail("console `g` didn't swap the generated disk in")
+            time.sleep(0.25)
 
 
 @pytest.fixture(scope="module")

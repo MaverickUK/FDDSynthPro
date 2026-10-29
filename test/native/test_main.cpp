@@ -261,6 +261,7 @@ void runUiTests();
 void runSettingsTests();
 void runImgCfgTests();
 void runAmigaTests();
+void runWelcomeDiskTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -293,6 +294,7 @@ int main() {
     runSettingsTests();
     runImgCfgTests();
     runAmigaTests();
+    runWelcomeDiskTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }
