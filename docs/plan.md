@@ -1,23 +1,42 @@
 # Pico Floppy Drive Emulator: Prototype Plan
 
-22 Oct 2026, Peter Bridger.
+22 Oct 2026, Peter Bridger. Status updated 29 Oct 2026 (firmware 0.17.0).
+
+## Where it stands
+
+Every slice below is built and passes its tests on the Mac, against virtual hosts (a Greaseweazle, the Feather, a PC's BIOS and controller, an Amiga) and Greaseweazle's own encoder and decoder. **None of it has run on hardware yet:** each slice's exit test waits for the rev B carrier board ([hardware/README.md](../hardware/README.md)), ordered from JLCPCB, and slice 6 for a real PC. The bring-up steps are in [bringup.md](bringup.md).
+
+The prototype has also gone well past its first scope:
+
+| Added | Version |
+|---|---|
+| The FDD Synth's sound (I2S amp, sample packs), and the front panel (OLED, encoder, disk and pack lists) | 0.7, 0.8 |
+| The BB48R pin map, disk images in PSRAM, builds without the SN7407 | 0.9, 0.10 |
+| The carrier board (rev B), for JLCPCB assembly | |
+| Drive select as a real drive's jumpers: PC A or B on either cable, Shugart DS0–DS2 | 0.11 |
+| Two drives on one cable, each with its own disk | 0.12 |
+| Formats: PC 160 KB to 1.68 MB (5.25- and 3.5-inch, 360 RPM), and GoTek's `IMG.CFG` for other machines | 0.13 |
+| The Amiga: ADF images, DF0/DF1, pin 2 (/CHNG) after a board rework | 0.14 |
+| The welcome disk (with no card), a fixed startup image | 0.15, 0.16 |
+| FM (single density), tracks at half a disk's rate | 0.17 |
+
+The settings, formats and interfaces are described in [config.md](config.md).
 
 ## Goal and scope
 
 The prototype proves one thing: an RP2350B can act as a 3.5-inch PC floppy drive, GoTek style, that a real floppy controller reads reliably from a disk image. Because it *is* the drive, it knows exactly when the motor runs, where the head is and how it moves, which is what the FDD Synth needs to play convincing drive sounds. Writing, the sounds themselves and the final board come later, in thin layers on top of a working base.
 
-**In scope**
+**In scope** (as first planned; see above for what's been added since)
 - One drive on a 34-pin PC (Shugart-style) interface, answering one drive select.
 - 3.5-inch MFM formats: 1.44 MB (HD, 500 kbit/s) first, then 720 KB (DD, 250 kbit/s).
 - Read first: the host can seek, read every sector and see a steady 300 RPM index.
 - Raw sector images (IMG/IMA) on an SD card, chosen by file size.
 - Activity events for the sounds: motor, steps, seeks, the head hitting the track 0 stop.
 
-**Out of scope for now**
-- The audio itself (samples, I2S, mixing): HDD Synth code merges in later.
-- 5.25-inch drives (360 RPM for HD, 40-track double stepping), 8-inch, FM.
-- Flux images (HFE, SCP), copy-protected disks, non-IBM formats (Amiga ADF, Atari ST, Mac GCR).
-- Image selection UI (buttons, OLED), bus buffers on a PCB, the final board.
+**Still out of scope**
+- Flux images (HFE, SCP) and copy-protected disks; Mac GCR, Apple II and C64 disks.
+- ED disks (2.88 MB, the Sinclair QL's 3.2 MB): a 1 Mbit/s track is twice what the buffers hold.
+- FlashFloppy's `FF.CFG` and its `host=` geometry tables (Akai, Ensoniq, Roland and the like by size alone): `IMG.CFG` covers them.
 
 **Done means:** the host reads a 1.44 MB image from the drive byte for byte, ten times in a row, and writes and reads back 100 images with zero mismatches; then a real PC boots DOS from it and copies files both ways.
 
@@ -41,7 +60,7 @@ The prototype proves one thing: an RP2350B can act as a 3.5-inch PC floppy drive
 | Raw bytes per track (one 200 ms revolution) | 6,250 | 12,500 |
 | Geometry | 80 cylinders × 2 heads × 9 sectors × 512 bytes | 80 × 2 × 18 × 512 |
 
-- **A whole raw track fits in RAM easily:** 12.5 KB per side, 25 KB per cylinder. The 1.44 MB image itself does not (the BB48 has 520 KB of SRAM and no PSRAM), so the drive loads a cylinder from the SD card on each step.
+- **A whole raw track fits in RAM easily:** 12.5 KB per side, 25 KB per cylinder. The 1.44 MB image itself does not fit the RP2350's 520 KB of SRAM, so the drive loads a cylinder on each step: from the BB48R's 8 MB PSRAM, where the whole image is copied before the disk goes in (0.10), since the SD card over SPI is too slow to keep up with seeks.
 - **Steps leave time for that.** Hosts wait for the head to settle (about 15 ms) after the last step before reading. A cylinder is 18 KB of sector data, a few milliseconds from SD even over SPI. If a read starts before the data is ready, the host simply retries on the next revolution.
 - **The track is a loop.** The bit stream starts at the index pulse and wraps every 200 ms. The host doesn't care where in the loop it starts reading, only that the sector headers and CRCs are right and the timing is steady.
 
@@ -51,10 +70,10 @@ The Mac that builds the firmware also flashes it, drives the host (the floppy co
 
 | Part | Role |
 |---|---|
-| Olimex RP2350-PICO2-BB48R on a Perma-Proto board | The emulated drive, with its own microSD slot |
-| 34-pin IDC breakout + floppy ribbons (one straight, one PC cable with the twist) | Host connection, wired per [wiring.md](wiring.md) |
-| SN7407N (DIP, hex open-collector buffer, 40 mA sink) | The drive's five outputs |
-| Two 11-pin bussed SIP resistor networks (ten resistors each), 10 kΩ and 1 kΩ, in a socket, to 3.3 V | Termination pull-ups on the drive's ten inputs: 10 kΩ with the FeatherWing, 1 kΩ for a real PC |
+| Olimex RP2350-PICO2-BB48R on the rev B carrier board ([hardware/](../hardware/README.md)) | The emulated drive, with its own microSD slot. The carrier holds the floppy header, the SN7407 and the pull-ups, wired per [wiring.md](wiring.md); a hand-wired Perma-Proto came first |
+| Floppy ribbons (one straight, one PC cable with the twist) | Host connection |
+| SN7407 (SOIC on the carrier; hex open-collector buffer, 40 mA sink) | The drive's outputs |
+| 0402 pull-ups on the carrier, 10 kΩ, plus 1 kΩ switched in by a jumper (J7) | Termination on the drive's ten inputs: 10 kΩ with the FeatherWing, 1 kΩ added for a real PC |
 | Feather RP2040 + Adafruit Floppy FeatherWing | The host under test: Adafruit's Greaseweazle-compatible firmware, driven by `gw` from the Mac |
 | Optional: Greaseweazle V4.1 | A second host, running the real Greaseweazle firmware, with both drive selects and full pin access |
 | A real 3.5-inch PC floppy drive + 5 V 2 A supply | The known-good reference: proves the host setup, and gives real timings and flux to compare with |
@@ -67,12 +86,13 @@ The Mac that builds the firmware also flashes it, drives the host (the floppy co
 |---|---|
 | Inputs: DENSEL, MOTEA, DRVSB, DRVSA, MOTEB, DIR, STEP, WDATA, WGATE, SIDE1 | 12–21 |
 | Outputs (through the SN7407): INDEX, TRK00, WPT, RDATA | 4–7 |
-| Output (through the SN7407): DSKCHG | 22 |
+| Output (through the SN7407): DSKCHG (READY for Shugart and Amiga) | 22 |
+| Output, after a rework: pin 2's DISK CHANGE for Shugart and Amiga | 23 |
 | The BB48R's own: PSRAM select; SD card (SPI1: CS, SCK, MOSI, MISO) | 8; 9, 10, 11, 24 |
 
 GPIO 0–3 and 25 are avoided for the same reasons as on HDDSynthPro (the BB48R's I2C pull-ups and LED), and GPIO 8–11 and 24 are the board's. The inputs are on consecutive pins so one read captures them all, and everything is inside one PIO block's GPIO 0–31 window.
 
-**Drive select:** the firmware watches all four select and motor lines (floppy pins 10, 12, 14, 16). A real PC drive answers on pins 12 (select) and 16 (motor); the cable's twist routes the host's drive A lines there. The Feather host has one select, `gw --drive A`, on pins 12/16, so a straight cable reaches our drive directly. A Greaseweazle on a straight cable needs `--drive B` for the same pins. Slice 0 records which pins each letter uses.
+**Drive select:** the firmware watches all four select and motor lines (floppy pins 10, 12, 14, 16). A real PC drive answers on pins 12 (select) and 16 (motor); the cable's twist routes the host's drive A lines there. The Feather host has one select, `gw --drive A`, on pins 12/16, so a straight cable reaches our drive directly. A Greaseweazle on a straight cable needs `--drive B` for the same pins. Slice 0 records which pins each letter uses. Since 0.11 the lines are set in `/FDDSYNTH.CFG` (`interface`, `cable`, `drive`: [config.md](config.md)); the default is the PC's 12/16.
 
 **Power-order rule:** the BB48 is powered before the host's USB is plugged in, and the host is unplugged before the BB48. There are no buffers on the inputs, and the RP2350's pins are only 5 V tolerant while it is powered.
 
@@ -101,12 +121,15 @@ Arduino-Pico (earlephilhower core, on the Pico SDK) under PlatformIO, as in HDDS
 | `short_test` | Solder-bridge test analysis | Yes | 0 |
 | `head` | Cylinder position, step limits, TRK00, the track 0 stop, side, DSKCHG | Yes | 1 |
 | `rotation` | Index timing at 300 RPM while selected and spinning; position within the revolution | Yes | 1 |
-| `mfm`, `ibm_track` | MFM encoding with sync marks (A1/C2 with missing clocks); the IBM track layout (gaps, IAM, IDAM, DAM, CRC-16-CCITT) | Yes, and against `gw convert` | 2 |
+| `mfm`, `ibm_track` | MFM encoding with sync marks (A1/C2 with missing clocks); the IBM track layout (gaps, IAM, IDAM, DAM, CRC-16-CCITT); since 0.13 any IBM-style geometry, and FM | Yes, and against Greaseweazle's encoder | 2 |
 | `gen_disk` | A disk whose sector content is computed from its position, as on HDDSynthPro | Yes, with a Python twin | 2 |
 | `rdata` (PIO + C++ wrapper) | Streams the current track's flux pulses on RDATA, aligned to index | In a simulator: `pio_sim.py`, brought over from HDDSynthPro | 2 |
-| `image`, `track_cache` | Geometry from file size; loading a cylinder from SD on each step | Yes, with a fake SD | 3 |
+| `track_source`, `image_cache`, `cylinder_loader` | Images by size or `IMG.CFG` (`img_cfg`); the image in PSRAM; loading a cylinder on each step | Yes, with a fake SD | 3 |
 | `activity` | Motor, steps, seeks, recalibrate bumps, reads, for the sounds | Yes, and on recorded traces | 4 |
 | `wdata` (PIO), `mfm_decode` | Capturing WDATA transitions and decoding them back to sectors | Yes, and against `gw convert` | 5 |
+| `synth`, `wav`, `audio` | The FDD Synth's mixer and the I2S amp | Yes (`audio` no) | 4 |
+| `ui`, `screens`, `panel`, `settings` | The front panel and `/FDDSYNTH.CFG` | Yes (`panel` no) | later |
+| `bus`, `amiga_track`, `welcome_disk` | Drive select and interfaces; AmigaDOS tracks; the welcome disk | Yes | later |
 | `main` | Console and core wiring | No | all |
 
 **Core split:**
@@ -148,12 +171,12 @@ Each slice ends in a passing automated test before the next starts. Each one als
 
 ## Later layers
 
-1. HDD Synth integration: I2S audio, samples driven by the activity events.
-2. Image selection: buttons or an encoder and an OLED, GoTek style. *Done ahead of hardware: `src/panel.*` and the screens in `docs/oled`.*
-3. 5.25-inch drives: 360 KB and 1.2 MB, 360 RPM for HD, double stepping.
-4. Other formats: Atari ST, Amiga ADF (a different sector layout and drive-ready behaviour).
-5. Flux images (HFE) for copy-protected disks.
-6. A PCB with proper input buffering (Schmitt triggers) and a 74LVC07A-class output buffer.
+1. HDD Synth integration: I2S audio, samples driven by the activity events. *Done (0.7).*
+2. Image selection: buttons or an encoder and an OLED, GoTek style. *Done (0.8): `src/panel.*` and the screens in `docs/oled`.*
+3. 5.25-inch drives: 360 KB and 1.2 MB, 360 RPM for HD, double stepping. *Done (0.13).*
+4. Other formats: Atari ST, Amiga ADF (a different sector layout and drive-ready behaviour). *Done: ST disks are PC-style MFM, served by size or `IMG.CFG` (0.13); the Amiga in 0.14.*
+5. Flux images (HFE) for copy-protected disks. *Not started.*
+6. A PCB. *Rev B done: the carrier board, with the SN7407 and termination. A rev C would route the SN7407's spare gate to floppy pin 2 (the Amiga's /CHNG), and could add Schmitt-trigger input buffering.*
 
 ## Risks and open questions
 
@@ -166,10 +189,11 @@ Each slice ends in a passing automated test before the next starts. Each one als
 | Erratum E9 on A2-stepping RP2350s | Never use internal pull-downs |
 | RDATA pulse width and jitter the controller won't accept | Match the reference drive (measured with the logic analyser), and check `gw read` margins with its flux histogram |
 | Core 0 falls behind a long write | Writes stream through a 16 KB ring (44 ms at 1.44 MB) and decode in 2 KB chunks. An overrun drops that burst rather than writing junk; watch `capture_overruns` |
-| RAM: the drive build uses 41% statically, plus the sample pack at run time (152 KB for the stand-in pack, up to 160 KB) | Watch for heap trouble at bring-up. Packs with longer samples would stream from SD, as HDDSynth_Native does |
+| RAM: the drive build uses 58% statically (buffers for two drives and the largest track), plus the sample pack at run time (152 KB for the stand-in pack, up to 160 KB) | Watch for heap trouble at bring-up. The second drive's buffers could be allocated only when it's set up; packs with longer samples would stream from SD, as HDDSynth_Native does |
 | Core 0 stalls longer than the 46 ms audio queue | Writes decode in chunks with audio between them; the longest remaining step is an SD read or a track encode (a few ms). `audio_underruns` in `s` |
 | The card fails or is pulled out while writing | Sectors reach the live track only once the card has them, so a read-back shows the old data. After any lost write, the drive reports write-protect until the disk is inserted again, so the host's next write fails visibly (`write_faults` in `s`). A failed read gives a blank track: the host sees missing sectors |
-| SD reads slower than the settle time | Measure in slice 3; the host retries on the next revolution, and a second cylinder buffer can prefetch neighbours |
+| SD reads slower than the settle time | They are (3.5 ms a track at 25 MHz): since 0.10 each image is copied into PSRAM before it goes in, and tracks load from there |
+| Switching RDATA between two drives mid-revolution (`rdata_pio::switchTo`) misbehaves | It restarts the DMA part-way into a buffer and relies on the channel reloading its full count afterwards; check with the logic analyser at bring-up |
 
 **Answered from the Greaseweazle firmware source (`floppy.c`, 23 Oct 2026):**
 - On the IBM PC bus, `--drive A` uses pins 14 (select) and 10 (motor); `--drive B` uses 12 and 16. Slice 0 confirms it on the cable.
