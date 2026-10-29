@@ -6,17 +6,23 @@
 
 #include <cstdint>
 #include <functional>
+#include <utility>
 #include <vector>
 
 #include "config.h"
 #include "drive.h"
 #include "fdd_signals.h"
 
+// The cable can carry more than one drive (the emulator as A and B): each
+// sees every pin change, and the host reads the lines they share, where
+// each releases its own while deselected.
 class VirtualHost {
 public:
     VirtualHost(drive::Drive& d, unsigned select_pin, unsigned motor_pin)
-        : d_(d), select_(select_pin), motor_(motor_pin) {
-        d_.onSample(now, pins_);
+        : VirtualHost(std::vector<drive::Drive*>{&d}, select_pin, motor_pin) {}
+    VirtualHost(std::vector<drive::Drive*> drives, unsigned select_pin, unsigned motor_pin)
+        : drives_(std::move(drives)), select_(select_pin), motor_(motor_pin) {
+        for (drive::Drive* d : drives_) d->onSample(now, pins_);
     }
 
     uint32_t now = 1000;
@@ -25,9 +31,23 @@ public:
     // Called after every sample the drive takes, as core 1's loop would.
     std::function<void(uint32_t now, const drive::StepEvent&)> on_sample;
 
-    bool trk0() { return d_.outputs(now).trk00; }
+    bool trk0() { return cable().trk00; }
     uint32_t pins() const { return pins_; }
-    bool index() { return d_.outputs(now).index; }
+    bool index() { return cable().index; }
+
+    // The output lines as the host sees them: asserted by whichever drive asserts them.
+    drive::Outputs cable() {
+        drive::Outputs o;
+        for (drive::Drive* d : drives_) {
+            drive::Outputs each = d->outputs(now);
+            o.index = o.index || each.index;
+            o.trk00 = o.trk00 || each.trk00;
+            o.wpt = o.wpt || each.wpt;
+            o.dskchg = o.dskchg || each.dskchg;
+            o.ready = o.ready || each.ready;
+        }
+        return o;
+    }
 
     // The time between index pulses, as `gw rpm` measures it, sampled every
     // 10 us for `revolutions` + 1 pulses. Empty if no pulses came.
@@ -52,13 +72,25 @@ protected:
             pins_ &= ~fdd::maskOf(pin);
         else
             pins_ |= fdd::maskOf(pin);
-        drive::StepEvent e = d_.onSample(now, pins_);
+        drive::StepEvent e;
+        for (drive::Drive* d : drives_) {
+            drive::StepEvent each = d->onSample(now, pins_);
+            if (each.stepped) e = each;  // only the selected drive steps
+        }
         if (e.stepped) steps.push_back(e);
         if (on_sample) on_sample(now, e);
     }
     void wait(uint32_t us) { now += us; }
 
-    drive::Drive& d_;
+    // The drive that answers on the host's select line, for where its disk
+    // is under the head (a test's shortcut: a host would time it from INDEX).
+    drive::Drive& selectedDrive() {
+        for (drive::Drive* d : drives_)
+            if (d->config().lines.select == select_) return *d;
+        return *drives_[0];
+    }
+
+    std::vector<drive::Drive*> drives_;
     unsigned select_, motor_;
     uint32_t pins_ = fdd::INPUT_MASK;
 };

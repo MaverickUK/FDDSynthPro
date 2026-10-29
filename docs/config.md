@@ -16,13 +16,24 @@ drive=a
 | Key | Values | Default | |
 |---|---|---|---|
 | `image` | a file name on the card | the first | The disk that was in |
+| `image2` | a file name on the card | the second | The second drive's, with two drives |
 | `pack` | a folder under `/samples` | the first | The sample pack |
 | `volume` | 0–100 | 75 | |
 | `interface` | `ibmpc`, `shugart` | `ibmpc` | What the host expects on the cable |
 | `cable` | `twisted`, `straight` | `twisted` | `ibmpc` only: is there a twist between the host and the drive? |
-| `drive` | `a`, `b` (`ibmpc`); `ds0`, `ds1`, `ds2` (`shugart`) | `a` | Which drive this is: a real drive's select jumper |
+| `drive` | `a`, `b` or `a,b` (`ibmpc`); one or two of `ds0`, `ds1`, `ds2` (`shugart`) | `a` | Which drive this is: a real drive's select jumper. Two make it two drives |
 
 The drive reads `interface`, `cable` and `drive` at power-on. The console's `s` shows the ones in use.
+
+## Two drives
+
+`drive=a,b` (or two Shugart units, `drive=ds0,ds1`) makes the emulator both drives on the cable, each with its own disk, head and motor. With a PC that's A: and B:, and `COPY A:*.* B:` works as it would with two real drives. The first drive's disk is `image`, the second's `image2`; with neither set, they start with the card's first two images.
+
+- **The front panel** has a home screen for each, titled with its letter (`A: GAMES.IMG`). The action button goes from A's to B's, then on to the head trace. Choosing a disk, or a long press to eject, acts on the drive whose home screen was last shown.
+- **The console's** `i`, `[`, `]` and `d` act on one drive: `1` or `2` chooses it. `s` reports the second drive's state with a `2` on each name (`cyl2`, `disk2`, `ready2`...).
+- **The same image in both** is read-only in the second: two drives writing one file would each overwrite the other's changes.
+- **The sound** is one mechanism: the motor runs while either drive's does, and you hear both drives' steps.
+- Each drive keeps its own disk in PSRAM (1.44 MB each, of 8 MB) and its own cylinder buffer in RAM.
 
 ## Choosing the drive select
 

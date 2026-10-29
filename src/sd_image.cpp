@@ -14,13 +14,11 @@
 namespace sd_image {
 
 static SdFs s_sd;
-static FsFile s_file;
 static ImageList s_images;
 static PackList s_packs;
 static int16_t* s_pool = nullptr;  // the loaded pack's samples
-static char s_name[ImageList::NAME];
-static bool s_writable = false;
 
+// A drive's open image.
 class ImageSource : public TrackSource {
 public:
     void use(const ibm::Format& fmt) { fmt_ = &fmt; }
@@ -28,24 +26,28 @@ public:
     bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) override {
         if (cylinder >= IMAGE_CYLINDERS || head >= IMAGE_HEADS) return false;
         uint32_t n = fmt_->trackDataBytes();
-        return s_file.seekSet(imageTrackOffset(*fmt_, cylinder, head)) && s_file.read(out, n) == int(n);
+        return file.seekSet(imageTrackOffset(*fmt_, cylinder, head)) && file.read(out, n) == int(n);
     }
     // Written through at once, and synced: the card holds every sector the
     // host has been told is written, even if the power goes.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) override {
-        if (!s_writable || cylinder >= IMAGE_CYLINDERS || head >= IMAGE_HEADS || sector >= fmt_->sectors)
+        if (!writable_ || cylinder >= IMAGE_CYLINDERS || head >= IMAGE_HEADS || sector >= fmt_->sectors)
             return false;
         uint32_t n = fmt_->sectorBytes();
-        return s_file.seekSet(imageTrackOffset(*fmt_, cylinder, head) + sector * n) && s_file.write(data, n) == n &&
-               s_file.sync();
+        return file.seekSet(imageTrackOffset(*fmt_, cylinder, head) + sector * n) && file.write(data, n) == n &&
+               file.sync();
     }
-    bool writable() const override { return s_writable; }
+    bool writable() const override { return writable_; }
+
+    FsFile file;
+    char name[ImageList::NAME] = "";
+    bool writable_ = false;
 
 private:
     const ibm::Format* fmt_ = &ibm::HD_1440;
 };
 
-static ImageSource s_source;
+static ImageSource s_sources[bus::MAX_DRIVES];
 
 bool mount() {
     // The BB48R's slot, in SPI mode on SPI1. SdFat drives the chip select.
@@ -94,22 +96,27 @@ bool writeSettings(const char* text, size_t len) {
 
 const ImageList& images() { return s_images; }
 
-TrackSource* open(size_t index) {
-    if (index >= s_images.count()) return nullptr;
-    if (s_file.isOpen()) s_file.close();
+TrackSource* open(size_t index, unsigned drive) {
+    if (index >= s_images.count() || drive >= bus::MAX_DRIVES) return nullptr;
+    ImageSource& src = s_sources[drive];
+    if (src.file.isOpen()) src.file.close();
+    src.name[0] = 0;
     const char* name = s_images.name(index);
-    if (!s_file.open(name, O_RDONLY)) return nullptr;
+    if (!src.file.open(name, O_RDONLY)) return nullptr;
     // Writable unless the file is marked read-only (the card's way of
-    // write-protecting a disk).
-    s_writable = false;
-    if (!s_file.isReadOnly()) {
-        s_file.close();
-        s_writable = s_file.open(name, O_RDWR);
-        if (!s_writable && !s_file.open(name, O_RDONLY)) return nullptr;
+    // write-protecting a disk), or the other drive has it open.
+    bool shared = false;
+    for (unsigned d = 0; d < bus::MAX_DRIVES; ++d)
+        shared = shared || (d != drive && s_sources[d].file.isOpen() && std::strcmp(s_sources[d].name, name) == 0);
+    src.writable_ = false;
+    if (!src.file.isReadOnly() && !shared) {
+        src.file.close();
+        src.writable_ = src.file.open(name, O_RDWR);
+        if (!src.writable_ && !src.file.open(name, O_RDONLY)) return nullptr;
     }
-    std::strcpy(s_name, name);
-    s_source.use(*formatForImageSize(s_images.size(index)));
-    return &s_source;
+    std::strcpy(src.name, name);
+    src.use(*formatForImageSize(s_images.size(index)));
+    return &src;
 }
 
 bool loadPack(synth::Pack& pack, size_t index, size_t max_bytes) {
@@ -174,7 +181,7 @@ bool loadPack(synth::Pack& pack, size_t index, size_t max_bytes) {
     return pack.complete();
 }
 
-const char* name() { return s_name; }
-bool contiguous() { return s_file.isContiguous(); }
+const char* name(unsigned drive) { return drive < bus::MAX_DRIVES ? s_sources[drive].name : ""; }
+bool contiguous(unsigned drive) { return drive < bus::MAX_DRIVES && s_sources[drive].file.isContiguous(); }
 
 }  // namespace sd_image

@@ -9,8 +9,9 @@
 //   Press         open the disk list; on the list, insert the selected disk.
 //                 On the sounds screen, the pack list instead: press to load
 //   Action        next screen: home, head trace, sounds, stats; on the disk
-//                 list, back
-//   Long action   eject the disk, or insert it again
+//                 list, back. With two drives, a home screen each (A, then B)
+//   Long action   eject the disk, or insert it again (the drive whose home
+//                 screen was last shown)
 #pragma once
 
 #include <cstddef>
@@ -25,7 +26,10 @@ enum class Input : uint8_t { TurnUp, TurnDown, Press, Action, LongAction };
 enum class Activity : uint8_t { Idle, Read, Write, Seek };
 
 // What the drive is doing, for the screens. The firmware fills it each frame.
+// The drive the panel is showing (Model::drive()), and the sounds.
 struct Status {
+    uint8_t drives = 1;                 // how many the emulator is (bus.h)
+    const char* drive_name = "";        // this one's: "A", "B", "DS0"...
     const ImageList* images = nullptr;  // nullptr or empty: the generated disk
     size_t image = 0;                   // which one is in (or last was)
     const char* image_name = "";
@@ -81,6 +85,8 @@ public:
     void tick(const Status& s, uint32_t now_ms);
 
     Screen screen() const { return screen_; }
+    // The drive whose disk the panel shows and changes (0 with one drive).
+    uint8_t drive() const { return drive_; }
     size_t selection() const { return selection_; }
     int volume() const { return volume_; }  // 0-100
     // The volume as saved, at power-on.
@@ -88,9 +94,14 @@ public:
 
     // Requests for the firmware; each is handed over once.
     bool takeSwap(size_t& image) {
+        uint8_t drive;
+        return takeSwap(image, drive);
+    }
+    bool takeSwap(size_t& image, uint8_t& drive) {
         if (!swap_pending_) return false;
         swap_pending_ = false;
         image = swap_to_;
+        drive = swap_drive_;
         return true;
     }
     bool takePackChange(size_t& pack) {
@@ -100,20 +111,28 @@ public:
         return true;
     }
     bool takeEjectToggle() {
+        uint8_t drive;
+        return takeEjectToggle(drive);
+    }
+    bool takeEjectToggle(uint8_t& drive) {
         bool t = eject_toggle_;
         eject_toggle_ = false;
+        drive = eject_drive_;
         return t;
     }
 
 private:
     Screen screen_ = Screen::Home;
     Screen base_ = Screen::Home;  // where the volume overlay and the list return to
+    uint8_t drive_ = 0;
     size_t selection_ = 0;
     int volume_ = 75;
     uint32_t last_input_ms_ = 0;
     bool swap_pending_ = false;
     size_t swap_to_ = 0;
+    uint8_t swap_drive_ = 0;
     bool eject_toggle_ = false;
+    uint8_t eject_drive_ = 0;
     bool saw_swap_ = false;
     bool pack_pending_ = false;
     size_t pack_to_ = 0;

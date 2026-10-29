@@ -148,7 +148,7 @@ TEST(test_drive_answers_on_its_own_select_only) {
 TEST(test_bus_lines) {
     using bus::Cable;
     using bus::Interface;
-    auto lines = [](Interface i, Cable c, uint8_t unit) { return bus::lines(bus::Setup{i, c, unit}); };
+    auto lines = [](Interface i, Cable c, uint8_t unit) { return bus::unitLines(bus::Setup{i, c, 1}, unit); };
     // A PC drive past the twist is the host's A on 12/16; B on a straight
     // cable is the same pair. The other pair (14/10) is A on a straight cable.
     bus::Lines pair_12_16{cfg::PIN_DRVSB, cfg::PIN_MOTEB}, pair_14_10{cfg::PIN_DRVSA, cfg::PIN_MOTEA};
@@ -157,19 +157,27 @@ TEST(test_bus_lines) {
     CHECK(lines(Interface::IbmPc, Cable::Twisted, 1) == pair_14_10);
     CHECK(lines(Interface::IbmPc, Cable::Straight, 0) == pair_14_10);
     CHECK(lines(Interface::IbmPc, Cable::Straight, 1) == pair_12_16);
-    CHECK(lines(Interface::IbmPc, Cable::Twisted, 2) == pair_12_16);  // no C: A
+    // Two drives on a PC: one on each pair.
+    bus::Setup both{Interface::IbmPc, Cable::Twisted, 0b11};
+    CHECK(bus::lines(both, 0) == pair_12_16);
+    CHECK(bus::lines(both, 1) == pair_14_10);
+    both.cable = Cable::Straight;
+    CHECK(bus::lines(both, 0) == pair_14_10);
+    CHECK(bus::lines(both, 1) == pair_12_16);
     // Shugart: DS0-DS2 on pins 10, 12 and 14, the motor on 16 for all; the cable doesn't matter.
     CHECK(lines(Interface::Shugart, Cable::Twisted, 0) == (bus::Lines{cfg::PIN_MOTEA, cfg::PIN_MOTEB}));
     CHECK(lines(Interface::Shugart, Cable::Straight, 1) == (bus::Lines{cfg::PIN_DRVSB, cfg::PIN_MOTEB}));
     CHECK(lines(Interface::Shugart, Cable::Twisted, 2) == (bus::Lines{cfg::PIN_DRVSA, cfg::PIN_MOTEB}));
-    CHECK_STR(bus::unitName(bus::Setup{Interface::Shugart, Cable::Twisted, 2}), "ds2");
-    CHECK_STR(bus::unitName(bus::Setup{Interface::IbmPc, Cable::Twisted, 1}), "b");
+    CHECK_STR(bus::unitName(bus::Setup{Interface::Shugart, Cable::Twisted, 1}, 2), "ds2");
+    CHECK_STR(bus::unitName(bus::Setup{Interface::IbmPc, Cable::Twisted, 1}, 1), "b");
+    char names[12];
+    CHECK_STR(bus::unitsName(bus::Setup{Interface::Shugart, Cable::Twisted, 0b101}, names), "ds0,ds2");
 }
 
 TEST(test_shugart_drive_answers_on_its_ds_line) {
     // DS0 is pin 10, which a PC calls MOTEA: as a Shugart drive, that line selects.
     drive::Config c;
-    c.lines = bus::lines(bus::Setup{bus::Interface::Shugart, bus::Cable::Twisted, 0});
+    c.lines = bus::lines(bus::Setup{bus::Interface::Shugart, bus::Cable::Twisted, 0b001});
     c.interface = bus::Interface::Shugart;
     drive::Drive d(c);
     d.insertDisk(false);
@@ -183,7 +191,7 @@ TEST(test_shugart_drive_answers_on_its_ds_line) {
 
 TEST(test_shugart_pin_34_is_ready) {
     drive::Config c;
-    c.lines = bus::lines(bus::Setup{bus::Interface::Shugart, bus::Cable::Twisted, 1});
+    c.lines = bus::lines(bus::Setup{bus::Interface::Shugart, bus::Cable::Twisted, 0b010});
     c.interface = bus::Interface::Shugart;
     c.spindle.spin_up_us = 1000;
     drive::Drive d(c);

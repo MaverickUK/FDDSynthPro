@@ -19,6 +19,7 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
             case Input::Press:
                 if (n && selection_ != s.image) {
                     swap_to_ = selection_;
+                    swap_drive_ = drive_;
                     swap_pending_ = true;
                     screen_ = Screen::Swap;
                     saw_swap_ = false;
@@ -31,6 +32,7 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
                 return;
             case Input::LongAction:
                 eject_toggle_ = true;
+                eject_drive_ = drive_;
                 screen_ = base_;
                 return;
         }
@@ -56,6 +58,7 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
                 return;
             case Input::LongAction:
                 eject_toggle_ = true;
+                eject_drive_ = drive_;
                 screen_ = Screen::Sounds;
                 return;
         }
@@ -87,15 +90,22 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
                 screen_ = base_;
                 return;
             }
+            // With two drives, home is A's and then B's.
+            if (screen_ == Screen::Home && drive_ + 1 < s.drives) {
+                ++drive_;
+                return;
+            }
             Screen next = screen_ == Screen::Home        ? Screen::HeadTrace
                           : screen_ == Screen::HeadTrace ? Screen::Sounds
                           : screen_ == Screen::Sounds    ? Screen::Stats
                                                          : Screen::Home;
+            if (next == Screen::Home) drive_ = 0;
             screen_ = base_ = next;
             return;
         }
         case Input::LongAction:
             eject_toggle_ = true;
+            eject_drive_ = drive_;
             return;
     }
 }

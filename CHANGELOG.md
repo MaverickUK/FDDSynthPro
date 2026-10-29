@@ -4,6 +4,17 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-29
+
+### Added
+- **Two drives:** `drive=a,b` (or two Shugart units) in `/FDDSYNTH.CFG` makes the emulator A: and B: on one cable, each with its own disk (`image`, `image2`), head, motor, image cache in PSRAM and cylinder buffer. Core 1 runs a drive model for each and puts their outputs on the cable together; the RDATA streamer follows the selected drive, starting at the word under its head (`rdata_pio::switchTo`), and the capture runs at its rate. Write bursts carry their drive, and each drive's writer takes its own (`CaptureStream::setWriter`).
+- The panel has a home screen per drive (`A: GAMES.IMG`); the disk list and the long press act on the drive last shown. The console's `1` and `2` choose which drive `i`, `[`, `]` and `d` act on; `s` adds the second drive's fields with a `2` suffix.
+- The virtual PC changes drives as the BIOS does (`useDrive`), and `dos_session --copy` copies every file from A: to B:, checked by mtools and fsck.fat (`test_copy_from_a_to_b`).
+
+### Changed
+- An image the other drive has open opens read-only.
+- The sound events treat two drives as one mechanism: the motor runs while either's does.
+
 ## [0.11.0] - 2026-10-29
 
 ### Added

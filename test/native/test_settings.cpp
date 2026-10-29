@@ -14,7 +14,7 @@ settings::Settings parse(const std::string& text) { return settings::parse(text.
 
 TEST(test_settings_round_trip) {
     settings::Settings s;
-    std::strcpy(s.image, "MONKEY1.IMG");
+    std::strcpy(s.image[0], "MONKEY1.IMG");
     std::strcpy(s.pack, "Recorded");
     s.volume = 40;
     char text[settings::FILE_MAX];
@@ -22,10 +22,17 @@ TEST(test_settings_round_trip) {
     CHECK_STR(std::string(text, n),
               "image=MONKEY1.IMG\npack=Recorded\nvolume=40\ninterface=ibmpc\ncable=twisted\ndrive=a\n");
     CHECK(settings::parse(text, n) == s);
-    s.bus = {bus::Interface::Shugart, bus::Cable::Straight, 2};
+    s.bus = {bus::Interface::Shugart, bus::Cable::Straight, 0b100};
     n = settings::format(s, text, sizeof text);
     CHECK(settings::parse(text, n) == s);
     CHECK(std::string(text, n).find("interface=shugart\ncable=straight\ndrive=ds2\n") != std::string::npos);
+    // Two drives: the second's disk too.
+    s.bus = {bus::Interface::IbmPc, bus::Cable::Twisted, 0b11};
+    std::strcpy(s.image[1], "WORK.IMG");
+    n = settings::format(s, text, sizeof text);
+    CHECK_STR(std::string(text, n), "image=MONKEY1.IMG\nimage2=WORK.IMG\npack=Recorded\nvolume=40\n"
+                                    "interface=ibmpc\ncable=twisted\ndrive=a,b\n");
+    CHECK(settings::parse(text, n) == s);
 }
 
 TEST(test_settings_bus) {
@@ -35,19 +42,33 @@ TEST(test_settings_bus) {
     s = parse("interface=ibmpc\r\ncable=straight\r\ndrive=b\r\n");
     CHECK(s.bus.interface == bus::Interface::IbmPc);
     CHECK(s.bus.cable == bus::Cable::Straight);
-    CHECK_EQ(s.bus.unit, 1);
+    CHECK_EQ(s.bus.units, 0b10);
     // The unit may come before the interface.
     s = parse("drive=ds1\ninterface=shugart\n");
     CHECK(s.bus.interface == bus::Interface::Shugart);
-    CHECK_EQ(s.bus.unit, 1);
-    // Unknown values keep the defaults; DS3 (pin 6) isn't wired.
-    s = parse("interface=amstrad\ncable=crossed\ndrive=ds3\ndrive=c\ndrive=ds12\ndrive=\n");
+    CHECK_EQ(s.bus.units, 0b10);
+    // Two drives, either order; the first is the lower unit.
+    s = parse("drive=b,a\nimage2=WORK.IMG\n");
+    CHECK_EQ(s.bus.units, 0b11);
+    CHECK_EQ(s.bus.drives(), 2u);
+    CHECK_STR(s.image[1], "WORK.IMG");
+    s = parse("interface=shugart\ndrive=ds2,ds0\n");
+    CHECK_EQ(s.bus.unit(0), 0);
+    CHECK_EQ(s.bus.unit(1), 2);
+    // A Shugart unit on a PC: only the units a PC has.
+    CHECK_EQ(parse("drive=ds0,ds2\n").bus.units, 0b01);
+    CHECK_EQ(parse("drive=ds2\n").bus.units, 0b01);
+    // Unknown values keep the defaults; DS3 (pin 6) isn't wired; three
+    // drives, or one twice, aren't taken.
+    s = parse("interface=amstrad\ncable=crossed\ndrive=ds3\ndrive=c\ndrive=ds12\ndrive=\ndrive=a,a\n"
+              "drive=a,b,\ndrive=,a\n");
     CHECK(s.bus == bus::Setup{});
+    CHECK_EQ(parse("interface=shugart\ndrive=ds0,ds1,ds2\n").bus.units, 0b001);
 }
 
 TEST(test_settings_defaults) {
     settings::Settings s = parse("");  // no file, or an empty one
-    CHECK_STR(s.image, "");
+    CHECK_STR(s.image[0], "");
     CHECK_STR(s.pack, "");
     CHECK_EQ(s.volume, 75);
 }
@@ -56,7 +77,7 @@ TEST(test_settings_hand_edited) {
     // Windows line ends, trailing spaces, a comment-ish line, keys in any
     // order, a missing last newline, names with spaces.
     settings::Settings s = parse("# my drive\r\nvolume=90 \r\npack=My Drive\r\nimage=DOS 6.22.IMG");
-    CHECK_STR(s.image, "DOS 6.22.IMG");
+    CHECK_STR(s.image[0], "DOS 6.22.IMG");
     CHECK_STR(s.pack, "My Drive");
     CHECK_EQ(s.volume, 90);
 }
@@ -70,8 +91,8 @@ TEST(test_settings_bad_values_keep_the_defaults) {
     // A name too long for the drive's lists is refused, never cut short
     // (which would name another file).
     std::string longName(settings::NAME, 'A');
-    CHECK_STR(parse("image=" + longName + "\n").image, "");
-    CHECK_STR(parse("imagery=GAMES.IMG\nimage\n").image, "");  // not the key, or no value
+    CHECK_STR(parse("image=" + longName + "\n").image[0], "");
+    CHECK_STR(parse("imagery=GAMES.IMG\nimage\n").image[0], "");  // not the key, or no value
 }
 
 TEST(test_settings_garbage_never_crashes) {
@@ -86,7 +107,7 @@ TEST(test_settings_garbage_never_crashes) {
         }
         settings::Settings s = parse(text);
         CHECK(s.volume >= 0 && s.volume <= 100);
-        CHECK(std::strlen(s.image) < settings::NAME && std::strlen(s.pack) < settings::NAME);
+        CHECK(std::strlen(s.image[0]) < settings::NAME && std::strlen(s.pack) < settings::NAME);
     }
 }
 

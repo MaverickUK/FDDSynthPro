@@ -7,6 +7,7 @@
 // (docs/config.md):
 //
 //   image=GAMES.IMG
+//   image2=WORK.IMG      (the second drive's, with drive=a,b)
 //   pack=Recorded
 //   volume=75
 //   interface=ibmpc
@@ -30,7 +31,7 @@ constexpr size_t NAME = 64;  // as ImageList::NAME
 constexpr size_t FILE_MAX = 384;
 
 struct Settings {
-    char image[NAME] = "";  // "": the card's first
+    char image[bus::MAX_DRIVES][NAME] = {};  // each drive's; "": the card's first
     char pack[NAME] = "";   // "": the first folder under /samples
     int volume = 75;        // 0-100, ui::Model's
     bus::Setup bus;         // read at power-on

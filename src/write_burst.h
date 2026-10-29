@@ -19,6 +19,7 @@ struct WriteBurst {
     uint32_t start_byte;      // where on the track WGATE was asserted, in bytes from the index
     const uint8_t* intervals; // as wdata_pio captured them: ticks, less the edge ticks
     size_t count;
+    uint8_t drive = 0;        // which of the emulator's drives (bus.h) it was written to
 };
 
 struct BurstResult {
@@ -116,7 +117,13 @@ public:
     };
 
     CaptureStream(const uint8_t* ring, uint32_t ring_bytes, BurstWriter& writer)
-        : ring_(ring), mask_(ring_bytes - 1), guard_(ring_bytes / 4), writer_(writer) {}
+        : ring_(ring), mask_(ring_bytes - 1), guard_(ring_bytes / 4), writers_{&writer, &writer}, writer_(&writer) {}
+
+    // The writer for drive `drive`'s bursts (WriteBurst::drive); the one
+    // given to the constructor takes the rest.
+    void setWriter(uint8_t drive, BurstWriter& writer) {
+        if (drive < bus::MAX_DRIVES) writers_[drive] = &writer;
+    }
 
     // Feeds up to `max_bytes` more of the current burst, up to `produced`
     // (how far the DMA has written). Takes marks from `next_mark` as it
@@ -126,13 +133,17 @@ public:
     bool service(uint32_t produced, size_t max_bytes, NextMark next_mark, BurstResult& done);
 
     bool inBurst() const { return in_burst_; }
+    // The drive the current (or last) burst was written to.
+    uint8_t burstDrive() const { return burst_drive_; }
     uint32_t overruns() const { return overruns_; }
 
 private:
     const uint8_t* ring_;
     uint32_t mask_;
     uint32_t guard_;
-    BurstWriter& writer_;
+    BurstWriter* writers_[bus::MAX_DRIVES];
+    BurstWriter* writer_;  // the current burst's
+    uint8_t burst_drive_ = 0;
     uint32_t consumed_ = 0;
     bool in_burst_ = false;
     bool have_end_ = false;
@@ -154,7 +165,9 @@ bool CaptureStream::service(uint32_t produced, size_t max_bytes, NextMark next_m
         if (!in_burst_) {
             if (!have_pending_) return false;
             if (pending_.start) {
-                writer_.begin(pending_.burst, ticks_per_cell, edge_ticks);
+                burst_drive_ = pending_.burst.drive < bus::MAX_DRIVES ? pending_.burst.drive : 0;
+                writer_ = writers_[burst_drive_];
+                writer_->begin(pending_.burst, ticks_per_cell, edge_ticks);
                 consumed_ = pending_.at;
                 in_burst_ = true;
                 have_end_ = false;
@@ -176,7 +189,7 @@ bool CaptureStream::service(uint32_t produced, size_t max_bytes, NextMark next_m
             while (n) {
                 uint32_t at = consumed_ & mask_;
                 uint32_t run = mask_ + 1 - at < n ? mask_ + 1 - at : n;  // up to the ring's end
-                writer_.feed(ring_ + at, run);
+                writer_->feed(ring_ + at, run);
                 consumed_ += run;
                 n -= run;
                 max_bytes -= run;
@@ -193,7 +206,7 @@ bool CaptureStream::service(uint32_t produced, size_t max_bytes, NextMark next_m
                 done.overrun = true;
                 return true;
             }
-            done = writer_.finish();
+            done = writer_->finish();
             return true;
         }
         return false;  // waiting for more bytes, or out of budget for this call
