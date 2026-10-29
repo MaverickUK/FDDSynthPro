@@ -46,6 +46,10 @@ Settings parse(const char* text, size_t len) {
             if (key == 9 && std::strncmp(line, "interface", 9) == 0) bus::parseInterface(word, s.bus.interface);
             if (key == 5 && std::strncmp(line, "cable", 5) == 0) bus::parseCable(word, s.bus.cable);
             if (key == 5 && std::strncmp(line, "drive", 5) == 0) bus::parseUnits(word, s.bus.units);
+            if (key == 5 && std::strncmp(line, "pin02", 5) == 0) {
+                if (std::strcmp(word, "chg") == 0) s.bus.pin2_chng = true;
+                if (std::strcmp(word, "nc") == 0) s.bus.pin2_chng = false;
+            }
             if (key == 6 && std::strncmp(line, "volume", 6) == 0 && vlen > 0 && vlen <= 3) {
                 int v = 0;
                 bool digits = true;
@@ -67,9 +71,10 @@ size_t format(const Settings& s, char* out, size_t cap) {
     char second[NAME + 8] = "";
     if (s.bus.drives() > 1) std::snprintf(second, sizeof second, "image2=%s\n", s.image[1]);
     char units[12];
-    int n = std::snprintf(out, cap, "image=%s\n%spack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n", s.image[0],
-                          second, s.pack, s.volume, bus::interfaceName(s.bus.interface), bus::cableName(s.bus.cable),
-                          bus::unitsName(s.bus, units));
+    // pin02 only when it's set, so files from before it stay as they were.
+    int n = std::snprintf(out, cap, "image=%s\n%spack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n%s",
+                          s.image[0], second, s.pack, s.volume, bus::interfaceName(s.bus.interface),
+                          bus::cableName(s.bus.cable), bus::unitsName(s.bus, units), s.bus.pin2_chng ? "pin02=chg\n" : "");
     return n < 0 ? 0 : size_t(n) < cap ? size_t(n) : cap - 1;
 }
 

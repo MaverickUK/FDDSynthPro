@@ -18,8 +18,9 @@
 
 namespace short_test {
 
-// The interface pins, GPIO 4-7 and 12-22 (driven and observed), plus their
-// header neighbours GPIO 0-3 and 23 (observed only). GPIO 25 (the LED, pulled
+// The interface pins, GPIO 4-7 and 12-23 (driven and observed; 23 is pin
+// 2's output, after the carrier's rework), plus their header neighbours
+// GPIO 0-3 (observed only). GPIO 25 (the LED, pulled
 // down through it) is observed but expected low. GPIO 8-11 sit between them
 // but belong to the BB48R's PSRAM and SD card, so the test leaves them alone
 // and can't see a bridge to them.

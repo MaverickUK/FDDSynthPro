@@ -19,9 +19,10 @@ drive=a
 | `image2` | a file name on the card | the second | The second drive's, with two drives |
 | `pack` | a folder under `/samples` | the first | The sample pack |
 | `volume` | 0–100 | 75 | |
-| `interface` | `ibmpc`, `shugart` | `ibmpc` | What the host expects on the cable |
+| `interface` | `ibmpc`, `shugart`, `amiga` | `ibmpc` | What the host expects on the cable |
 | `cable` | `twisted`, `straight` | `twisted` | `ibmpc` only: is there a twist between the host and the drive? |
-| `drive` | `a`, `b` or `a,b` (`ibmpc`); one or two of `ds0`, `ds1`, `ds2` (`shugart`) | `a` | Which drive this is: a real drive's select jumper. Two make it two drives |
+| `drive` | `a`, `b` or `a,b` (`ibmpc`); one or two of `ds0`, `ds1`, `ds2` (`shugart`); `df0`, `df1` or `df0,df1` (`amiga`) | `a` | Which drive this is: a real drive's select jumper. Two make it two drives |
+| `pin02` | `nc`, `chg` | `nc` | `chg` drives DISK CHANGE on floppy pin 2 (Shugart and Amiga), after the carrier's rework ([wiring.md](wiring.md#pin-2-for-shugart-and-amiga-hosts-a-rework)) |
 
 The drive reads `interface`, `cable` and `drive` at power-on. The console's `s` shows the ones in use.
 
@@ -60,7 +61,23 @@ Pin 34 carries DISK CHANGE, and pin 2 is the host's density select, which the dr
 
 Pin 34 carries READY: asserted while the drive is selected, with a disk in and the motor at speed. DS3 (pin 6) isn't wired on the carrier.
 
-A Shugart host also expects DISK CHANGE on pin 2. The carrier can only read pin 2, so the drive can't send it; hosts that need it see the disk change through READY instead. The carrier's sixth SN7407 gate is free for it, with a small rework (U2 pin 13 lifted from ground to a spare GPIO, and pin 12 to floppy pin 2).
+A Shugart host also expects DISK CHANGE on pin 2. The carrier as built only reads pin 2, so hosts that need it see the disk change through READY instead. A small rework puts the SN7407's spare gate on pin 2 ([wiring.md](wiring.md#pin-2-for-shugart-and-amiga-hosts-a-rework)); then set `pin02=chg`.
+
+## An Amiga
+
+```
+interface=amiga
+drive=df0
+pin02=chg
+image=Workbench1.3.adf
+```
+
+`interface=amiga` makes the drive an Amiga's: DF0 selects on pin 10, DF1 on pin 12 (`drive=df1`, or `df0,df1` for both). The drive serves `.adf` images (880 KB, AmigaDOS), and takes the Amiga's whole-track writes back into them.
+
+- **The motor** line (pin 16) is latched as the drive is selected, as on a real Amiga drive, so DF0 and DF1 keep their own motors.
+- **Pin 34** is /RDY: asserted once the motor is up to speed, and while the motor is off it gives the drive's ID: a standard 3.5-inch DD drive.
+- **Pin 2** is /CHNG: how the Amiga notices a disk going in or out. It needs the carrier's rework and `pin02=chg`. Without it the Amiga reads whatever disk was in when it started, but never sees a swap.
+- HD ADFs (1.76 MB) aren't served: an Amiga HD drive spins at 150 RPM, and its track is longer than the drive's buffers.
 
 ## Disk images and formats
 

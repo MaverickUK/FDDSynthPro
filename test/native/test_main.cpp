@@ -56,12 +56,12 @@ TEST(test_pin_layout) {
     // and SD pins, all inside one PIO window and clear of GPIO 0-3 (GPIO 2/3
     // are pulled up), the LED and the board's own wiring.
     CHECK_EQ(cfg::LAST_INPUT_PIN - cfg::FIRST_INPUT_PIN + 1, 10u);
-    CHECK_EQ(sizeof cfg::OUTPUT_PINS / sizeof cfg::OUTPUT_PINS[0], 5u);
+    CHECK_EQ(sizeof cfg::OUTPUT_PINS / sizeof cfg::OUTPUT_PINS[0], 6u);  // pin 2's (CHNG) after a rework
     CHECK(cfg::BUS_FIRST_PIN >= 4);
     CHECK(cfg::BUS_LAST_PIN <= 31);
     CHECK(cfg::PIN_BOARD_LED > cfg::BUS_LAST_PIN);
     CHECK_EQ(fdd::INPUT_MASK, 0x3FF00u);
-    CHECK_EQ(fdd::OUTPUT_MASK, 0x4000Fu);
+    CHECK_EQ(fdd::OUTPUT_MASK, 0xC000Fu);
     CHECK_EQ(fdd::INPUT_MASK & fdd::OUTPUT_MASK, 0u);
     for (unsigned board : {cfg::PIN_PSRAM_CS, cfg::PIN_SD_CS, cfg::PIN_SD_SCK, cfg::PIN_SD_MOSI, cfg::PIN_SD_MISO})
         if (board >= cfg::BUS_FIRST_PIN && board <= cfg::BUS_LAST_PIN)
@@ -260,6 +260,7 @@ void runSynthTests();
 void runUiTests();
 void runSettingsTests();
 void runImgCfgTests();
+void runAmigaTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -291,6 +292,7 @@ int main() {
     runUiTests();
     runSettingsTests();
     runImgCfgTests();
+    runAmigaTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

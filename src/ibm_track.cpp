@@ -1,5 +1,6 @@
 #include "ibm_track.h"
 
+#include "amiga_track.h"
 #include "crc16.h"
 #include "mfm.h"
 
@@ -90,9 +91,11 @@ bool Format::finish() {
     track_bytes = uint16_t(words);
     for (unsigned k = 0; k < kind_count; ++k) {
         const Track& t = kinds[k];
+        uint32_t used = encoding == ENCODING_AMIGA ? amiga::usedWords(t.sectors) : t.usedBytes();
         if (t.sectors > MAX_SECTORS || t.size_code > 6 || !t.interleave || t.dataBytes() > MAX_TRACK_DATA ||
-            t.usedBytes() > track_bytes)
+            used > track_bytes)
             return false;
+        if (encoding == ENCODING_AMIGA && t.sectorBytes() != amiga::SECTOR_BYTES) return false;
     }
     return lastPhysicalCylinder() <= MAX_CYLINDERS;
 }
@@ -172,6 +175,12 @@ bool uniformFormat(uint8_t cyls, uint8_t heads, const TrackSpec& spec, uint32_t 
     return resolve(spec, out.rate, rpm, out.kinds[0]) && out.finish();
 }
 
+Format amigaDD() {
+    Format f = fixedFormat(80, 2, pcTrack(amiga::SECTORS, 0), 250000, 300);
+    f.encoding = ENCODING_AMIGA;
+    return f;
+}
+
 bool formatForSize(uint32_t bytes, Format& out) {
     struct Known {
         uint8_t cyls, heads, sectors, gap3, interleave, cskew;
@@ -217,6 +226,7 @@ static void syncedField(mfm::Encoder& e, uint8_t mark, const uint8_t* field, siz
 
 bool buildTrack(const Format& fmt, uint8_t cylinder, uint8_t head, const uint8_t* data, uint16_t* out) {
     const Track& t = fmt.track(cylinder, head);
+    if (fmt.encoding == ENCODING_AMIGA) return amiga::buildTrack(cylinder, head, t.sectors, data, out, fmt.track_bytes);
     if (t.usedBytes() > fmt.track_bytes) return false;
     mfm::Encoder e(out, fmt.track_bytes);
 

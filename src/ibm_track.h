@@ -70,7 +70,14 @@ enum FileLayout : uint8_t {
     LAYOUT_REVERSE_SIDE1 = 8,
 };
 
+// How a track's sectors are laid out and encoded.
+enum Encoding : uint8_t {
+    ENCODING_IBM = 0,  // IBM MFM: ID and data fields with gaps (this file)
+    ENCODING_AMIGA,    // AmigaDOS: a whole track of sectors (amiga_track.h)
+};
+
 struct Format {
+    uint8_t encoding = ENCODING_IBM;
     uint8_t cyls = 80;
     uint8_t heads = 2;
     uint8_t step = 1;  // head steps per cylinder: 2 for a 40-track disk double-stepped
@@ -167,6 +174,10 @@ constexpr Track pcTrack(uint16_t sectors, uint8_t gap3) {
 // reads the same.
 inline constexpr Format HD_1440 = fixedFormat(80, 2, pcTrack(18, 108), 500000, 300);
 inline constexpr Format DD_720 = fixedFormat(80, 2, pcTrack(9, 84), 250000, 300);
+
+// An Amiga ADF: 80 cylinders, 2 heads, 11 AmigaDOS sectors a track, at
+// 250 kbit/s (a DD drive's 2 us cells; Paula's are 1.97 us).
+Format amigaDD();
 
 // The format of a raw PC image of `bytes`, by its size alone, as
 // Greaseweazle's ibm.* definitions: 160, 180, 320, 360 KB (40 cylinders),

@@ -180,6 +180,7 @@ static uint32_t g_cylinder_slots[bus::MAX_DRIVES][ibm::MAX_TRACK_WORDS];
 static unsigned g_drive_count = 1;
 static drive::Config g_drive_config[bus::MAX_DRIVES];
 static bus::Interface g_interface = bus::Interface::IbmPc;
+static bool g_pin2_chng = false;  // floppy pin 2 driven as DISK CHANGE (bus.h)
 static CylinderLoader* g_loaders[bus::MAX_DRIVES];
 static std::atomic<bool> g_started{false};
 
@@ -330,7 +331,7 @@ void loop1() {
 
         // The cable's lines: each drive releases its own while deselected.
         uint32_t levels = fdd::OUTPUT_MASK;
-        for (unsigned i = 0; i < n; ++i) levels &= drive::outputPins(drives[i]->outputs(now), g_interface);
+        for (unsigned i = 0; i < n; ++i) levels &= drive::outputPins(drives[i]->outputs(now), g_interface, g_pin2_chng);
         putOutputs(levels);
 
         // The host selected the other drive: the streamer moves to its
@@ -553,6 +554,7 @@ static void chooseDisks() {
     const bus::Setup& bus = g_settings.bus;
     g_drive_count = bus.drives();
     g_interface = bus.interface;
+    g_pin2_chng = bus.pin2_chng;
     for (unsigned i = 0; i < g_drive_count; ++i) {
         g_drive_config[i].lines = bus::lines(bus, i);
         g_drive_config[i].interface = bus.interface;

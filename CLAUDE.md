@@ -12,7 +12,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - GPIO 0–3 stay off the interface: the BB48 pulls GPIO 2/3 up to 3.3 V (R17/R18).
   - GPIO 8–11 and 24 are the BB48R's: PSRAM select (8) and the microSD slot on SPI1 (9 CS, 10 SCK, 11 MOSI, 24 MISO). Never `gpio_init` them; the solder-bridge test leaves them alone.
   - GPIO 25 is the LED.
-  - The ten inputs stay on consecutive pins (one read captures them). The outputs aren't consecutive (GPIO 4–7 and 22): loop over `cfg::OUTPUT_PINS`, and use `fdd::OUTPUT_MASK`, never a pin range.
+  - The ten inputs stay on consecutive pins (one read captures them). The outputs aren't consecutive (GPIO 4–7, 22 and 23): loop over `cfg::OUTPUT_PINS`, and use `fdd::OUTPUT_MASK`, never a pin range. GPIO 23 (`PIN_CHNG`) is floppy pin 2 as an output, which the rev B carrier only has after a rework (wiring.md); it stays released unless `pin02=chg`, and never with `interface=ibmpc`.
 - **Every floppy signal is active low.** In the code, "asserted" means low; the trace prints it as `ON`.
 - **Never use internal pull-downs** (RP2350 erratum E9). Internal pull-ups are fine.
 - **The drive terminates its inputs:** a socketed pull-up network to 3.3 V on the board, unlike IDE, where the host provides the pulls. Use 10 kΩ with the FeatherWing, whose outputs are level-shifted to 5 V, and 1 kΩ for a real PC.
@@ -57,6 +57,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
 Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSample()` with the pins, then `outputs()` onto the SN7407. It never waits.
 - Which lines select it and run its motor, and what pin 34 carries, come from the bus setup (`src/bus.h`: `interface`, `cable` and `drive` in `/FDDSYNTH.CFG`, [docs/config.md](docs/config.md)), read at power-on. The default is a PC drive past the twist: 12/16, DISK CHANGE on pin 34. Shugart puts READY on pin 34; pin 2 (Shugart's DISK CHANGE) is an input on the carrier.
+- **Amiga** (`interface=amiga`, `drive=df0`): DF0/DF1 on pins 10/12; the motor line is latched at select (`Drive::onSample`); pin 34 is /RDY (at speed, or the all-ones ID with the motor off). ADFs are `ibm::amigaDD()` (`ENCODING_AMIGA`): `amiga::buildTrack` encodes them, and `BurstWriter` decodes the Amiga's whole-track writes with `amiga::SectorScanner`, placing sectors by their info field. Greaseweazle's `amiga.amigados` is the reference; its track is longer (Paula's 1.97 µs cells against our 2 µs), only by gap.
 - **Two drives** (`drive=a,b`): core 1 runs a `Drive` for each on the same samples and ANDs their output levels (each releases its lines while deselected). The streamer and the capture serve the selected drive (`active` in `loop1`); a change of drive moves the streamer to that drive's buffer at the word under its head (`rdata_pio::switchTo`), never mid-capture. Per-drive state shared between the cores is `g_shared[]` (`DriveShared`); core 0's is `g_drv[]` (`DriveState`). Bursts carry `WriteBurst::drive`. `DriveObserver` sounds both as one mechanism.
 - Outputs are released while the drive is deselected; steps count only while selected.
 - The head knocks against its outer stop on a step out at cylinder 0 (`head::Step::AtOuterStop`): that's a sound event, not an error.

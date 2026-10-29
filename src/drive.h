@@ -12,7 +12,10 @@
 //   - DSKCHG is asserted from power-on and after an eject, and cleared by a
 //     step while a disk is in.
 //   - WPT is asserted for a write-protected disk, or no disk.
-//   - READY (Shugart's pin 34) needs a disk and the motor at speed.
+//   - READY (Shugart's pin 34) needs a disk and the motor at speed. An
+//     Amiga's /RDY is the motor at speed, and asserted while the motor is
+//     off: the ID a standard drive gives (all ones).
+//   - An Amiga drive latches its motor line as it is selected.
 // Which lines select it, and what pin 34 carries, come from the bus setup
 // (bus.h).
 #pragma once
@@ -31,7 +34,7 @@ struct Config {
     // A PC drive answers on pins 12 and 16; the cable's twist routes the
     // host's drive A there. Greaseweazle: --drive B on a straight cable.
     bus::Lines lines = bus::lines(bus::Setup{});
-    bus::Interface interface = bus::Interface::IbmPc;
+    bus::Interface interface = bus::Interface::IbmPc;  // Amiga: the motor is latched at select
     uint8_t last_cylinder = head::DEFAULT_LAST_CYLINDER;
     uint8_t start_cylinder = 0;  // where the head is at power-on
     rotation::Config spindle;
@@ -51,13 +54,16 @@ struct Outputs {
 
 // The GPIO levels for the outputs, in sample layout (only OUTPUT_MASK bits
 // set or clear). Asserted lines are low: the SN7407 then pulls the cable low.
-// Pin 34 (PIN_DSKCHG's GPIO) carries DISK CHANGE on a PC, READY on Shugart.
-inline uint32_t outputPins(const Outputs& o, bus::Interface interface = bus::Interface::IbmPc) {
+// Pin 34 (PIN_DSKCHG's GPIO) carries DISK CHANGE on a PC, READY on Shugart
+// and Amiga; pin 2 (PIN_CHNG) carries DISK CHANGE when `pin2_chng`.
+inline uint32_t outputPins(const Outputs& o, bus::Interface interface = bus::Interface::IbmPc,
+                           bool pin2_chng = false) {
     uint32_t s = fdd::OUTPUT_MASK;
     if (o.index) s &= ~fdd::maskOf(cfg::PIN_INDEX);
     if (o.trk00) s &= ~fdd::maskOf(cfg::PIN_TRK00);
     if (o.wpt) s &= ~fdd::maskOf(cfg::PIN_WPT);
-    if (interface == bus::Interface::Shugart ? o.ready : o.dskchg) s &= ~fdd::maskOf(cfg::PIN_DSKCHG);
+    if (interface == bus::Interface::IbmPc ? o.dskchg : o.ready) s &= ~fdd::maskOf(cfg::PIN_DSKCHG);
+    if (pin2_chng && interface != bus::Interface::IbmPc && o.dskchg) s &= ~fdd::maskOf(cfg::PIN_CHNG);
     return s;  // RDATA is the streamer's
 }
 
@@ -115,6 +121,7 @@ private:
     rotation::Spindle spindle_;
     bool selected_ = false;
     bool step_was_asserted_ = false;
+    bool motor_latched_ = false;  // Amiga: the motor line as it was at select
     uint8_t side_ = 0;
     bool disk_present_ = false;
     bool write_protected_ = true;

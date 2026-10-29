@@ -157,7 +157,7 @@ def build(fmt_arg: str, image_path) -> bytes:
     return r.stdout
 
 
-def compare(gw_codec, disk, image: bytes, ours: bytes, cyls: int, heads: int, rpm: int):
+def compare(gw_codec, disk, image: bytes, ours: bytes, cyls: int, heads: int, rpm: int, track_size=None):
     """Every track of `ours` (the drive's, in cylinder-head order) against
     Greaseweazle's `disk`. `image` is in the same (interleaved) order."""
     codec, MasterTrack = gw_codec
@@ -172,7 +172,7 @@ def compare(gw_codec, disk, image: bytes, ours: bytes, cyls: int, heads: int, rp
     for n in range(n_tracks):
         cyl, head = divmod(n, heads)
         reference = disk.mk_track(cyl, head)
-        size = sum(len(s.dam.data) for s in reference.sectors)
+        size = track_size or sum(len(s.dam.data) for s in reference.sectors)
         data = image[at:at + size]
         at += size
         if n not in chosen:
@@ -182,12 +182,13 @@ def compare(gw_codec, disk, image: bytes, ours: bytes, cyls: int, heads: int, rp
         mine = ours[n * track_len:(n + 1) * track_len]
         # The drive's track is a revolution of whole 16-cell words. At 360
         # RPM a revolution isn't one, and where a layout nearly fills it
-        # Greaseweazle lengthens its track to keep 1% before the index; so
-        # theirs may run on, but only with more gap (4E, 0x9254 in cells).
+        # Greaseweazle lengthens its track to keep 1% before the index (and
+        # an Amiga track is longer at Paula's 1.97 us cells); so theirs may
+        # run on, but only with more gap (4E, 0x9254 in cells; or 00, 0xAAAA).
         extra = theirs[len(mine):]
         if mine != theirs[:len(mine)]:
             encode_mismatches.append(f"{cyl}.{head}: {first_difference(mine, theirs)}")
-        elif extra.rstrip(b"\x00") and set(extra[:len(extra) & ~1].hex(" ", 2).split()) - {"9254"}:
+        elif extra.rstrip(b"\x00") and set(extra[:len(extra) & ~1].hex(" ", 2).split()) - {"9254", "aaaa"}:
             encode_mismatches.append(f"{cyl}.{head}: Greaseweazle's track runs on with more than gap")
         decoded = disk.decode_flux(cyl, head, MasterTrack(bits=mine, time_per_rev=60 / rpm))
         if decoded.nr_missing() or bytes(decoded.get_img_track()) != data:
@@ -332,3 +333,14 @@ def test_img_cfg_formats(gw_codec, name, size, tmp_path):
     path = tmp_path / "disk.img"
     path.write_bytes(image)
     compare(gw_codec, disk, image, build(f"cfg:{tmp_path / 'IMG.CFG'}:{name}:{size}", path), cyls, 2, 300)
+
+
+def test_amiga_adf(gw_codec, tmp_path):
+    """An ADF: AmigaDOS tracks, against Greaseweazle's amiga.amigados."""
+    codec, _ = gw_codec
+    disk = codec.get_diskdef("amiga.amigados")
+    size = 80 * 2 * 11 * 512
+    image = random.Random("adf").randbytes(size)
+    path = tmp_path / "disk.adf"
+    path.write_bytes(image)
+    compare(gw_codec, disk, image, build("adf", path), 80, 2, 300, track_size=11 * 512)

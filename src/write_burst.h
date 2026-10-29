@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "amiga_track.h"
 #include "cylinder_loader.h"
 #include "drive.h"
 #include "mfm_decode.h"
@@ -66,7 +67,11 @@ public:
     // 1.44 MB) plus room for stray fields.
     BurstWriter(TrackSource& source, CylinderLoader& loader, uint8_t* store, size_t store_len, mfm::Field* fields,
                 size_t max_fields)
-        : source_(source), loader_(loader), scanner_(store, store_len, fields, max_fields), store_(store) {}
+        : source_(source),
+          loader_(loader),
+          scanner_(store, store_len, fields, max_fields),
+          amiga_(store, store_len),
+          store_(store) {}
 
     // Each sector goes to the disk first, and into the live track only once
     // the disk has it: if the disk refuses it, the host reads back the old
@@ -83,9 +88,15 @@ public:
     BurstResult finish();
 
 private:
+    // An Amiga's track write: each sector names its track and number.
+    track_write::Result interpretAmiga(const ibm::Format& fmt, int cylinder, uint8_t head, track_write::Update* out,
+                                       size_t max) const;
+
     TrackSource& source_;
     CylinderLoader& loader_;
-    mfm::FieldScanner scanner_;
+    mfm::FieldScanner scanner_;  // IBM fields
+    amiga::SectorScanner amiga_;  // or AmigaDOS sectors, for an Amiga disk; the store is shared
+    bool amiga_disk_ = false;
     uint8_t* store_;
     mfm::DataSeparator separator_{16};
     WriteBurst burst_{};

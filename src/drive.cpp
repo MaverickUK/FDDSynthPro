@@ -7,8 +7,14 @@ namespace drive {
 Drive::Drive(Config c) : cfg_(c), head_(c.last_cylinder, c.start_cylinder), spindle_(c.spindle) {}
 
 StepEvent Drive::onSample(uint32_t now_us, uint32_t pins) {
-    selected_ = fdd::asserted(pins, cfg_.lines.select);
-    spindle_.setMotor(fdd::asserted(pins, cfg_.lines.motor), now_us);
+    bool selected = fdd::asserted(pins, cfg_.lines.select);
+    bool motor = fdd::asserted(pins, cfg_.lines.motor);
+    if (cfg_.interface == bus::Interface::Amiga) {
+        if (selected && !selected_) motor_latched_ = motor;  // each drive keeps its own
+        motor = motor_latched_;
+    }
+    selected_ = selected;
+    spindle_.setMotor(motor, now_us);
     side_ = fdd::asserted(pins, cfg::PIN_SIDE1) ? 1 : 0;
 
     StepEvent e;
@@ -30,7 +36,10 @@ Outputs Drive::outputs(uint32_t now_us) {
     o.trk00 = head_.atTrack0();
     o.wpt = !disk_present_ || write_protected_;
     o.dskchg = disk_changed_;
-    o.ready = disk_present_ && spindle_.atSpeed(now_us);
+    if (cfg_.interface == bus::Interface::Amiga)
+        o.ready = spindle_.motorOn() ? spindle_.atSpeed(now_us) : true;  // at speed; or the ID: all ones
+    else
+        o.ready = disk_present_ && spindle_.atSpeed(now_us);
     return o;
 }
 
