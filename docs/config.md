@@ -61,3 +61,43 @@ Pin 34 carries DISK CHANGE, and pin 2 is the host's density select, which the dr
 Pin 34 carries READY: asserted while the drive is selected, with a disk in and the motor at speed. DS3 (pin 6) isn't wired on the carrier.
 
 A Shugart host also expects DISK CHANGE on pin 2. The carrier can only read pin 2, so the drive can't send it; hosts that need it see the disk change through READY instead. The carrier's sixth SN7407 gate is free for it, with a small rework (U2 pin 13 lifted from ground to a spare GPIO, and pin 12 to floppy pin 2).
+
+## Disk images and formats
+
+The drive serves raw sector images (`.img`, `.ima`, and `.dsk` where `IMG.CFG` describes them) from the card's root folder. It works out each image's format in one of two ways.
+
+**By its size,** for PC disks:
+
+| Size | Disk | Cylinders | Sectors | Speed |
+|---|---|---|---|---|
+| 160 KB, 180 KB | 5.25-inch, single-sided | 40 | 8, 9 | 250 kbit/s, 300 RPM |
+| 320 KB, 360 KB | 5.25-inch, double-sided | 40 | 8, 9 | 250 kbit/s, 300 RPM |
+| 720 KB | 3.5-inch DD | 80 | 9 | 250 kbit/s, 300 RPM |
+| 800 KB | 3.5-inch DD, 10 sectors | 80 | 10 | 250 kbit/s, 300 RPM |
+| 1.2 MB | 5.25-inch HD | 80 | 15 | 500 kbit/s, 360 RPM |
+| 1.44 MB | 3.5-inch HD | 80 | 18 | 500 kbit/s, 300 RPM |
+| 1.68 MB | DMF (Microsoft's distribution format) | 80 | 21 | 500 kbit/s, 300 RPM |
+
+These are Greaseweazle's `ibm.*` definitions. 2.88 MB disks aren't served: their 1 Mbit/s track is twice as long as the drive's buffers.
+
+**From `IMG.CFG`,** for other machines' disks. This is FlashFloppy's geometry file, as the GoTek community writes it for Akai, Roland, Ensoniq, Kaypro and many more. Put it in the card's root, or in `/FF`. Each section describes the images it matches:
+
+```
+# 400 KB Kaypro disks: head 1's sectors are numbered on from head 0's.
+[::409600]
+cyls = 40
+heads = 2
+secs = 10
+bps = 512
+interleave = 3
+h = 0
+tracks = 0-39.0
+  id = 0
+tracks = 0-39.1
+  id = 10
+```
+
+- **Matching:** a section `[tag::size]` matches images named `*.tag.img` of exactly that size. Leave either out: `[::409600]` matches by size alone, and `[roland]` any `*.roland.img`. An image with no matching section goes by its size.
+- **Parameters:** the disk's `cyls`, `heads`, `step` and `file-layout`. Each track's `secs`, `bps`, `id`, `h`, `interleave`, `cskew`, `hskew`, `gap2`, `gap3`, `gap4a`, `iam`, `rate` and `rpm`. `tracks = ...` starts settings for some tracks only.
+- **Not yet supported:** FM recording (`mode = fm`), different sector sizes within one track, `img_bps` padding, and a different rate or speed on some tracks. A section that needs one is reported on the console when the card is read, and the image goes by its size instead.
+- **Size:** images up to 2 MB are copied into PSRAM before they go in. A bigger one (Ensoniq's 5 MB SuperDisk) works, but its tracks are read from the card as the head moves, so seeks are slow.

@@ -94,7 +94,20 @@ static const char* activityName(const ui::Status& s) {
     return s.motor ? "SPINNING" : "IDLE";
 }
 
-static const char* formatName(unsigned kb) { return kb == 720 ? "720K" : "1.44M"; }
+// The image's size as disks are named: 360K, 720K, 1.2M, 1.44M, 1.6M.
+static const char* formatName(unsigned kb, char (&out)[8]) {
+    if (kb < 1000) {
+        std::snprintf(out, sizeof out, "%uK", kb % 1000);
+        return out;
+    }
+    unsigned hundredths = (kb * 100 + 500) / 1000;  // of a megabyte, as 1.44M counts them
+    if (hundredths > 999) hundredths = 999;
+    if (hundredths % 10)
+        std::snprintf(out, sizeof out, "%u.%02uM", hundredths / 100, hundredths % 100);
+    else
+        std::snprintf(out, sizeof out, "%u.%uM", hundredths / 100, hundredths / 10 % 10);
+    return out;
+}
 
 // ---- The screens --------------------------------------------------------------------------
 
@@ -118,7 +131,8 @@ void home(Canvas& c, const ui::Status& s) {
     bigText(c, 40, 22, h, 2);
 
     // The format, and write protection.
-    c.text(40, 13, formatName(s.kb));
+    char size[8];
+    c.text(40, 13, formatName(s.kb, size));
     if (s.write_protected) {
         c.fillRect(72, 12, 15, 9);
         c.text(74, 13, "WP", false);

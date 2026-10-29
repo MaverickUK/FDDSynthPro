@@ -364,6 +364,21 @@ TEST(test_ui_two_drives) {
     CHECK_EQ(drive, 0);
 }
 
+TEST(test_screen_home_disk_sizes) {
+    // The size, as disks are named: a 1.2 MB 5.25-inch disk isn't "1.44M".
+    Card k;
+    Canvas hd, five, small;
+    screens::home(hd, k.s);
+    k.s.kb = 1200;
+    k.s.image_name = "WP51.IMG";
+    screens::home(five, k.s);
+    preview(five, "home_1200");
+    k.s.kb = 360;
+    screens::home(small, k.s);
+    CHECK(lit(hd, 40, 13, 70, 20) != lit(five, 40, 13, 70, 20));
+    CHECK(lit(five, 40, 13, 70, 20) != lit(small, 40, 13, 70, 20));
+}
+
 TEST(test_screen_home_two_drives) {
     Card k;
     k.s.drives = 2;
@@ -625,6 +640,7 @@ void runUiTests() {
     RUN(test_ui_disk_list_wraps_and_cancels);
     RUN(test_ui_action_cycles_screens);
     RUN(test_ui_two_drives);
+    RUN(test_screen_home_disk_sizes);
     RUN(test_screen_home_two_drives);
     RUN(test_ui_long_action_ejects);
     RUN(test_ui_generated_disk_has_no_list);

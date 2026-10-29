@@ -87,6 +87,14 @@ public:
         return selected_ && disk_present_ && spindle_.atSpeed(now_us) && ready_cylinder == head_.cylinder();
     }
 
+    // The disk's speed and how far the head can go (ibm::Format): the inner
+    // stop never comes nearer than DEFAULT_LAST_CYLINDER, as on a real drive.
+    void setGeometry(uint32_t period_us, unsigned last_cylinder) {
+        spindle_.setPeriod(period_us);
+        head_.setLastCylinder(uint8_t(last_cylinder > cfg_.last_cylinder ? (last_cylinder > 255 ? 255 : last_cylinder)
+                                                                        : cfg_.last_cylinder));
+    }
+
     void insertDisk(bool write_protected);
     void ejectDisk();
     // Protects the disk that's in, after a lost write (write_burst.h: lostWrite).

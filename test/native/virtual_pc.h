@@ -224,7 +224,7 @@ private:
     bool writeOne(uint8_t cyl, uint8_t head, uint8_t r, const uint8_t* data) {
         if (!find(cyl, head, r, nullptr)) return false;
         // The ID field's CRC has just gone past: skip gap 2, then write.
-        run(m_.format().gap2 * m_.usPerByte());
+        run(m_.format().track(cyl, head).gap2 * m_.usPerByte());
         uint32_t size = m_.format().sectorBytes();
         std::vector<uint16_t> cells(ibm::PRESYNC_BYTES + 4 + size + 2 + 1);
         mfm::Encoder e(cells.data(), cells.size());

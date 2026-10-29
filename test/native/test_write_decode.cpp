@@ -97,16 +97,16 @@ static std::vector<uint16_t> trackCells(const ibm::Format& fmt, uint8_t cyl, uin
 // all good, at the layout's positions, with the right data.
 static bool wholeTrack(const ibm::Format& fmt, uint8_t cyl, uint8_t head, const std::vector<uint8_t>& data,
                        const Decoded& d, bool check_positions = true) {
-    if (d.scanner.count() != 2u * fmt.sectors) return false;
-    for (uint8_t s = 0; s < fmt.sectors; ++s) {
+    if (d.scanner.count() != 2u * fmt.kinds[0].sectors) return false;
+    for (uint8_t s = 0; s < fmt.kinds[0].sectors; ++s) {
         const mfm::Field& id = d.scanner.field(2 * s);
         const mfm::Field& dam = d.scanner.field(2 * s + 1);
         if (id.mark != mfm::MARK_IDAM || !id.crc_ok || dam.mark != mfm::MARK_DAM || !dam.crc_ok) return false;
         if (id.id[0] != cyl || id.id[1] != head || id.id[2] != s + 1 || id.id[3] != 2) return false;
         if (std::memcmp(&d.store[dam.data_offset], &data[s * 512], 512) != 0) return false;
         if (check_positions) {
-            if (id.cell != (fmt.idFieldStart(s) + ibm::PRESYNC_BYTES) * 16) return false;
-            if (dam.cell != (fmt.dataFieldStart(s) + ibm::PRESYNC_BYTES) * 16) return false;
+            if (id.cell != (fmt.kinds[0].idFieldStart(s) + ibm::PRESYNC_BYTES) * 16) return false;
+            if (dam.cell != (fmt.kinds[0].dataFieldStart(s) + ibm::PRESYNC_BYTES) * 16) return false;
         }
     }
     return true;
@@ -116,10 +116,10 @@ static bool wholeTrack(const ibm::Format& fmt, uint8_t cyl, uint8_t head, const 
 
 TEST(test_field_positions) {
     const ibm::Format& f = ibm::HD_1440;
-    CHECK_EQ(f.idFieldStart(0), 146u);  // gap 4a, IAM, gap 1
-    CHECK_EQ(f.dataFieldStart(0), 146u + 44u);
-    CHECK_EQ(f.idFieldStart(1), 146u + 44u + 638u);
-    CHECK_EQ(f.dataFieldStart(17) + 638u, f.usedBytes());
+    CHECK_EQ(f.kinds[0].idFieldStart(0), 146u);  // gap 4a, IAM, gap 1
+    CHECK_EQ(f.kinds[0].dataFieldStart(0), 146u + 44u);
+    CHECK_EQ(f.kinds[0].idFieldStart(1), 146u + 44u + 638u);
+    CHECK_EQ(f.kinds[0].dataFieldStart(17) + 638u, f.kinds[0].usedBytes());
 }
 
 // ---- Data separator and scanner ----------------------------------------------------
@@ -219,14 +219,14 @@ TEST(test_sector_write_placed_by_position) {
     track_write::Update u[4];
     // WGATE on where sector 7's data field begins: exact, a little early, a little late.
     for (int shift : {0, -10, 10}) {
-        track_write::Result r = track_write::interpret(fmt, 4, 1, uint32_t(int(fmt.dataFieldStart(6)) + shift),
+        track_write::Result r = track_write::interpret(fmt, 4, 1, uint32_t(int(fmt.kinds[0].dataFieldStart(6)) + shift),
                                                        d.scanner, u, 4);
         CHECK_EQ(r.updates, 1u);
         CHECK_EQ(u[0].sector, 6);
         CHECK(std::memcmp(&d.store[u[0].data_offset], data.data(), 512) == 0);
     }
     // Far from any data field: not placed.
-    track_write::Result r = track_write::interpret(fmt, 4, 1, fmt.dataFieldStart(6) + 100, d.scanner, u, 4);
+    track_write::Result r = track_write::interpret(fmt, 4, 1, fmt.kinds[0].dataFieldStart(6) + 100, d.scanner, u, 4);
     CHECK_EQ(r.updates, 0u);
     CHECK_EQ(r.unplaced, 1u);
 }
@@ -258,7 +258,7 @@ TEST(test_bad_crc_is_not_written) {
     decode(d, toFlux(words));
     track_write::Update u[4];
     track_write::Result r =
-        track_write::interpret(ibm::HD_1440, 0, 0, ibm::HD_1440.dataFieldStart(0), d.scanner, u, 4);
+        track_write::interpret(ibm::HD_1440, 0, 0, ibm::HD_1440.kinds[0].dataFieldStart(0), d.scanner, u, 4);
     CHECK_EQ(r.updates, 0u);
     CHECK_EQ(r.bad_crc, 1u);
 }
@@ -317,7 +317,7 @@ TEST(test_burst_sector_write) {
     auto data = pattern(42);
     auto flux = toFlux(sectorWriteCells(data.data()), Timing{1.01, 0.1, 0.0}, 12);
     auto bytes = captured(flux, 2);
-    BurstResult res = r.writer.apply(WriteBurst{9, 1, ibm::HD_1440.dataFieldStart(4), bytes.data(), bytes.size()}, 16, 2);
+    BurstResult res = r.writer.apply(WriteBurst{9, 1, ibm::HD_1440.kinds[0].dataFieldStart(4), bytes.data(), bytes.size()}, 16, 2);
     CHECK_EQ(res.decoded.updates, 1u);
     CHECK_EQ(res.patched, 1u);
     CHECK_EQ(res.persisted, 1u);
@@ -326,9 +326,9 @@ TEST(test_burst_sector_write) {
     CHECK(r.liveSector(1, 4) == data);
     // The other head, and the other sectors, are untouched.
     std::vector<uint8_t> before(512);
-    gen_disk::sector(gen_disk::firstLba(ibm::HD_1440, 9, 1) + 3, before.data());
+    gen_disk::sector(ibm::HD_1440.trackOffset(9, 1) / 512 + 3, before.data());
     CHECK(r.liveSector(1, 3) == before);
-    gen_disk::sector(gen_disk::firstLba(ibm::HD_1440, 9, 0) + 4, before.data());
+    gen_disk::sector(ibm::HD_1440.trackOffset(9, 0) / 512 + 4, before.data());
     CHECK(r.liveSector(0, 4) == before);
 }
 
@@ -355,7 +355,7 @@ TEST(test_burst_survives_a_reload) {
     r.load(2);
     auto data = pattern(7);
     auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
-    r.writer.apply(WriteBurst{2, 0, ibm::HD_1440.dataFieldStart(0), bytes.data(), bytes.size()}, 16, 2);
+    r.writer.apply(WriteBurst{2, 0, ibm::HD_1440.kinds[0].dataFieldStart(0), bytes.data(), bytes.size()}, 16, 2);
     r.load(3);
     r.load(2);
     CHECK(r.liveSector(0, 0) == data);
@@ -368,7 +368,7 @@ TEST(test_burst_on_an_unloaded_cylinder_still_persists) {
     r.load(5);
     auto data = pattern(3);
     auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
-    BurstResult res = r.writer.apply(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(1), bytes.data(), bytes.size()}, 16, 2);
+    BurstResult res = r.writer.apply(WriteBurst{4, 0, ibm::HD_1440.kinds[0].dataFieldStart(1), bytes.data(), bytes.size()}, 16, 2);
     CHECK_EQ(res.patched, 0u);
     CHECK_EQ(res.persisted, 1u);
     r.load(4);
@@ -431,7 +431,7 @@ TEST(test_stream_sector_write_across_the_wrap) {
     CaptureStream cs(sim.ring.data(), 1024, r.writer);
     auto data = pattern(77);
     auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
-    sim.start(WriteBurst{9, 0, ibm::HD_1440.dataFieldStart(2), nullptr, 0});
+    sim.start(WriteBurst{9, 0, ibm::HD_1440.kinds[0].dataFieldStart(2), nullptr, 0});
     auto done = stream(sim, cs, bytes, 64, 100);
     sim.end();
     for (auto& d : drainStream(sim, cs)) done.push_back(d);
@@ -448,10 +448,10 @@ TEST(test_stream_back_to_back_bursts) {
     auto a = pattern(1), b = pattern(2);
     auto ba = captured(toFlux(sectorWriteCells(a.data())), 2), bb = captured(toFlux(sectorWriteCells(b.data())), 2);
     // Both bursts land before core 0 looks at either.
-    sim.start(WriteBurst{3, 1, ibm::HD_1440.dataFieldStart(0), nullptr, 0});
+    sim.start(WriteBurst{3, 1, ibm::HD_1440.kinds[0].dataFieldStart(0), nullptr, 0});
     sim.write(ba.data(), ba.size());
     sim.end();
-    sim.start(WriteBurst{3, 1, ibm::HD_1440.dataFieldStart(1), nullptr, 0});
+    sim.start(WriteBurst{3, 1, ibm::HD_1440.kinds[0].dataFieldStart(1), nullptr, 0});
     sim.write(bb.data(), bb.size());
     sim.end();
     auto done = drainStream(sim, cs);
@@ -493,7 +493,7 @@ TEST(test_stream_nearly_a_ring_behind_is_an_overrun) {
     CaptureStream cs(sim.ring.data(), 1024, r.writer);
     auto a = pattern(7);
     auto ba = captured(toFlux(sectorWriteCells(a.data())), 2);
-    sim.start(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(0), nullptr, 0});
+    sim.start(WriteBurst{4, 0, ibm::HD_1440.kinds[0].dataFieldStart(0), nullptr, 0});
     sim.write(ba.data(), 1000);  // 24 bytes short of a lap
     BurstResult res;
     CHECK(!cs.service(sim.produced, 64, sim.source(), res));
@@ -515,7 +515,7 @@ TEST(test_stream_overrun_writes_nothing) {
     auto a = pattern(5), b = pattern(6);
     auto ba = captured(toFlux(sectorWriteCells(a.data())), 2), bb = captured(toFlux(sectorWriteCells(b.data())), 2);
     CHECK(ba.size() > 1024u);
-    sim.start(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(0), nullptr, 0});
+    sim.start(WriteBurst{4, 0, ibm::HD_1440.kinds[0].dataFieldStart(0), nullptr, 0});
     sim.write(ba.data(), ba.size());  // all of it before core 0 looks
     sim.end();
     auto done = drainStream(sim, cs);
@@ -524,7 +524,7 @@ TEST(test_stream_overrun_writes_nothing) {
     CHECK_EQ(cs.overruns(), 1u);
     CHECK_EQ(r.source.writes, 0u);
     // The next burst, read in time, is written.
-    sim.start(WriteBurst{4, 0, ibm::HD_1440.dataFieldStart(1), nullptr, 0});
+    sim.start(WriteBurst{4, 0, ibm::HD_1440.kinds[0].dataFieldStart(1), nullptr, 0});
     done = stream(sim, cs, bb, 64, 128);
     sim.end();
     for (auto& d : drainStream(sim, cs)) done.push_back(d);
@@ -543,7 +543,7 @@ TEST(test_burst_card_refuses) {
     auto before = r.liveSector(0, 2);
     auto data = pattern(11);
     auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
-    BurstResult res = r.writer.apply(WriteBurst{6, 0, ibm::HD_1440.dataFieldStart(2), bytes.data(), bytes.size()}, 16, 2);
+    BurstResult res = r.writer.apply(WriteBurst{6, 0, ibm::HD_1440.kinds[0].dataFieldStart(2), bytes.data(), bytes.size()}, 16, 2);
     CHECK_EQ(res.decoded.updates, 1u);
     CHECK_EQ(res.failed, 1u);
     CHECK_EQ(res.persisted, 0u);
@@ -552,7 +552,7 @@ TEST(test_burst_card_refuses) {
     CHECK(r.liveSector(0, 2) == before);
     // A good burst is not a lost write.
     r.source.failing = false;
-    res = r.writer.apply(WriteBurst{6, 0, ibm::HD_1440.dataFieldStart(2), bytes.data(), bytes.size()}, 16, 2);
+    res = r.writer.apply(WriteBurst{6, 0, ibm::HD_1440.kinds[0].dataFieldStart(2), bytes.data(), bytes.size()}, 16, 2);
     CHECK(!lostWrite(res));
     CHECK(r.liveSector(0, 2) == data);
 }
@@ -594,7 +594,7 @@ TEST(test_noise_after_a_real_sync_never_writes) {
         // Corrupt the CRC's two bytes, so the field is a real-looking fake.
         cells[ibm::PRESYNC_BYTES + 4 + 512] ^= 0x0101;
         auto bytes = captured(toFlux(cells), 2);
-        BurstResult res = r.writer.apply(WriteBurst{13, 0, ibm::HD_1440.dataFieldStart(5), bytes.data(), bytes.size()}, 16, 2);
+        BurstResult res = r.writer.apply(WriteBurst{13, 0, ibm::HD_1440.kinds[0].dataFieldStart(5), bytes.data(), bytes.size()}, 16, 2);
         bad += res.decoded.bad_crc;
         CHECK_EQ(res.persisted, 0u);
     }
@@ -619,7 +619,7 @@ TEST(test_damaged_writes_store_all_or_nothing) {
         int how = round % 4;
         bytes[i] = how == 0 ? uint8_t(bytes[i] + 8) : how == 1 ? uint8_t(bytes[i] - 8) : how == 2 ? 0 : 255;
         unsigned writes = r.source.writes;
-        r.writer.apply(WriteBurst{20, 1, ibm::HD_1440.dataFieldStart(6), bytes.data(), bytes.size()}, 16, 2);
+        r.writer.apply(WriteBurst{20, 1, ibm::HD_1440.kinds[0].dataFieldStart(6), bytes.data(), bytes.size()}, 16, 2);
         if (r.source.writes == writes) {
             ++refused;
             continue;

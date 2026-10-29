@@ -31,6 +31,13 @@ public:
 
     Step step(bool inwards);
 
+    // The inner stop moves (a disk with more cylinders than a 3.5-inch drive
+    // reaches: the emulated drive follows the disk). The head stays inside it.
+    void setLastCylinder(uint8_t last) {
+        last_ = last;
+        if (cylinder_ > last_) cylinder_ = last_;
+    }
+
     uint8_t cylinder() const { return cylinder_; }
     uint8_t lastCylinder() const { return last_; }
     bool atTrack0() const { return cylinder_ == 0; }

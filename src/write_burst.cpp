@@ -33,7 +33,10 @@ void BurstWriter::begin(const WriteBurst& burst, uint32_t ticks_per_cell, uint32
     burst_ = burst;
     edge_ticks_ = edge_ticks;
     separator_.reset(ticks_per_cell);
-    scanner_.reset(uint16_t(source_.format().sectorBytes()));
+    // Data fields are this track's sector size, unless an ID field says otherwise.
+    const ibm::Format& fmt = source_.format();
+    int cylinder = fmt.imageCylinder(burst.cylinder);
+    scanner_.reset(uint16_t(fmt.track(cylinder < 0 ? 0 : uint8_t(cylinder), burst.head).sectorBytes()));
 }
 
 void BurstWriter::feed(const uint8_t* intervals, size_t count) {
@@ -47,11 +50,13 @@ void BurstWriter::feed(const uint8_t* intervals, size_t count) {
 BurstResult BurstWriter::finish() {
     const ibm::Format& fmt = source_.format();
     BurstResult r;
-    track_write::Update updates[32];
-    r.decoded = track_write::interpret(fmt, burst_.cylinder, burst_.head, burst_.start_byte, scanner_, updates, 32);
+    // The head's cylinder (the loader's), and the image's (the disk's).
+    int cylinder = fmt.imageCylinder(burst_.cylinder);
+    track_write::Update updates[64];
+    r.decoded = track_write::interpret(fmt, cylinder, burst_.head, burst_.start_byte, scanner_, updates, 64);
     for (unsigned i = 0; i < r.decoded.updates; ++i) {
         const uint8_t* data = store_ + updates[i].data_offset;
-        if (!source_.writeSector(burst_.cylinder, burst_.head, updates[i].sector, data)) {
+        if (!source_.writeSector(uint8_t(cylinder), burst_.head, updates[i].sector, data)) {
             ++r.failed;
             continue;  // the live track keeps the old data: what the disk has
         }

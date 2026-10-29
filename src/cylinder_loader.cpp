@@ -6,9 +6,12 @@
 
 bool CylinderLoader::writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) {
     const ibm::Format& fmt = source_.format();
-    if (ready() != cylinder || loading_ >= 0 || head > 1 || sector >= fmt.sectors || !present_[head]) return false;
-    std::memcpy(data_[head] + sector * fmt.sectorBytes(), data, fmt.sectorBytes());
-    if (!ibm::buildTrack(fmt, cylinder, head, data_[head], scratch_)) return false;
+    int image_cylinder = fmt.imageCylinder(cylinder);
+    if (ready() != cylinder || loading_ >= 0 || head > 1 || image_cylinder < 0 || !present_[head]) return false;
+    const ibm::Track& t = fmt.track(uint8_t(image_cylinder), head);
+    if (sector >= t.sectors) return false;
+    std::memcpy(data_[head] + sector * t.sectorBytes(), data, t.sectorBytes());
+    if (!ibm::buildTrack(fmt, uint8_t(image_cylinder), head, data_[head], scratch_)) return false;
     rdata::setHead(head, scratch_, fmt.track_bytes, slots_);
     return true;
 }
@@ -26,13 +29,14 @@ CylinderLoader::Step CylinderLoader::service() {
     }
 
     const ibm::Format& fmt = source_.format();
-    uint8_t cyl = uint8_t(loading_);
+    int image_cylinder = fmt.imageCylinder(unsigned(loading_));
+    uint8_t cyl = uint8_t(image_cylinder);  // when there is one
     Step done = next_;
     switch (next_) {
         case Step::ReadHead0:
         case Step::ReadHead1: {
             uint8_t head = next_ == Step::ReadHead0 ? 0 : 1;
-            present_[head] = source_.readTrack(cyl, head, data_[head]);
+            present_[head] = image_cylinder >= 0 && hasTrack(fmt, cyl, head) && source_.readTrack(cyl, head, data_[head]);
             next_ = head == 0 ? Step::ReadHead1 : Step::EncodeHead0;
             break;
         }

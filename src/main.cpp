@@ -141,10 +141,27 @@ struct DriveShared {
     // A lost write (write_burst.h: lostWrite): core 0 sets it, core 1 then
     // reports write-protect until the disk is inserted again.
     std::atomic<bool> write_fault{false};
-    // Set by core 0 once it has chosen the disk (and at each swap).
-    std::atomic<const ibm::Format*> format{nullptr};
+    // Set by core 0 once it has chosen the disk (and at each swap): what
+    // core 1 needs of its format. Core 0 owns the format itself, which a
+    // swap rewrites.
+    std::atomic<uint32_t> rate{0};           // data bits per second
+    std::atomic<uint32_t> words{0};          // track_bytes: cell words a revolution
+    std::atomic<uint32_t> period_us{0};      // a revolution
+    std::atomic<uint32_t> last_cylinder{0};  // the last the head reaches on this disk
     std::atomic<bool> writable{false};
 };
+
+// What core 1 keeps of a drive's disk: its timing, as last published.
+struct DiskTiming {
+    uint32_t rate, words, period_us, last_cylinder;
+    bool operator!=(const DiskTiming& o) const {
+        return rate != o.rate || words != o.words || period_us != o.period_us || last_cylinder != o.last_cylinder;
+    }
+};
+
+static DiskTiming timingOf(const DriveShared& s) {
+    return DiskTiming{s.rate.load(), s.words.load(), s.period_us.load(), s.last_cylinder.load()};
+}
 static DriveShared g_shared[bus::MAX_DRIVES];
 static std::atomic<uint8_t> g_side{0};  // the host's SIDE1, the same for both drives
 
@@ -156,7 +173,7 @@ static std::atomic<uint32_t> g_drive_events_dropped{0};
 // interleaved (rdata_stream.h), sized for the largest format. Core 0's
 // loader rebuilds it in place when the head moves; the DMA streams the
 // selected drive's.
-static uint32_t g_cylinder_slots[bus::MAX_DRIVES][ibm::HD_1440.track_bytes];
+static uint32_t g_cylinder_slots[bus::MAX_DRIVES][ibm::MAX_TRACK_WORDS];
 
 // Set by core 0 in setup() (chooseDisk): the drives, how they sit on the
 // cable, and their loaders. Core 1 waits for g_started.
@@ -212,9 +229,9 @@ void setup1() {
     // The data rate depends on the disk, which core 0 chooses after mounting
     // the SD card. The streamer starts on drive 0's.
     while (!g_started.load(std::memory_order_acquire)) tight_loop_contents();
-    const ibm::Format* fmt = g_shared[0].format.load();
-    rdata_pio::begin(g_cylinder_slots[0], fmt->track_bytes, fmt->dataRate());
-    wdata_pio::begin(g_capture_ring, cfg::CAPTURE_RING_BYTES, fmt->dataRate());
+    DiskTiming disk = timingOf(g_shared[0]);
+    rdata_pio::begin(g_cylinder_slots[0], disk.words, disk.rate);
+    wdata_pio::begin(g_capture_ring, cfg::CAPTURE_RING_BYTES, disk.rate);
 }
 
 // Where drive `d`'s disk is under its head, in streamer words (one per
@@ -230,10 +247,11 @@ void loop1() {
     const unsigned n = g_drive_count;
     static drive::Drive d0(g_drive_config[0]), d1(g_drive_config[1]);
     drive::Drive* drives[bus::MAX_DRIVES] = {&d0, &d1};
-    const ibm::Format* fmt[bus::MAX_DRIVES];
+    DiskTiming disk[bus::MAX_DRIVES];
     bool write_protected[bus::MAX_DRIVES];
     for (unsigned i = 0; i < n; ++i) {
-        fmt[i] = g_shared[i].format.load();
+        disk[i] = timingOf(g_shared[i]);
+        drives[i]->setGeometry(disk[i].period_us, disk[i].last_cylinder);
         write_protected[i] = !g_shared[i].writable.load();
         drives[i]->insertDisk(write_protected[i]);
         g_shared[i].disk_in.store(true);
@@ -241,7 +259,7 @@ void loop1() {
     // The drive the streamer and the capture serve: the selected one, else
     // the last selected.
     unsigned active = 0;
-    uint32_t data_rate = fmt[0]->dataRate();
+    uint32_t data_rate = disk[0].rate;
     PinWatch w(pinsAsSample());
     activity::DriveObserver observer;
     bool index_was = false;
@@ -279,12 +297,13 @@ void loop1() {
                 s.disk_in.store(false, std::memory_order_relaxed);
                 s.swap.store(SWAP_EJECTED, std::memory_order_release);
             } else if (swap == SWAP_INSERT) {
-                const ibm::Format* next = s.format.load();
-                if (next != fmt[i]) {  // 720 KB <-> 1.44 MB: another data rate and track length
-                    fmt[i] = next;
+                DiskTiming next = timingOf(s);
+                if (next != disk[i]) {  // another data rate, track length or speed
+                    disk[i] = next;
+                    drives[i]->setGeometry(next.period_us, next.last_cylinder);
                     if (i == active) {
-                        data_rate = fmt[i]->dataRate();
-                        rdata_pio::setFormat(fmt[i]->track_bytes, data_rate);
+                        data_rate = next.rate;
+                        rdata_pio::setFormat(next.words, data_rate);
                         wdata_pio::setRate(data_rate);
                     }
                 }
@@ -326,8 +345,8 @@ void loop1() {
                 g_shared[active].streaming.store(false, std::memory_order_relaxed);
             }
             active = i;
-            data_rate = fmt[i]->dataRate();
-            rdata_pio::switchTo(g_cylinder_slots[i], fmt[i]->track_bytes, data_rate,
+            data_rate = disk[i].rate;
+            rdata_pio::switchTo(g_cylinder_slots[i], disk[i].words, data_rate,
                                 wordUnderHead(*drives[i], now, data_rate));
             wdata_pio::setRate(data_rate);
             index_was = drives[i]->spindle().index(now);
@@ -393,8 +412,8 @@ struct DriveState {
 static DriveState g_drv[bus::MAX_DRIVES];
 
 static GeneratedSource g_generated(ibm::HD_1440);
-static uint8_t g_track_data[bus::MAX_DRIVES][2][ibm::HD_1440.sectors * gen_disk::SECTOR_BYTES];
-static uint16_t g_track_scratch[ibm::HD_1440.track_bytes];  // used within one loader step: shared
+static uint8_t g_track_data[bus::MAX_DRIVES][2][ibm::MAX_TRACK_DATA];
+static uint16_t g_track_scratch[ibm::MAX_TRACK_WORDS];  // used within one loader step: shared
 static uint32_t g_read_us_max = 0;    // slowest track read (console `s`): from the cache
 static uint32_t g_encode_us_max = 0;  // slowest track encode
 static uint32_t g_card_read_us_max = 0;  // slowest track read from the card, filling the cache
@@ -412,7 +431,7 @@ static bool fillStep(DriveState& s) {
 static void reportFill(DriveState& s, uint32_t started_ms) {
     g_fill_ms = millis() - started_ms;
     if (s.cache->fits())
-        Serial.printf("# cached %u/%u tracks in %lu ms\n", s.cache->cachedTracks(), ImageCache::TRACKS,
+        Serial.printf("# cached %u/%u tracks in %lu ms\n", s.cache->cachedTracks(), s.cache->tracks(),
                       (unsigned long)g_fill_ms);
     else
         Serial.println("# no PSRAM for the image cache: reading tracks from the card (slow seeks)");
@@ -421,7 +440,9 @@ static void reportFill(DriveState& s, uint32_t started_ms) {
 // Decoding writes: a full track's data fields, plus room for strays. One
 // burst at a time, so the drives' writers share it.
 static uint8_t g_write_store[12 * 1024];
-static mfm::Field g_write_fields[64];
+// Two fields a sector for a whole track's write: up to 64 small sectors.
+constexpr size_t WRITE_FIELDS = 144;
+static mfm::Field g_write_fields[WRITE_FIELDS];
 static CaptureStream* g_capture = nullptr;
 static uint32_t g_sectors_written = 0;  // console `s`
 static uint32_t g_write_bad_crc = 0;
@@ -472,6 +493,17 @@ static const char* driveName(unsigned drive) {
     return g_settings.bus.interface == bus::Interface::Shugart ? SHUGART[unit % 3] : PC[unit % 2];
 }
 
+// Tells core 1 what it needs of drive `i`'s disk: its timing, and whether
+// it's writable.
+static void publishDisk(unsigned i, const ibm::Format& fmt, bool writable) {
+    DriveShared& s = g_shared[i];
+    s.rate.store(fmt.dataRate());
+    s.words.store(fmt.track_bytes);
+    s.period_us.store(fmt.periodUs());
+    s.last_cylinder.store(fmt.lastPhysicalCylinder());
+    s.writable.store(writable);
+}
+
 // Drive `i`'s disk at power-on: the one that was in, else the card's i-th
 // (so two drives start with different disks), else the generated disk.
 static void chooseDisk(unsigned i) {
@@ -499,11 +531,10 @@ static void chooseDisk(unsigned i) {
     }
     s.slot = new DiskSlot(image ? static_cast<TrackSource&>(*s.cache) : static_cast<TrackSource&>(g_generated));
     s.loader = new CylinderLoader(*s.slot, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
-    s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, 64);
+    s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
     while (s.loader->service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
     g_loaders[i] = s.loader;
-    g_shared[i].format.store(&s.slot->format());
-    g_shared[i].writable.store(s.slot->writable());
+    publishDisk(i, s.slot->format(), s.slot->writable());
 }
 
 static void chooseDisks() {
@@ -593,8 +624,7 @@ static void insertCached(unsigned drive) {
     s.loader->reset();
     s.loader->request(sh.cylinder.load(std::memory_order_relaxed));
     while (s.loader->service() != CylinderLoader::Step::Idle) {}
-    sh.format.store(&s.cache->format());
-    sh.writable.store(s.cache->writable());
+    publishDisk(drive, s.cache->format(), s.cache->writable());
     sh.swap.store(SWAP_INSERT, std::memory_order_release);
 }
 
@@ -724,8 +754,7 @@ static void serviceActivity() {
 }
 
 static unsigned imageKb(unsigned drive) {
-    const ibm::Format* fmt = g_shared[drive].format.load();
-    return fmt ? unsigned(fmt->trackDataBytes() * IMAGE_CYLINDERS * IMAGE_HEADS / 1024) : 0;
+    return g_drv[drive].slot ? unsigned(g_drv[drive].slot->format().imageBytes() / 1024) : 0;
 }
 
 static void printImage(unsigned drive) {
@@ -889,7 +918,7 @@ static void printStats() {
                       (unsigned long)sh.outer_knocks.load(), n, (unsigned long)sh.inner_knocks.load());
         Serial.printf(" ready%s=%d loads%s=%lu restarts%s=%lu cached%s=%u/%u writable%s=%d", n, loader.ready(), n,
                       (unsigned long)loader.loads(), n, (unsigned long)loader.restarts(), n,
-                      g_drv[i].cache->cachedTracks(), ImageCache::TRACKS, n, (int)sh.writable.load());
+                      g_drv[i].cache->cachedTracks(), g_drv[i].cache->tracks(), n, (int)sh.writable.load());
     }
     Serial.printf(" side=%u read_us_max=%lu encode_us_max=%lu", (unsigned)g_side.load(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);

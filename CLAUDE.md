@@ -44,7 +44,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 
     By default it compares a spread of tracks; `FDDPRO_FULL_TRACKS=1` compares all 160, as CI does on tags and on a manual run.
 
-    `ibm::HD_1440` and `ibm::DD_720` copy its `ibm.1440` and `ibm.720` definitions (gap3 108 and 84).
+    `ibm::HD_1440` and `ibm::DD_720` copy its `ibm.1440` and `ibm.720` definitions (gap3 108 and 84). `ibm::formatForSize` follows its other `ibm.*` definitions, and `ibm::resolve` its rules for gaps and rates left on auto; the test also compares those formats, and IMG.CFG sections, against Greaseweazle definitions of the same geometry.
   - `run_native_tests.sh` also builds the tools in `test/tools/` that the Python tests run.
   - `host/fddproto/pio_sim.py` simulates the PIO instructions the programs use and runs the real `pioasm` output. Extend it when a program uses a new instruction, rather than letting it guess. Tests read a program's `.define public` values from `program.defines`.
   - The Greaseweazle tools aren't on PyPI; `requirements.txt` pins a tag from GitHub.
@@ -67,7 +67,9 @@ Core 1 owns a `drive::Drive` (`src/drive.h`) and calls it on every pass: `onSamp
 
 ## Tracks
 
-A track is an array of 16-bit cell words, one per encoded byte, first cell in the top bit: the order RDATA sends them. HD is 12,500 words (200,000 cells of 1 µs), DD 6,250 (cells of 2 µs). `ibm::buildTrack` fills one from the track's sector data in IMG order; `gen_disk::track` supplies that data for the generated disk.
+A track is an array of 16-bit cell words, one per encoded byte, first cell in the top bit: the order RDATA sends them. HD is 12,500 words (200,000 cells of 1 µs), DD 6,250 (cells of 2 µs); a revolution at 360 RPM is 10,416 (a whole number of words: up to 15 cells short). `ibm::buildTrack` fills one from the track's sector data in ID order; `gen_disk::track` supplies that data for the generated disk.
+
+**Formats** (`ibm::Format`, `src/ibm_track.h`): a disk's cylinders, heads, step (2: double-stepped), file layout, RPM and data rate, and up to 8 track layouts (`kinds`: sectors, size, first ID, head ID, interleave, skew, gaps, IAM), with `kind_of` saying which each track uses. Image offsets are summed track by track (`trackOffset`), so tracks may differ in size. The loader works in the head's (physical) cylinders and maps each to the image's (`imageCylinder`); a cylinder or head the image lacks is sent blank. A format comes from IMG.CFG (`src/img_cfg.*`, FlashFloppy's file, read by `sd_image` at mount) or the image's size. Not yet: FM, mixed sector sizes within a track, `img_bps`, and per-track rates. Buffers are sized for the largest track (`MAX_TRACK_WORDS`, `MAX_TRACK_DATA`). Core 1 never reads a format: core 0 publishes each drive's rate, track length, period and last cylinder (`publishDisk`), and core 1 retunes and sets the drive's geometry (`Drive::setGeometry`) when they change.
 
 ## RDATA
 
@@ -81,6 +83,7 @@ A track is an array of 16-bit cell words, one per encoded byte, first cell in th
 At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, else `GeneratedSource`), and copies the image into PSRAM (`ImageCache`, `image_cache.h`; about 0.6 s). Only then does core 1 start the streamer, since the data rate depends on the format. From then on core 0 calls `CylinderLoader::service()` on every pass: one bounded step (read a track, or encode one into the live buffer).
 - `ready()` is atomic: -1 before the first write into the buffer, the cylinder after the last. Core 1 only lets RDATA out when it equals the head's cylinder.
 - A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
+- **The image cache** holds up to 2 MB a drive (`IMAGE_CACHE_BYTES`); a bigger image is read from the card.
 - **The SD card** is the BB48R's slot in SPI mode (only DAT0 and DAT3 are wired), at 25 MHz: 3.5 ms a track, too slow to read as the head moves. So the drive serves every disk from its `ImageCache` in PSRAM, filled **before the disk goes in** (at power-on, and in a swap's ejected pause), and the virtual PC's reads cost 1 ms. Writes go to the card first, then the cache.
 - **PSRAM is used through its uncached alias** (`XIP_NOCACHE_NOALLOC_BASE`): it shares the 16 KB XIP cache with the flash core 1 runs from, and copying tracks through that cache would evict core 1's loop. Without PSRAM (`pmalloc` fails), the cache holds nothing and reads go to the card.
 - **PIO blocks:** `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window, leaving PIO 0 to libraries. Keep new programs off PIO 0.

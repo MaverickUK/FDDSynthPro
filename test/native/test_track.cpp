@@ -128,11 +128,11 @@ static std::vector<uint16_t> build(const ibm::Format& fmt, uint8_t cyl, uint8_t 
 }
 
 TEST(test_track_formats_fit) {
-    CHECK_EQ(ibm::HD_1440.usedBytes(), 12422u);
-    CHECK_EQ(ibm::DD_720.usedBytes(), 6068u);
+    CHECK_EQ(ibm::HD_1440.kinds[0].usedBytes(), 12422u);
+    CHECK_EQ(ibm::DD_720.kinds[0].usedBytes(), 6068u);
     CHECK_EQ(ibm::HD_1440.trackDataBytes(), 9216u);
     ibm::Format too_long = ibm::HD_1440;
-    too_long.gap3 = 120;
+    too_long.kinds[0].gap3 = 120;
     std::vector<uint16_t> words(too_long.track_bytes);
     std::vector<uint8_t> data(too_long.trackDataBytes());
     CHECK(!ibm::buildTrack(too_long, 0, 0, data.data(), words.data()));
@@ -171,8 +171,8 @@ TEST(test_track_parses_back) {
                 ParsedTrack t = parseTrack(w, fmt->sectorBytes());
                 CHECK_EQ(t.index_marks, 1u);
                 CHECK_EQ(t.bad_crcs, 0u);
-                CHECK_EQ(t.ids.size(), size_t(fmt->sectors));
-                CHECK_EQ(t.data.size(), size_t(fmt->sectors));
+                CHECK_EQ(t.ids.size(), size_t(fmt->kinds[0].sectors));
+                CHECK_EQ(t.data.size(), size_t(fmt->kinds[0].sectors));
                 bool ids_ok = true, data_ok = true;
                 for (size_t s = 0; s < t.ids.size() && s < t.data.size(); ++s) {
                     std::vector<uint8_t> want_id = {cyl, head, uint8_t(s + 1), 2};
@@ -221,9 +221,9 @@ TEST(test_gen_disk_known_answers) {
 
 TEST(test_gen_disk_track_order) {
     // LBA order is IMG order: cylinder 1 head 0 follows cylinder 0 head 1.
-    CHECK_EQ(gen_disk::firstLba(ibm::HD_1440, 0, 1), 18u);
-    CHECK_EQ(gen_disk::firstLba(ibm::HD_1440, 1, 0), 36u);
-    CHECK_EQ(gen_disk::firstLba(ibm::DD_720, 79, 1), 1431u);
+    CHECK_EQ(ibm::HD_1440.trackOffset(0, 1) / 512, 18u);
+    CHECK_EQ(ibm::HD_1440.trackOffset(1, 0) / 512, 36u);
+    CHECK_EQ(ibm::DD_720.trackOffset(79, 1) / 512, 1431u);
     std::vector<uint8_t> t(ibm::HD_1440.trackDataBytes());
     gen_disk::track(ibm::HD_1440, 1, 0, t.data());
     CHECK_EQ(t[0], 36);           // sector 1 of the track names LBA 36

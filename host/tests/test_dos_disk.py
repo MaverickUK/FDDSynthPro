@@ -132,3 +132,10 @@ def test_copy_from_a_to_b(tmp_path):
     for name, data in files.items():
         mtools("mcopy", "-n", "-i", str(b_out), f"::{name}", str(got))
         assert got.read_bytes() == data, name
+
+
+@pytest.mark.parametrize("kb", [1200, 360])
+def test_dos_session_five_and_a_quarter(tmp_path, kb):
+    """5.25-inch disks, by their size: 1.2 MB at 360 RPM, 360 KB on 40 cylinders."""
+    img, files = make_disk(tmp_path, kb)
+    check(tmp_path, img, files, "NEW.TXT", f"A {kb} KB disk.\r\n".encode())

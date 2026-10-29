@@ -74,8 +74,10 @@ constexpr unsigned PIN_SD_MISO = 24;  // DAT0
 // before the disk goes in: 160 tracks, about 0.6 s.
 constexpr uint32_t SD_SPI_MHZ = 25;
 
-// The image cache: one whole image (the largest, 1.44 MB) in PSRAM.
-constexpr size_t IMAGE_CACHE_BYTES = 1474560;
+// The image cache: one whole image in PSRAM, per drive: 2 MB holds every
+// format the streamer can send at 300 RPM but Ensoniq's 5 MB SuperDisk,
+// whose tracks are then read from the card. Two drives use 4 of the 8 MB.
+constexpr size_t IMAGE_CACHE_BYTES = 2 * 1024 * 1024;
 
 // Audio: a MAX98357A I2S amp, as on HDDSynth_Native. Below GPIO 32, so the
 // I2S PIO program works in the same GPIO 0-31 window as RDATA and WDATA.

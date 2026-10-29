@@ -1,7 +1,9 @@
 // Disk images on the SD card (the BB48R's slot, SPI), as a TrackSource. Core 0 only.
 //
-// mount() lists every image in the card's root (image_list.h: .img or .ima,
-// 720 KB or 1.44 MB, in name order); open() serves one to a drive (bus.h:
+// mount() reads IMG.CFG (img_cfg.h: /IMG.CFG or /FF/IMG.CFG) and lists
+// every image in the card's root whose format it knows, from IMG.CFG or its
+// size (image_list.h: .img, .ima or .dsk, in name order); open() serves one
+// to a drive (bus.h:
 // one or two). Each drive has one open at a time: opening another closes
 // its last. An image the other drive has open opens read-only, so the two
 // never write the same file behind each other's cache.

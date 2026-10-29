@@ -37,6 +37,10 @@ public:
     // revolution, while at speed.
     bool index(uint32_t now_us) { return atSpeed(now_us) && phaseUs(now_us) < cfg_.index_pulse_us; }
 
+    // Another speed: 300 or 360 RPM (a disk's). Takes effect from the
+    // current revolution.
+    void setPeriod(uint32_t period_us) { cfg_.period_us = period_us; }
+
     const Config& config() const { return cfg_; }
 
 private:

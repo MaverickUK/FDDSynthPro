@@ -44,10 +44,11 @@ static bool start(VirtualPc& pc) {
 
 static int copySession(char** argv) {
     std::vector<uint8_t> a_image = load(argv[2]), b_image = load(argv[3]);
-    const ibm::Format* a_fmt = formatForImageSize(uint32_t(a_image.size()));
-    const ibm::Format* b_fmt = formatForImageSize(uint32_t(b_image.size()));
+    ibm::Format a_format, b_format;
+    const ibm::Format* a_fmt = ibm::formatForSize(uint32_t(a_image.size()), a_format) ? &a_format : nullptr;
+    const ibm::Format* b_fmt = ibm::formatForSize(uint32_t(b_image.size()), b_format) ? &b_format : nullptr;
     if (!a_fmt || !b_fmt) {
-        std::fprintf(stderr, "not a 720 KB or 1.44 MB image\n");
+        std::fprintf(stderr, "not an image of a size the drive knows\n");
         return 1;
     }
     Machine m(bus::Setup{bus::Interface::IbmPc, bus::Cable::Twisted, 0b11}, {a_fmt, b_fmt}, Core0Costs{}, 37);
@@ -112,9 +113,10 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::vector<uint8_t> image = load(argv[1]);
-    const ibm::Format* fmt = formatForImageSize(uint32_t(image.size()));
+    ibm::Format format;
+    const ibm::Format* fmt = ibm::formatForSize(uint32_t(image.size()), format) ? &format : nullptr;
     if (!fmt) {
-        std::fprintf(stderr, "%s: not a 720 KB or 1.44 MB image\n", argv[1]);
+        std::fprintf(stderr, "%s: not an image of a size the drive knows\n", argv[1]);
         return 1;
     }
 

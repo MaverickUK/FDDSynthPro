@@ -13,14 +13,19 @@
 // ---- Image geometry ----------------------------------------------------------
 
 TEST(test_format_from_image_size) {
-    CHECK(formatForImageSize(1474560) == &ibm::HD_1440);
-    CHECK(formatForImageSize(737280) == &ibm::DD_720);
-    CHECK(formatForImageSize(368640) == nullptr);   // 360 KB, 5.25-inch: not yet
-    CHECK(formatForImageSize(1474561) == nullptr);
-    CHECK(formatForImageSize(0) == nullptr);
-    CHECK_EQ(imageTrackOffset(ibm::HD_1440, 0, 1), 9216u);
-    CHECK_EQ(imageTrackOffset(ibm::HD_1440, 79, 1), 1474560u - 9216u);
-    CHECK_EQ(imageTrackOffset(ibm::DD_720, 1, 0), 9216u);
+    ibm::Format f;
+    CHECK(ibm::formatForSize(1474560, f));
+    CHECK_EQ(f.track_bytes, ibm::HD_1440.track_bytes);
+    CHECK(f.kinds[0].usedBytes() == ibm::HD_1440.kinds[0].usedBytes());
+    CHECK(ibm::formatForSize(737280, f));
+    CHECK_EQ(f.rate, 250000u);
+    CHECK(!ibm::formatForSize(1474561, f));
+    CHECK(!ibm::formatForSize(0, f));
+    CHECK(!ibm::formatForSize(2949120, f));  // 2.88 MB: a 1 Mbit/s track, longer than the streamer holds
+    CHECK_EQ(ibm::HD_1440.trackOffset(0, 1), 9216u);
+    CHECK_EQ(ibm::HD_1440.trackOffset(79, 1), 1474560u - 9216u);
+    CHECK_EQ(ibm::DD_720.trackOffset(1, 0), 9216u);
+    CHECK_EQ(ibm::HD_1440.imageBytes(), 1474560u);
 }
 
 // ---- A source to test with ---------------------------------------------------

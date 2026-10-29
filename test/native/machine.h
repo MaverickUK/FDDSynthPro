@@ -26,28 +26,30 @@
 // A writable disk in memory, starting as the generated disk.
 class MemorySource : public TrackSource {
 public:
-    explicit MemorySource(const ibm::Format& fmt) : fmt_(fmt), image_(80 * 2 * fmt.trackDataBytes()) {
-        for (uint8_t c = 0; c < 80; ++c)
-            for (uint8_t h = 0; h < 2; ++h) gen_disk::track(fmt, c, h, &image_[imageTrackOffset(fmt, c, h)]);
+    explicit MemorySource(const ibm::Format& fmt) : fmt_(fmt), image_(fmt.imageBytes()) {
+        for (uint8_t c = 0; c < fmt.cyls; ++c)
+            for (uint8_t h = 0; h < fmt.heads; ++h) gen_disk::track(fmt, c, h, &image_[fmt.trackOffset(c, h)]);
     }
     // A real image (an IMG file's bytes), of the format its size gives.
     MemorySource(const ibm::Format& fmt, std::vector<uint8_t> image) : fmt_(fmt), image_(std::move(image)) {}
     const std::vector<uint8_t>& image() const { return image_; }
     const ibm::Format& format() const override { return fmt_; }
     bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override {
-        if (c >= 80) return false;
-        std::memcpy(out, &image_[imageTrackOffset(fmt_, c, h)], fmt_.trackDataBytes());
+        uint32_t at = fmt_.trackOffset(c, h), n = fmt_.trackDataBytes(c, h);
+        if (!hasTrack(fmt_, c, h) || at + n > image_.size()) return false;
+        std::memcpy(out, &image_[at], n);
         return true;
     }
     bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
-        if (!writable_ || failing) return false;
-        std::memcpy(&image_[imageTrackOffset(fmt_, c, h) + s * fmt_.sectorBytes()], data, fmt_.sectorBytes());
+        if (!writable_ || failing || !hasTrack(fmt_, c, h) || s >= fmt_.track(c, h).sectors) return false;
+        uint32_t size = fmt_.track(c, h).sectorBytes();
+        std::memcpy(&image_[fmt_.trackOffset(c, h) + s * size], data, size);
         ++writes;
         return true;
     }
     bool writable() const override { return writable_; }
     const uint8_t* sector(uint8_t c, uint8_t h, uint8_t s) const {
-        return &image_[imageTrackOffset(fmt_, c, h) + s * fmt_.sectorBytes()];
+        return &image_[fmt_.trackOffset(c, h) + s * fmt_.track(c, h).sectorBytes()];
     }
 
     unsigned writes = 0;
@@ -55,7 +57,7 @@ public:
     bool failing = false;  // the card refuses every write (an error, or pulled out)
 
 private:
-    const ibm::Format& fmt_;
+    ibm::Format fmt_;
     std::vector<uint8_t> image_;
 };
 
@@ -87,10 +89,10 @@ public:
     struct Unit {
         Unit(const ibm::Format& fmt, const drive::Config& dc, uint16_t* scratch, uint8_t* store, size_t store_len,
              mfm::Field* fields, size_t max_fields)
-            : slots(ibm::HD_1440.track_bytes),
-              data0(ibm::HD_1440.trackDataBytes()),
-              data1(ibm::HD_1440.trackDataBytes()),
-              cache_ram(1474560),
+            : slots(ibm::MAX_TRACK_WORDS),
+              data0(ibm::MAX_TRACK_DATA),
+              data1(ibm::MAX_TRACK_DATA),
+              cache_ram(2 * 1024 * 1024),
               d(dc),
               source(fmt),
               cache(cache_ram.data(), cache_ram.size()),
@@ -113,9 +115,9 @@ private:
     // Declared first: members are built in declaration order, and the units
     // and the capture below are built on these.
     Core0Costs costs_;
-    std::vector<uint16_t> scratch_ = std::vector<uint16_t>(ibm::HD_1440.track_bytes);
+    std::vector<uint16_t> scratch_ = std::vector<uint16_t>(ibm::MAX_TRACK_WORDS);
     std::vector<uint8_t> store_ = std::vector<uint8_t>(12 * 1024);
-    std::vector<mfm::Field> fields_ = std::vector<mfm::Field>(64);
+    std::vector<mfm::Field> fields_ = std::vector<mfm::Field>(144);
     // The WDATA capture ring, as on the board (16 KB).
     std::vector<uint8_t> ring_ = std::vector<uint8_t>(16384);
     std::vector<std::unique_ptr<Unit>> units_;
@@ -148,6 +150,7 @@ public:
             // before the host can ask.
             fill(u, u.source);
             while (u.loader.service() != CylinderLoader::Step::Idle) {}
+            geometry(u);
             u.d.insertDisk(!writable);
         }
     }
@@ -175,6 +178,7 @@ public:
         fill(u, disk);  // during the ejected pause, as the firmware does
         u.slot.insert(u.cache);
         u.loader.reset();
+        geometry(u);
         u.d.insertDisk(!disk.writable());  // a fresh start: any write fault is cleared
     }
 
@@ -348,6 +352,12 @@ private:
             default:
                 break;
         }
+    }
+
+    // The disk's speed and cylinders, as core 1 sets them at an insert.
+    static void geometry(Unit& u) {
+        const ibm::Format& f = u.slot.format();
+        u.d.setGeometry(f.periodUs(), f.lastPhysicalCylinder());
     }
 
     void fill(Unit& u, TrackSource& disk) {

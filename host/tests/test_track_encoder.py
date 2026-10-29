@@ -134,3 +134,201 @@ def test_wrong_image_size_is_refused(tmp_path):
     r = subprocess.run([str(TOOL), "1440", str(path)], capture_output=True, text=True)
     assert r.returncode != 0
     assert "expected 1474560 bytes" in r.stderr
+
+
+# ---- Every other format the drive knows -------------------------------------------------
+#
+# The PC formats it finds by an image's size, against Greaseweazle's own
+# ibm.* definitions; and IMG.CFG sections (from FlashFloppy's examples)
+# against the same geometry written as Greaseweazle disk definitions. Each
+# track's cells must match Greaseweazle's encoding, and its decoder must
+# read them back to the sector data.
+
+SIZES = {  # image bytes: Greaseweazle's definition
+    163840: "ibm.160", 184320: "ibm.180", 327680: "ibm.320", 368640: "ibm.360",
+    819200: "ibm.800", 1228800: "ibm.1200", 1720320: "ibm.1680",
+}
+
+
+def build(fmt_arg: str, image_path) -> bytes:
+    need(TOOL.exists(), "build_track not built: run test/run_native_tests.sh")
+    r = subprocess.run([str(TOOL), fmt_arg, str(image_path)], capture_output=True)
+    assert r.returncode == 0, r.stderr.decode()
+    return r.stdout
+
+
+def compare(gw_codec, disk, image: bytes, ours: bytes, cyls: int, heads: int, rpm: int):
+    """Every track of `ours` (the drive's, in cylinder-head order) against
+    Greaseweazle's `disk`. `image` is in the same (interleaved) order."""
+    codec, MasterTrack = gw_codec
+    n_tracks = cyls * heads
+    track_len = len(ours) // n_tracks
+    # The outermost and innermost cylinders and a few between, unless FULL.
+    chosen = set(range(n_tracks)) if FULL else {0, 1, heads, n_tracks - 1}
+    if not FULL:
+        chosen.update(random.Random(n_tracks).sample(range(n_tracks), 4))
+    encode_mismatches, decode_failures = [], []
+    at = 0
+    for n in range(n_tracks):
+        cyl, head = divmod(n, heads)
+        reference = disk.mk_track(cyl, head)
+        size = sum(len(s.dam.data) for s in reference.sectors)
+        data = image[at:at + size]
+        at += size
+        if n not in chosen:
+            continue
+        reference.set_img_track(data)
+        theirs = reference.master_track().bits.tobytes()
+        mine = ours[n * track_len:(n + 1) * track_len]
+        # The drive's track is a revolution of whole 16-cell words. At 360
+        # RPM a revolution isn't one, and where a layout nearly fills it
+        # Greaseweazle lengthens its track to keep 1% before the index; so
+        # theirs may run on, but only with more gap (4E, 0x9254 in cells).
+        extra = theirs[len(mine):]
+        if mine != theirs[:len(mine)]:
+            encode_mismatches.append(f"{cyl}.{head}: {first_difference(mine, theirs)}")
+        elif extra.rstrip(b"\x00") and set(extra[:len(extra) & ~1].hex(" ", 2).split()) - {"9254"}:
+            encode_mismatches.append(f"{cyl}.{head}: Greaseweazle's track runs on with more than gap")
+        decoded = disk.decode_flux(cyl, head, MasterTrack(bits=mine, time_per_rev=60 / rpm))
+        if decoded.nr_missing() or bytes(decoded.get_img_track()) != data:
+            decode_failures.append(f"{cyl}.{head}: {decoded.nr_missing()} sectors missing")
+    assert not encode_mismatches, "\n".join(encode_mismatches[:5])
+    assert not decode_failures, "\n".join(decode_failures[:5])
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_pc_formats_by_size(gw_codec, size, tmp_path):
+    codec, _ = gw_codec
+    disk = codec.get_diskdef(SIZES[size])
+    image = random.Random(size).randbytes(size)
+    path = tmp_path / "disk.img"
+    path.write_bytes(image)
+    rpm = 360 if size == 1228800 else 300
+    heads = 1 if size in (163840, 184320) else 2
+    cyls = 40 if size < 400000 else 80
+    compare(gw_codec, disk, image, build(f"size:{size}", path), cyls, heads, rpm)
+
+
+# FlashFloppy's IMG.CFG sections, and the same geometry for Greaseweazle.
+IMG_CFG = """
+[os::737280]
+cyls = 80
+heads = 2
+secs = 9
+bps = 512
+tracks = 0-79
+  interleave = 2
+  hskew = 1
+  cskew = 2
+
+[::409600]
+cyls = 40
+heads = 2
+secs = 10
+bps = 512
+interleave = 3
+h = 0
+tracks = 0-39.0
+  id = 0
+tracks = 0-39.1
+  id = 10
+
+[::1798144]
+cyls = 80
+heads = 2
+tracks = 0
+  secs = 18
+  bps = 512
+tracks = 1-79
+  secs = 11
+  bps = 1024
+  gap3 = 30
+
+[::1638400]
+cyls = 80
+heads = 2
+secs = 20
+bps = 512
+gap3 = 40
+id = 0
+rate = 500
+"""
+
+GW_DEFS = """
+disk roland_os
+    cyls = 80
+    heads = 2
+    tracks * ibm.mfm
+        secs = 9
+        bps = 512
+        interleave = 2
+        hskew = 1
+        cskew = 2
+    end
+end
+
+disk kaypro_400
+    cyls = 40
+    heads = 2
+    tracks 0-39.0 ibm.mfm
+        secs = 10
+        bps = 512
+        interleave = 3
+        h = 0
+        id = 0
+    end
+    tracks 0-39.1 ibm.mfm
+        secs = 10
+        bps = 512
+        interleave = 3
+        h = 0
+        id = 10
+    end
+end
+
+disk bung_mgd2
+    cyls = 80
+    heads = 2
+    tracks 0 ibm.mfm
+        secs = 18
+        bps = 512
+    end
+    tracks 1-79 ibm.mfm
+        secs = 11
+        bps = 1024
+        gap3 = 30
+    end
+end
+
+disk ensoniq_1600
+    cyls = 80
+    heads = 2
+    tracks * ibm.mfm
+        secs = 20
+        bps = 512
+        gap3 = 40
+        id = 0
+        rate = 500
+    end
+end
+"""
+
+CFG_CASES = {  # image name and size: Greaseweazle's name, cylinders
+    ("S330.os.img", 737280): ("roland_os", 80),
+    ("CPM.IMG", 409600): ("kaypro_400", 40),
+    ("GAME.IMG", 1798144): ("bung_mgd2", 80),
+    ("EPS.IMG", 1638400): ("ensoniq_1600", 80),
+}
+
+
+@pytest.mark.parametrize("name,size", CFG_CASES)
+def test_img_cfg_formats(gw_codec, name, size, tmp_path):
+    codec, _ = gw_codec
+    (tmp_path / "IMG.CFG").write_text(IMG_CFG)
+    (tmp_path / "gw.cfg").write_text(GW_DEFS)
+    gw_name, cyls = CFG_CASES[(name, size)]
+    disk = codec.get_diskdef(gw_name, str(tmp_path / "gw.cfg"))
+    image = random.Random(size).randbytes(size)
+    path = tmp_path / "disk.img"
+    path.write_bytes(image)
+    compare(gw_codec, disk, image, build(f"cfg:{tmp_path / 'IMG.CFG'}:{name}:{size}", path), cyls, 2, 300)

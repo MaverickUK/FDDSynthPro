@@ -259,6 +259,7 @@ void runVirtualPcTests();
 void runSynthTests();
 void runUiTests();
 void runSettingsTests();
+void runImgCfgTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -289,6 +290,7 @@ int main() {
     runSynthTests();
     runUiTests();
     runSettingsTests();
+    runImgCfgTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }
