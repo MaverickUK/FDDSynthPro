@@ -1,13 +1,15 @@
 // What the drive remembers across power-off, GoTek style: the disk that was
-// in, the sample pack and the volume; and how it sits on the cable (bus.h),
-// which only an edit of the file changes. Pure C++, host-tested;
-// sd_image.cpp reads and writes the file, main.cpp decides when.
+// in, the sample pack and the volume; and what only an edit of the file
+// changes: a disk to start with every time, and how the drive sits on the
+// cable (bus.h). Pure C++, host-tested; sd_image.cpp reads and writes the
+// file, main.cpp decides when.
 //
 // The file is /FDDSYNTH.CFG on the card, plain text, one setting a line
 // (docs/config.md):
 //
-//   image=GAMES.IMG
-//   image2=WORK.IMG      (the second drive's, with drive=a,b)
+//   image=GAMES.IMG      (if set: the disk at every power-on; else last's)
+//   last=MONKEY1.IMG     the disk that was in (the firmware keeps this one)
+//   last2=WORK.IMG       (the second drive's, with drive=a,b; image2 likewise)
 //   pack=Recorded
 //   volume=75
 //   interface=ibmpc
@@ -28,10 +30,13 @@ namespace settings {
 
 constexpr const char* PATH = "/FDDSYNTH.CFG";
 constexpr size_t NAME = 64;  // as ImageList::NAME
-constexpr size_t FILE_MAX = 384;
+constexpr size_t FILE_MAX = 512;
 
 struct Settings {
-    char image[bus::MAX_DRIVES][NAME] = {};  // each drive's; "": the card's first
+    // Each drive's disk at power-on, if set: by hand only, never by the
+    // firmware. "": the last one (`last`), else the card's first.
+    char image[bus::MAX_DRIVES][NAME] = {};
+    char last[bus::MAX_DRIVES][NAME] = {};  // each drive's disk when it was last in use
     char pack[NAME] = "";   // "": the first folder under /samples
     int volume = 75;        // 0-100, ui::Model's
     bus::Setup bus;         // read at power-on

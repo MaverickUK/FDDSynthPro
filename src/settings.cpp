@@ -7,7 +7,7 @@ namespace settings {
 
 bool Settings::operator==(const Settings& o) const {
     for (unsigned i = 0; i < bus::MAX_DRIVES; ++i)
-        if (std::strcmp(image[i], o.image[i]) != 0) return false;
+        if (std::strcmp(image[i], o.image[i]) != 0 || std::strcmp(last[i], o.last[i]) != 0) return false;
     return std::strcmp(pack, o.pack) == 0 && volume == o.volume && bus == o.bus;
 }
 
@@ -36,6 +36,8 @@ Settings parse(const char* text, size_t len) {
             size_t vlen = n - key - 1;
             if (key == 5 && std::strncmp(line, "image", 5) == 0) setName(s.image[0], value, vlen);
             if (key == 6 && std::strncmp(line, "image2", 6) == 0) setName(s.image[1], value, vlen);
+            if (key == 4 && std::strncmp(line, "last", 4) == 0) setName(s.last[0], value, vlen);
+            if (key == 5 && std::strncmp(line, "last2", 5) == 0) setName(s.last[1], value, vlen);
             if (key == 4 && std::strncmp(line, "pack", 4) == 0) setName(s.pack, value, vlen);
             // The bus: a word each, so a copy that ends at the line's end.
             char word[12] = "";
@@ -67,14 +69,18 @@ Settings parse(const char* text, size_t len) {
 }
 
 size_t format(const Settings& s, char* out, size_t cap) {
-    // image2 only for a second drive, so a one-drive file stays as it was.
+    // `image` lines only where they're set (by hand); last2 only for a
+    // second drive; pin02 only when it's set. A simple file stays simple.
+    char fixed[bus::MAX_DRIVES][NAME + 8] = {};
+    for (unsigned i = 0; i < bus::MAX_DRIVES; ++i)
+        if (s.image[i][0]) std::snprintf(fixed[i], sizeof fixed[i], "image%s=%s\n", i ? "2" : "", s.image[i]);
     char second[NAME + 8] = "";
-    if (s.bus.drives() > 1) std::snprintf(second, sizeof second, "image2=%s\n", s.image[1]);
+    if (s.bus.drives() > 1) std::snprintf(second, sizeof second, "last2=%s\n", s.last[1]);
     char units[12];
-    // pin02 only when it's set, so files from before it stay as they were.
-    int n = std::snprintf(out, cap, "image=%s\n%spack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n%s",
-                          s.image[0], second, s.pack, s.volume, bus::interfaceName(s.bus.interface),
-                          bus::cableName(s.bus.cable), bus::unitsName(s.bus, units), s.bus.pin2_chng ? "pin02=chg\n" : "");
+    int n = std::snprintf(out, cap, "%s%slast=%s\n%spack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n%s",
+                          fixed[0], fixed[1], s.last[0], second, s.pack, s.volume,
+                          bus::interfaceName(s.bus.interface), bus::cableName(s.bus.cable),
+                          bus::unitsName(s.bus, units), s.bus.pin2_chng ? "pin02=chg\n" : "");
     return n < 0 ? 0 : size_t(n) < cap ? size_t(n) : cap - 1;
 }
 

@@ -5,7 +5,7 @@
 A damaged or missing file never stops the drive starting: an unknown line is ignored, and a bad value keeps the default.
 
 ```
-image=GAMES.IMG
+last=GAMES.IMG
 pack=Recorded
 volume=75
 interface=ibmpc
@@ -15,8 +15,10 @@ drive=a
 
 | Key | Values | Default | |
 |---|---|---|---|
-| `image` | a file name on the card | the first | The disk that was in |
-| `image2` | a file name on the card | the second | The second drive's, with two drives |
+| `image` | a file name on the card | not set | **The disk to start with, every time.** Set it by hand; the drive never changes it. Not set, it starts with `last` |
+| `image2` | a file name on the card | not set | The same for the second drive, with two drives |
+| `last` | a file name on the card | the first | The disk that was in. The drive keeps this one up to date as you choose disks |
+| `last2` | a file name on the card | the second | The second drive's, with two drives |
 | `pack` | a folder under `/samples` | the first | The sample pack |
 | `volume` | 0–100 | 75 | |
 | `interface` | `ibmpc`, `shugart`, `amiga` | `ibmpc` | What the host expects on the cable |
@@ -28,7 +30,7 @@ The drive reads `interface`, `cable` and `drive` at power-on. The console's `s` 
 
 ## Two drives
 
-`drive=a,b` (or two Shugart units, `drive=ds0,ds1`) makes the emulator both drives on the cable, each with its own disk, head and motor. With a PC that's A: and B:, and `COPY A:*.* B:` works as it would with two real drives. The first drive's disk is `image`, the second's `image2`; with neither set, they start with the card's first two images.
+`drive=a,b` (or two Shugart units, `drive=ds0,ds1`) makes the emulator both drives on the cable, each with its own disk, head and motor. With a PC that's A: and B:, and `COPY A:*.* B:` works as it would with two real drives. Each starts with its `image` (`image`, `image2`) if set, else the disk that was in (`last`, `last2`); with neither, the card's first two images.
 
 - **The front panel** has a home screen for each, titled with its letter (`A: GAMES.IMG`). The action button goes from A's to B's, then on to the head trace. Choosing a disk, or a long press to eject, acts on the drive whose home screen was last shown.
 - **The console's** `i`, `[`, `]` and `d` act on one drive: `1` or `2` chooses it. `s` reports the second drive's state with a `2` on each name (`cyl2`, `disk2`, `ready2`...).

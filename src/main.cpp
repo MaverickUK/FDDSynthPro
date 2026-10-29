@@ -522,8 +522,9 @@ static void publishDisk(unsigned i, const ibm::Format& fmt, bool writable) {
     s.writable.store(writable);
 }
 
-// Drive `i`'s disk at power-on: the one that was in, else the card's i-th
-// (so two drives start with different disks), else the welcome disk.
+// Drive `i`'s disk at power-on: the one the settings name (`image`), else
+// the one that was in (`last`), else the card's i-th (so two drives start
+// with different disks), else the welcome disk.
 static void chooseDisk(unsigned i) {
     DriveState& s = g_drv[i];
     // PSRAM, if the board has it (the BB48R does): pmalloc fails without.
@@ -535,7 +536,13 @@ static void chooseDisk(unsigned i) {
     if (ram) ram += XIP_NOCACHE_NOALLOC_BASE - XIP_BASE;
     s.cache = new ImageCache(ram, ram ? cfg::IMAGE_CACHE_BYTES : 0);
     const ImageList& images = sd_image::images();
-    size_t index = images.count() ? images.find(g_settings.image[i]) : 0;
+    size_t index = images.count();
+    if (g_settings.image[i][0]) {
+        index = images.find(g_settings.image[i]);
+        if (index >= images.count())
+            Serial.printf("# %s, the settings' image%s, isn't on the card\n", g_settings.image[i], i ? "2" : "");
+    }
+    if (index >= images.count()) index = images.find(g_settings.last[i]);
     if (g_card && index >= images.count()) index = images.count() ? i % images.count() : 0;
     TrackSource* image = g_card ? sd_image::open(index, i) : nullptr;
     if (!image && index) image = sd_image::open(index = 0, i);
@@ -904,10 +911,12 @@ static void serviceSettings() {
     settings::Settings now;
     for (unsigned i = 0; i < g_drive_count; ++i) {
         // A built-in disk isn't remembered: the card's image comes back.
+        // `image` is the user's: kept as it is.
+        std::strncpy(now.image[i], g_settings.image[i], settings::NAME - 1);
         if (g_drv[i].from_card && !g_drv[i].no_disk)
-            std::strncpy(now.image[i], sd_image::name(i), settings::NAME - 1);
+            std::strncpy(now.last[i], sd_image::name(i), settings::NAME - 1);
         else
-            std::strncpy(now.image[i], g_settings.image[i], settings::NAME - 1);
+            std::strncpy(now.last[i], g_settings.last[i], settings::NAME - 1);
     }
     if (sd_image::packs().count()) std::strncpy(now.pack, sd_image::packs().name(g_pack_index), settings::NAME - 1);
     now.volume = panel::model().volume();

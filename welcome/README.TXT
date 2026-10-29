@@ -49,13 +49,15 @@ SETTINGS
 
 The drive keeps its settings in FDDSYNTH.CFG on the card. It remembers the
 disk, the sample pack and the volume by itself. Edit the file on a computer
-to change how the drive sits on the cable:
+to set the rest:
 
-  interface=ibmpc    ibmpc, shugart or amiga
+  image=GAMES.IMG    the disk to start with, every time (else the last one)
+  image2=WORK.IMG    the second drive's, with drive=a,b
+  interface=ibmpc    ibmpc (a PC), shugart (most other machines: Atari ST,
+                     Amstrad, synths and samplers) or amiga
   cable=twisted      ibmpc: twisted (the end of a PC cable) or straight
   drive=a            a, b or a,b (two drives); ds0-ds2 (shugart);
                      df0, df1 (amiga)
-  image2=WORK.IMG    the second drive's disk, with drive=a,b
 
 SOUNDS
 

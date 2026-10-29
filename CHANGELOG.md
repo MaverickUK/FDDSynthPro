@@ -4,6 +4,15 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-29
+
+### Added
+- **A disk to start with every time:** `image=` (and `image2=`) in `/FDDSYNTH.CFG`, set by hand, is the disk the drive starts with at every power-on, whatever was chosen on the panel since. The drive never changes it. If it isn't on the card, the console says so and the drive goes on to `last`.
+
+### Changed
+- **The remembered disk is now `last=`** (and `last2=`): the drive keeps it up to date as disks are chosen, and starts with it when `image` isn't set. A file written by earlier firmware has the remembered disk under `image=`, which now fixes it; delete that line to go back to remembering.
+- The welcome disk's README says what the Shugart interface is for.
+
 ## [0.15.0] - 2026-10-29
 
 ### Added
