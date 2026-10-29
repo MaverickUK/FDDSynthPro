@@ -18,3 +18,10 @@ hardware/fab/
 hardware/*_fab.zip
 ~*.lck
 *.kicad_pcb.zip
+# KiCad exports made by hand (a 3D STEP, the Fabrication Toolkit's set):
+# hardware/build.sh writes the ones to use, into hardware/jlc/.
+hardware/*.step
+hardware/production/
+# The slice 0 reference traces: the first set was recorded with DIR broken.
+# Unignore this once valid ones are recorded on the carrier.
+host/reference/
