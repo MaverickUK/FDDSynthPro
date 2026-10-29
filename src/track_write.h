@@ -39,9 +39,11 @@ struct Result {
 // few. Each gap is longer than this on both sides.
 constexpr uint32_t POSITION_SLACK_BYTES = 16;
 
-// `start_byte`: where on the track WGATE was asserted, in bytes from the
-// index. Fills `out` (up to `max`) and returns what happened.
-Result interpret(const ibm::Format& fmt, uint8_t cylinder, uint8_t head, uint32_t start_byte,
+// `cylinder`: the image's (-1 where the head is on no track of the image,
+// which places nothing). `start_byte`: where on the track WGATE was
+// asserted, in bytes from the index. Fills `out` (up to `max`) and returns
+// what happened.
+Result interpret(const ibm::Format& fmt, int cylinder, uint8_t head, uint32_t start_byte,
                  const mfm::FieldScanner& fields, Update* out, size_t max);
 
 }  // namespace track_write

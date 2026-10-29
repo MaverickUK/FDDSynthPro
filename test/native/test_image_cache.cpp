@@ -13,14 +13,14 @@ namespace {  // this file's own helpers and tests
 // track that can fail to read and writes that can be refused.
 class Card : public TrackSource {
 public:
-    explicit Card(const ibm::Format& fmt) : fmt_(fmt), image_(ImageCache::TRACKS * fmt.trackDataBytes()) {
-        for (uint8_t c = 0; c < IMAGE_CYLINDERS; ++c)
-            for (uint8_t h = 0; h < IMAGE_HEADS; ++h) gen_disk::track(fmt, c, h, at(c, h));
+    explicit Card(const ibm::Format& fmt) : fmt_(fmt), image_(fmt.imageBytes()) {
+        for (uint8_t c = 0; c < fmt.cyls; ++c)
+            for (uint8_t h = 0; h < fmt.heads; ++h) gen_disk::track(fmt, c, h, at(c, h));
     }
     const ibm::Format& format() const override { return fmt_; }
     bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override {
         ++reads;
-        if (c >= IMAGE_CYLINDERS || (c == bad_cylinder && h == bad_head)) return false;
+        if (c >= fmt_.cyls || (c == bad_cylinder && h == bad_head)) return false;
         std::memcpy(out, at(c, h), fmt_.trackDataBytes());
         return true;
     }
@@ -30,14 +30,14 @@ public:
         return true;
     }
     bool writable() const override { return true; }
-    uint8_t* at(uint8_t c, uint8_t h) { return &image_[imageTrackOffset(fmt_, c, h)]; }
+    uint8_t* at(uint8_t c, uint8_t h) { return &image_[fmt_.trackOffset(c, h)]; }
 
     unsigned reads = 0;
     int bad_cylinder = -1, bad_head = -1;
     bool refuse_writes = false;
 
 private:
-    const ibm::Format& fmt_;
+    ibm::Format fmt_;
     std::vector<uint8_t> image_;
 };
 
@@ -50,7 +50,7 @@ std::vector<uint8_t> readBack(TrackSource& s, uint8_t c, uint8_t h) {
 void fillAll(ImageCache& cache) {
     unsigned steps = 0;
     while (cache.fill()) ++steps;
-    CHECK(steps <= ImageCache::TRACKS);
+    CHECK(steps <= 160u);
 }
 
 TEST(test_cache_fills_a_track_at_a_time) {
@@ -66,8 +66,8 @@ TEST(test_cache_fills_a_track_at_a_time) {
     CHECK(!cache.cached(0, 1));
     fillAll(cache);
     CHECK(cache.complete());
-    CHECK_EQ(cache.cachedTracks(), ImageCache::TRACKS);
-    CHECK_EQ(card.reads, ImageCache::TRACKS);
+    CHECK_EQ(cache.cachedTracks(), 160u);
+    CHECK_EQ(card.reads, 160u);
 }
 
 TEST(test_cache_reads_from_memory) {
@@ -136,7 +136,7 @@ TEST(test_cache_skips_an_unreadable_track) {
     cache.attach(card);
     fillAll(cache);
     CHECK(cache.complete());
-    CHECK_EQ(cache.cachedTracks(), ImageCache::TRACKS - 1);
+    CHECK_EQ(cache.cachedTracks(), 160u - 1);
     CHECK(!cache.cached(7, 1));
     CHECK(readBack(cache, 7, 1).empty());  // the card fails again: a blank track, as before
     CHECK(!readBack(cache, 7, 0).empty());
@@ -166,7 +166,7 @@ TEST(test_cache_without_room_reads_the_card) {
     small.attach(dd);
     CHECK(small.fits());
     fillAll(small);
-    CHECK_EQ(small.cachedTracks(), ImageCache::TRACKS);
+    CHECK_EQ(small.cachedTracks(), 160u);
 }
 
 TEST(test_cache_attach_starts_again) {
@@ -177,7 +177,7 @@ TEST(test_cache_attach_starts_again) {
     cache.attach(a);
     fillAll(cache);
     cache.attach(b);  // a swap: the new image's format, nothing cached yet
-    CHECK(&cache.format() == &ibm::DD_720);
+    CHECK_EQ(cache.format().rate, ibm::DD_720.rate);
     CHECK_EQ(cache.cachedTracks(), 0u);
     fillAll(cache);
     std::vector<uint8_t> want(b.at(0, 0), b.at(0, 0) + 4608);

@@ -34,14 +34,19 @@ inline void sector(uint32_t lba, uint8_t out[SECTOR_BYTES]) {
     }
 }
 
-inline uint32_t firstLba(const ibm::Format& fmt, uint8_t cylinder, uint8_t head) {
-    return (uint32_t(cylinder) * 2 + head) * fmt.sectors;
-}
-
-// One track's sector data (fmt.trackDataBytes() bytes), as ibm::buildTrack takes it.
+// One track's sector data (fmt.trackDataBytes(cylinder, head) bytes), as
+// ibm::buildTrack takes it: the 512-byte blocks at its place in the image,
+// so a PC format's sectors are the LBAs they'd be on a real disk.
 inline void track(const ibm::Format& fmt, uint8_t cylinder, uint8_t head, uint8_t* out) {
-    uint32_t lba = firstLba(fmt, cylinder, head);
-    for (uint8_t s = 0; s < fmt.sectors; ++s) sector(lba + s, out + s * SECTOR_BYTES);
+    uint32_t offset = fmt.trackOffset(cylinder, head), n = fmt.trackDataBytes(cylinder, head);
+    uint8_t block[SECTOR_BYTES];
+    for (uint32_t at = 0; at < n;) {
+        uint32_t lba = (offset + at) / SECTOR_BYTES, skip = (offset + at) % SECTOR_BYTES;
+        sector(lba, block);
+        uint32_t take = SECTOR_BYTES - skip < n - at ? SECTOR_BYTES - skip : n - at;
+        for (uint32_t i = 0; i < take; ++i) out[at + i] = block[skip + i];
+        at += take;
+    }
 }
 
 }  // namespace gen_disk

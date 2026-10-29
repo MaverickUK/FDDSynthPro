@@ -18,14 +18,18 @@ public:
 
     void clear() { count_ = 0; }
 
-    // Adds a file if it's an image we serve: .img or .ima (any case), 720 KB
-    // or 1.44 MB. Keeps the list in name order, ignoring case. Returns
-    // whether it was added.
-    bool add(const char* name, uint32_t size) {
+    // A raw image's name: .img, .ima or .dsk, any case (FlashFloppy's).
+    static bool imageName(const char* name) {
         size_t n = std::strlen(name);
-        bool image_name = n > 4 && n < NAME && (strcasecmp(name + n - 4, ".img") == 0 ||
-                                                strcasecmp(name + n - 4, ".ima") == 0);
-        if (!image_name || !formatForImageSize(size) || count_ == MAX) return false;
+        return n > 4 && n < NAME &&
+               (strcasecmp(name + n - 4, ".img") == 0 || strcasecmp(name + n - 4, ".ima") == 0 ||
+                strcasecmp(name + n - 4, ".dsk") == 0);
+    }
+
+    // Adds an image (the caller has found its format). Keeps the list in
+    // name order, ignoring case. Returns whether it was added.
+    bool add(const char* name, uint32_t size) {
+        if (!imageName(name) || count_ == MAX) return false;
         size_t at = count_;
         while (at > 0 && strcasecmp(name, entries_[at - 1].name) < 0) {
             entries_[at] = entries_[at - 1];

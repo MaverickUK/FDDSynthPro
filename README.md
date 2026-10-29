@@ -19,10 +19,11 @@ A 36-second showreel, with sound (click to play). A virtual PC uses a FAT12 disk
 Slice 0 (listen only): the firmware records every drive select, motor, side, density and write-gate change and every head step it sees, without driving any pin, and streams the trace over USB serial.
 
 The drive build (`pio run -e bb48_drive`, slices 1-3) is ready for when the hardware arrives:
-- it tracks the head, and drives TRK00, a 300 RPM index, write protect and disk change;
-- it streams a 720 KB or 1.44 MB image from the SD card on RDATA, or a generated disk without one;
+- it tracks the head, and drives TRK00, a 300 or 360 RPM index, write protect and disk change (or READY, for Shugart hosts);
+- it streams an image from the SD card on RDATA, or a generated disk without one: PC disks from 160 KB to 1.68 MB (5.25- and 3.5-inch) by their size, and other machines' MFM disks (Roland, Ensoniq, Kaypro and the like) from GoTek's `IMG.CFG`;
 - it takes writes back into the image, from single sectors to whole tracks;
-- it swaps between the images on the card, GoTek style, including between 720 KB and 1.44 MB;
+- it swaps between the images on the card, GoTek style, whatever their formats;
+- it answers as drive A or B, past a twist or on a straight cable, or as Shugart DS0–DS2; or as two drives at once, each with its own disk ([docs/config.md](docs/config.md));
 - it reports what it does as sound events (motor, clicks, seeks, bumps against the end stops, disk changes), and plays them with a sample pack through an I2S amp: the FDD Synth. See [docs/activity.md](docs/activity.md), `samples/Recorded/` for a sample pack cut from a recording of a real drive, and `samples/Placeholder/` for a synthesised stand-in.
 
 Its logic is tested on the Mac against virtual hosts (the Feather's firmware and a Greaseweazle's), and its PIO program in a simulator whose output Greaseweazle's own decoder reads back. It has not run on hardware yet.

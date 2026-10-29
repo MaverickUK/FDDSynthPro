@@ -6,6 +6,10 @@
 // its loop; each call does at most one step, so the console and the trace
 // keep going between them.
 //
+// Cylinders here are the head's (physical) ones; the format maps each to
+// the image's (ibm::Format::imageCylinder), and a cylinder or head the image
+// doesn't have is sent blank.
+//
 // If the head moves during a load, the load starts again for the new
 // cylinder at the next step: during a seek only the last cylinder is ever
 // finished, so it's ready one load after the last step, not two.
@@ -27,7 +31,8 @@ public:
 
     // `slots`: the streamer's buffer, format().track_bytes words.
     // `scratch`: format().track_bytes cell words.
-    // `data0`, `data1`: format().trackDataBytes() bytes each.
+    // `data0`, `data1`: format().maxTrackDataBytes() bytes each
+    // (ibm::MAX_TRACK_DATA covers every format).
     CylinderLoader(TrackSource& source, uint32_t* slots, uint16_t* scratch, uint8_t* data0, uint8_t* data1)
         : source_(source), slots_(slots), scratch_(scratch), data_{data0, data1} {}
 

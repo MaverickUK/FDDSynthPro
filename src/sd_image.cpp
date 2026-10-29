@@ -1,5 +1,6 @@
 #include "sd_image.h"
 
+#include <Arduino.h>
 #include <SPI.h>
 #include <SdFat.h>
 
@@ -8,6 +9,7 @@
 #include <cstring>
 
 #include "config.h"
+#include "img_cfg.h"
 #include "settings.h"
 #include "wav.h"
 
@@ -17,34 +19,47 @@ static SdFs s_sd;
 static ImageList s_images;
 static PackList s_packs;
 static int16_t* s_pool = nullptr;  // the loaded pack's samples
+// IMG.CFG's text, kept from mount() for each open(): community files are a
+// few KB.
+constexpr size_t IMG_CFG_MAX = 8192;
+static char* s_img_cfg = nullptr;
+static size_t s_img_cfg_len = 0;
+
+// An image's format: its IMG.CFG section if one matches, else its size.
+// `report` prints why a matching section can't be used.
+static bool formatOf(const char* name, uint32_t size, ibm::Format& out, bool report) {
+    if (s_img_cfg) {
+        img_cfg::Match m = img_cfg::find(s_img_cfg, s_img_cfg_len, name, size, out);
+        if (m.result == img_cfg::Result::Ok) return true;
+        if (m.result != img_cfg::Result::NoMatch && report)
+            Serial.printf("# IMG.CFG line %u, for %s: %s%s; going by its size\n", m.line, name,
+                          m.result == img_cfg::Result::Unsupported ? "not supported yet: " : "", m.why);
+    }
+    return ibm::formatForSize(size, out);
+}
 
 // A drive's open image.
 class ImageSource : public TrackSource {
 public:
-    void use(const ibm::Format& fmt) { fmt_ = &fmt; }
-    const ibm::Format& format() const override { return *fmt_; }
+    const ibm::Format& format() const override { return fmt; }
     bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) override {
-        if (cylinder >= IMAGE_CYLINDERS || head >= IMAGE_HEADS) return false;
-        uint32_t n = fmt_->trackDataBytes();
-        return file.seekSet(imageTrackOffset(*fmt_, cylinder, head)) && file.read(out, n) == int(n);
+        if (!hasTrack(fmt, cylinder, head)) return false;
+        uint32_t n = fmt.trackDataBytes(cylinder, head);
+        return file.seekSet(fmt.trackOffset(cylinder, head)) && file.read(out, n) == int(n);
     }
     // Written through at once, and synced: the card holds every sector the
     // host has been told is written, even if the power goes.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) override {
-        if (!writable_ || cylinder >= IMAGE_CYLINDERS || head >= IMAGE_HEADS || sector >= fmt_->sectors)
-            return false;
-        uint32_t n = fmt_->sectorBytes();
-        return file.seekSet(imageTrackOffset(*fmt_, cylinder, head) + sector * n) && file.write(data, n) == n &&
-               file.sync();
+        if (!writable_ || !hasTrack(fmt, cylinder, head) || sector >= fmt.track(cylinder, head).sectors) return false;
+        uint32_t n = fmt.track(cylinder, head).sectorBytes();
+        return file.seekSet(fmt.trackOffset(cylinder, head) + sector * n) && file.write(data, n) == n && file.sync();
     }
     bool writable() const override { return writable_; }
 
     FsFile file;
     char name[ImageList::NAME] = "";
     bool writable_ = false;
-
-private:
-    const ibm::Format* fmt_ = &ibm::HD_1440;
+    ibm::Format fmt = ibm::HD_1440;
 };
 
 static ImageSource s_sources[bus::MAX_DRIVES];
@@ -55,12 +70,29 @@ bool mount() {
     SPI1.setTX(cfg::PIN_SD_MOSI);
     SPI1.setSCK(cfg::PIN_SD_SCK);
     if (!s_sd.begin(SdSpiConfig(cfg::PIN_SD_CS, DEDICATED_SPI, SD_SCK_MHZ(cfg::SD_SPI_MHZ), &SPI1))) return false;
+    // IMG.CFG, for images that aren't PC ones.
+    std::free(s_img_cfg);
+    s_img_cfg = nullptr;
+    s_img_cfg_len = 0;
+    FsFile cfg;
+    if (cfg.open("/IMG.CFG", O_RDONLY) || cfg.open("/FF/IMG.CFG", O_RDONLY)) {
+        size_t size = size_t(cfg.fileSize());
+        if (size > IMG_CFG_MAX) Serial.printf("# IMG.CFG is over %u bytes: only the start is read\n", unsigned(IMG_CFG_MAX));
+        size_t n = size < IMG_CFG_MAX ? size : IMG_CFG_MAX;
+        s_img_cfg = static_cast<char*>(std::malloc(n ? n : 1));
+        int got = s_img_cfg ? cfg.read(s_img_cfg, n) : -1;
+        s_img_cfg_len = got > 0 ? size_t(got) : 0;
+        cfg.close();
+    }
     s_images.clear();
     FsFile root, f;
     if (!root.open("/")) return false;
     while (f.openNext(&root, O_RDONLY)) {
         char name[ImageList::NAME];
-        if (!f.isDir() && f.getName(name, sizeof name)) s_images.add(name, uint32_t(f.fileSize()));
+        ibm::Format fmt;
+        if (!f.isDir() && f.getName(name, sizeof name) && ImageList::imageName(name) &&
+            formatOf(name, uint32_t(f.fileSize()), fmt, true))
+            s_images.add(name, uint32_t(f.fileSize()));
         f.close();
     }
     root.close();
@@ -115,7 +147,7 @@ TrackSource* open(size_t index, unsigned drive) {
         if (!src.writable_ && !src.file.open(name, O_RDONLY)) return nullptr;
     }
     std::strcpy(src.name, name);
-    src.use(*formatForImageSize(s_images.size(index)));
+    if (!formatOf(name, s_images.size(index), src.fmt, false)) return nullptr;
     return &src;
 }
 

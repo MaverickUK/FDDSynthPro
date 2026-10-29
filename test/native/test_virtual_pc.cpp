@@ -201,6 +201,30 @@ TEST(test_pc_second_drive_ignores_the_first_drives_lines) {
     CHECK(m.unit(0).d.diskPresent());
 }
 
+TEST(test_pc_interleaved_disk) {
+    // DMF (1.68 MB): 21 sectors, interleave 2, each cylinder skewed 3 slots.
+    // Sector writes are placed by where they land, so this checks the write
+    // path follows the interleave, as the reads do.
+    ibm::Format dmf;
+    CHECK(ibm::formatForSize(1720320, dmf));
+    Machine m(dmf);
+    VirtualPc pc(m);
+    std::vector<uint8_t> buf(21 * 512);
+    pc.motorOn();
+    CHECK(pc.recalibrate());
+    CHECK(pc.readSectors(7, 1, 1, 21, buf.data()) == Status::Ok);
+    CHECK(buf == sectors(m.source, 7, 1, 1, 21));
+    std::vector<uint8_t> data(3 * 512);
+    for (size_t i = 0; i < data.size(); ++i) data[i] = uint8_t(i * 7 + 1);
+    CHECK(pc.writeSectors(7, 1, 4, 3, data.data()) == Status::Ok);
+    CHECK_EQ(m.source.writes, 3u);
+    CHECK(std::memcmp(m.source.sector(7, 1, 3), data.data(), data.size()) == 0);
+    CHECK(pc.readSectors(7, 1, 1, 21, buf.data()) == Status::Ok);
+    CHECK(buf == sectors(m.source, 7, 1, 1, 21));
+    CHECK_EQ(pc.retries, 0u);
+    for (const auto& w : m.writes) CHECK(w.decoded.bad_crc == 0 && w.decoded.unplaced == 0);
+}
+
 TEST(test_pc_head_switch_without_settle) {
     // DOS reads clusters across the end of a track: the last sector of
     // head 0, then head 1 straight away, with no step and no settle.
@@ -436,16 +460,19 @@ TEST(test_image_list) {
     CHECK(l.add("games.IMG", 1474560));
     CHECK(l.add("Apps.ima", 737280));
     CHECK(l.add("dos622.img", 1474560));
-    CHECK(!l.add("notes.txt", 1474560));      // not an image name
-    CHECK(!l.add("big.img", 2949120));        // 2.88 MB: not served
-    CHECK(!l.add("x.img", 1000));
-    CHECK_EQ(l.count(), 3u);
+    CHECK(!l.add("notes.txt", 1474560));  // not an image name
+    CHECK(!l.add(".img", 1474560));
+    // A raw .dsk, as IMG.CFG names them. Whether the drive knows an image's
+    // format is the card's question (sd_image.cpp: IMG.CFG, then its size).
+    CHECK(l.add("cpm.dsk", 409600));
+    CHECK_EQ(l.count(), 4u);
     CHECK_STR(l.name(0), "Apps.ima");  // name order, ignoring case
-    CHECK_STR(l.name(1), "dos622.img");
-    CHECK_STR(l.name(2), "games.IMG");
+    CHECK_STR(l.name(1), "cpm.dsk");
+    CHECK_STR(l.name(2), "dos622.img");
+    CHECK_STR(l.name(3), "games.IMG");
     CHECK_EQ(l.size(0), 737280u);
-    CHECK_EQ(l.next(2), 0u);  // wraps
-    CHECK_EQ(l.prev(0), 2u);
+    CHECK_EQ(l.next(3), 0u);  // wraps
+    CHECK_EQ(l.prev(0), 3u);
     ImageList empty;
     CHECK_EQ(empty.next(0), 0u);
 }
@@ -456,6 +483,7 @@ void runVirtualPcTests() {
     RUN(test_pc_dos_session);
     RUN(test_pc_two_drives);
     RUN(test_pc_second_drive_ignores_the_first_drives_lines);
+    RUN(test_pc_interleaved_disk);
     RUN(test_pc_head_switch_without_settle);
     RUN(test_pc_write_protected);
     RUN(test_pc_dd_disk);

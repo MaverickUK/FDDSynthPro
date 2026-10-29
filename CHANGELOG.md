@@ -4,6 +4,19 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-29
+
+### Added
+- **Disk formats beyond 720 KB and 1.44 MB.** `ibm::Format` now describes any IBM-style MFM disk: cylinders (up to 255), one or two heads, double stepping, the image's file layout, 300 or 360 RPM, the data rate, and per-track layouts (sector count and size, first sector ID, head ID, interleave, skew, gaps, index mark). Gaps and rates left on auto are chosen by Greaseweazle's rules.
+- **PC images by size:** 160, 180, 320 and 360 KB (40 cylinders), 720 and 800 KB, 1.2 MB (360 RPM), 1.44 MB and 1.68 MB (DMF), each matched cell for cell against Greaseweazle's `ibm.*` definitions. 2.88 MB isn't: its 1 Mbit/s track is twice what the streamer holds.
+- **GoTek's IMG.CFG** (`src/img_cfg.*`): FlashFloppy's community geometry file, read from `/IMG.CFG` or `/FF/IMG.CFG`, matched by tag and size as FlashFloppy does. Images it describes (`.img`, `.ima`, `.dsk`) are listed and served. Tested on sections from FlashFloppy's own examples (Roland, Kaypro, GRiD, Bung, Ensoniq), whose tracks match Greaseweazle's cell for cell. A section that needs FM recording, mixed sector sizes on a track, `img_bps` or per-track rates is reported on the console, and the image goes by its size instead.
+- The virtual PC runs DOS on 1.2 MB and 360 KB disks.
+
+### Changed
+- The image cache holds up to 2 MB a drive (Ensoniq's 1.6 MB, Bung's 1.76 MB); a bigger image's tracks are read from the card.
+- Core 1 no longer reads core 0's format objects: core 0 publishes each disk's rate, track length, revolution and last cylinder, and core 1 sets the drive's speed and inner stop from them at each insert.
+- The panel names any size: 360K, 1.2M, 1.44M, 1.6M.
+
 ## [0.12.0] - 2026-10-29
 
 ### Added

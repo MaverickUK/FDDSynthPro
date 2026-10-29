@@ -19,7 +19,7 @@
 
 class ImageCache : public TrackSource {
 public:
-    static constexpr unsigned TRACKS = unsigned(IMAGE_CYLINDERS) * IMAGE_HEADS;
+    static constexpr unsigned MAX_TRACKS = ibm::MAX_CYLINDERS * 2;
 
     // `buffer` holds `capacity` bytes; a 1.44 MB image needs 1,474,560.
     ImageCache(uint8_t* buffer, size_t capacity) : buffer_(buffer), capacity_(buffer ? capacity : 0) {}
@@ -31,9 +31,10 @@ public:
     // do: every track is cached, or skipped (a read error, or no room).
     bool fill();
 
-    bool complete() const { return next_ >= TRACKS; }
+    bool complete() const { return next_ >= MAX_TRACKS; }
     bool fits() const;  // the image fits: false means every read goes to the card
     unsigned cachedTracks() const;
+    unsigned tracks() const;  // the image's
     bool cached(uint8_t cylinder, uint8_t head) const;
 
     const ibm::Format& format() const override { return backing_->format(); }
@@ -42,13 +43,11 @@ public:
     bool writable() const override { return backing_->writable(); }
 
 private:
-    uint8_t* track(uint8_t cylinder, uint8_t head) {
-        return buffer_ + imageTrackOffset(format(), cylinder, head);
-    }
+    uint8_t* track(uint8_t cylinder, uint8_t head) { return buffer_ + format().trackOffset(cylinder, head); }
 
     uint8_t* buffer_;
     size_t capacity_;
     TrackSource* backing_ = nullptr;
-    unsigned next_ = TRACKS;  // the next track fill() copies (cylinder * 2 + head)
-    bool cached_[TRACKS] = {};
+    unsigned next_ = MAX_TRACKS;  // the next track fill() copies (cylinder * 2 + head)
+    bool cached_[MAX_TRACKS] = {};
 };
