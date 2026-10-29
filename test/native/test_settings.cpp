@@ -19,8 +19,30 @@ TEST(test_settings_round_trip) {
     s.volume = 40;
     char text[settings::FILE_MAX];
     size_t n = settings::format(s, text, sizeof text);
-    CHECK_STR(std::string(text, n), "image=MONKEY1.IMG\npack=Recorded\nvolume=40\n");
+    CHECK_STR(std::string(text, n),
+              "image=MONKEY1.IMG\npack=Recorded\nvolume=40\ninterface=ibmpc\ncable=twisted\ndrive=a\n");
     CHECK(settings::parse(text, n) == s);
+    s.bus = {bus::Interface::Shugart, bus::Cable::Straight, 2};
+    n = settings::format(s, text, sizeof text);
+    CHECK(settings::parse(text, n) == s);
+    CHECK(std::string(text, n).find("interface=shugart\ncable=straight\ndrive=ds2\n") != std::string::npos);
+}
+
+TEST(test_settings_bus) {
+    // An old file, from before the bus settings: a PC drive past the twist.
+    settings::Settings s = parse("image=GAMES.IMG\npack=Recorded\nvolume=75\n");
+    CHECK(s.bus == bus::Setup{});
+    s = parse("interface=ibmpc\r\ncable=straight\r\ndrive=b\r\n");
+    CHECK(s.bus.interface == bus::Interface::IbmPc);
+    CHECK(s.bus.cable == bus::Cable::Straight);
+    CHECK_EQ(s.bus.unit, 1);
+    // The unit may come before the interface.
+    s = parse("drive=ds1\ninterface=shugart\n");
+    CHECK(s.bus.interface == bus::Interface::Shugart);
+    CHECK_EQ(s.bus.unit, 1);
+    // Unknown values keep the defaults; DS3 (pin 6) isn't wired.
+    s = parse("interface=amstrad\ncable=crossed\ndrive=ds3\ndrive=c\ndrive=ds12\ndrive=\n");
+    CHECK(s.bus == bus::Setup{});
 }
 
 TEST(test_settings_defaults) {
@@ -108,6 +130,7 @@ TEST(test_pack_list) {
 
 void runSettingsTests() {
     RUN(test_settings_round_trip);
+    RUN(test_settings_bus);
     RUN(test_settings_defaults);
     RUN(test_settings_hand_edited);
     RUN(test_settings_bad_values_keep_the_defaults);
