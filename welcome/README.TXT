@@ -35,6 +35,7 @@ DISK IMAGES
               160K 180K 320K 360K (5.25-inch, 40 tracks)
               720K 800K 1.44M 1.68M (3.5-inch)   1.2M (5.25-inch, 360 RPM)
   .ADF        Amiga disks (880K)
+  .HFE        Flux images: tracks as recorded, copy protection and all
   IMG.CFG     Other machines' disks (Roland, Akai, Ensoniq, Kaypro...): put
               GoTek's IMG.CFG, as FlashFloppy uses it, in the card's root.
 

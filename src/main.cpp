@@ -175,7 +175,10 @@ static std::atomic<uint32_t> g_drive_events_dropped{0};
 // interleaved (rdata_stream.h), sized for the largest format. Core 0's
 // loader rebuilds it in place when the head moves; the DMA streams the
 // selected drive's.
-static uint32_t g_cylinder_slots[bus::MAX_DRIVES][ibm::MAX_TRACK_WORDS];
+// The first drive's are static; a second drive's (77 KB with its track
+// data) are allocated at power-on, only when one is set up (chooseDisks).
+static uint32_t g_slots0[ibm::MAX_TRACK_WORDS];
+static uint32_t* g_cylinder_slots[bus::MAX_DRIVES] = {g_slots0};
 
 // Set by core 0 in setup() (chooseDisk): the drives, how they sit on the
 // cable, and their loaders. Core 1 waits for g_started.
@@ -427,7 +430,8 @@ static WelcomeSource g_welcome(welcome_text::FILES, welcome_text::FILE_COUNT, we
 static TrackSource& builtinSource(Builtin b) {
     return b == Builtin::Generated ? static_cast<TrackSource&>(g_generated) : static_cast<TrackSource&>(g_welcome);
 }
-static uint8_t g_track_data[bus::MAX_DRIVES][2][ibm::MAX_TRACK_DATA];
+static uint8_t g_track_data0[2][ibm::MAX_TRACK_DATA];
+static uint8_t (*g_track_data[bus::MAX_DRIVES])[ibm::MAX_TRACK_DATA] = {g_track_data0};
 static uint16_t g_track_scratch[ibm::MAX_TRACK_WORDS];  // used within one loader step: shared
 static uint32_t g_read_us_max = 0;    // slowest track read (console `s`): from the cache
 static uint32_t g_encode_us_max = 0;  // slowest track encode
@@ -452,9 +456,10 @@ static void reportFill(DriveState& s, uint32_t started_ms) {
         Serial.println("# no PSRAM for the image cache: reading tracks from the card (slow seeks)");
 }
 
-// Decoding writes: a full track's data fields, plus room for strays. One
-// burst at a time, so the drives' writers share it.
-static uint8_t g_write_store[12 * 1024];
+// Decoding writes: a full track's data fields, plus room for strays; or a
+// flux image's cells, a track's worth. One burst at a time, so the drives'
+// writers share it.
+alignas(4) static uint8_t g_write_store[2 * ibm::MAX_TRACK_WORDS];
 // Two fields a sector for a whole track's write: up to 64 small sectors.
 constexpr size_t WRITE_FIELDS = 144;
 static mfm::Field g_write_fields[WRITE_FIELDS];
@@ -529,9 +534,10 @@ static void chooseDisk(unsigned i) {
     // flash core 1 runs from, and copying a 9 KB track through it would
     // evict core 1's loop, stalling it on misses long enough to miss a
     // short STEP pulse. Uncached, core 1's code stays put.
-    uint8_t* ram = static_cast<uint8_t*>(pmalloc(cfg::IMAGE_CACHE_BYTES));
+    const size_t bytes = g_drive_count > 1 ? cfg::IMAGE_CACHE_BYTES_EACH : cfg::IMAGE_CACHE_BYTES;
+    uint8_t* ram = static_cast<uint8_t*>(pmalloc(bytes));
     if (ram) ram += XIP_NOCACHE_NOALLOC_BASE - XIP_BASE;
-    s.cache = new ImageCache(ram, ram ? cfg::IMAGE_CACHE_BYTES : 0);
+    s.cache = new ImageCache(ram, ram ? bytes : 0);
     const ImageList& images = sd_image::images();
     size_t index = images.count();
     if (g_settings.image[i][0]) {
@@ -574,14 +580,25 @@ static void chooseDisks() {
         static char text[settings::FILE_MAX];  // off core 0's stack
         g_settings = settings::parse(text, sd_image::readSettings(text, sizeof text));
         g_latest = g_settings;
+    }
+    const bus::Setup& bus = g_settings.bus;
+    g_drive_count = bus.drives();
+    // A second drive's buffers, before the sample pack takes its share of RAM.
+    if (g_drive_count > 1) {
+        g_cylinder_slots[1] = static_cast<uint32_t*>(std::malloc(sizeof g_slots0));
+        g_track_data[1] = static_cast<uint8_t(*)[ibm::MAX_TRACK_DATA]>(std::malloc(sizeof g_track_data0));
+        if (!g_cylinder_slots[1] || !g_track_data[1]) {
+            Serial.println("# no RAM for a second drive: one drive only");
+            g_drive_count = 1;
+        }
+    }
+    if (card) {
         const PackList& packs = sd_image::packs();
         if (packs.count()) {
             size_t pack = packs.find(g_settings.pack);
             loadPack(pack < packs.count() ? pack : 0);
         }
     }
-    const bus::Setup& bus = g_settings.bus;
-    g_drive_count = bus.drives();
     g_interface = bus.interface;
     g_pin2_chng = bus.pin2_chng;
     for (unsigned i = 0; i < g_drive_count; ++i) {
@@ -764,6 +781,16 @@ static void serviceLoaders() {
     }
 }
 
+// A flux image's weak bits: new noise several times a revolution, as a real
+// drive reads differently each time. Cheap where there are none.
+static void serviceWeakBits() {
+    static uint32_t last_ms = 0;
+    uint32_t now = millis();
+    if (now - last_ms < 50) return;
+    last_ms = now;
+    for (unsigned i = 0; i < g_drive_count; ++i) g_drv[i].loader->refreshWeak();
+}
+
 static bool loading() {
     for (unsigned i = 0; i < g_drive_count; ++i)
         if (g_drv[i].loader->loading()) return true;
@@ -836,6 +863,7 @@ static ui::Status panelStatus() {
                    : d.builtin == Builtin::Generated ? "Generated disk"
                                                      : "Welcome disk";
     s.kb = imageKb(i);
+    s.flux = d.slot && d.slot->format().encoding == ibm::ENCODING_RAW;
     s.disk_in = sh.disk_in.load(std::memory_order_relaxed);
     s.write_protected = sh.write_protected.load(std::memory_order_relaxed);
     s.swapping = sh.swap.load(std::memory_order_relaxed) != SWAP_NONE;
@@ -1123,6 +1151,7 @@ void loop() {
     audio::service();
     for (unsigned i = 0; i < g_drive_count; ++i) serviceSwap(i);
     serviceLoaders();
+    serviceWeakBits();
     audio::service();
     serviceActivity();
     servicePanel();

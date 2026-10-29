@@ -64,13 +64,16 @@ private:
 class BurstWriter {
 public:
     // `store` holds decoded data fields: a full track's worth (9216 bytes for
-    // 1.44 MB) plus room for stray fields.
+    // 1.44 MB) plus room for stray fields. For a flux image it holds the
+    // burst's cells, so up to a track's (ibm::MAX_TRACK_WORDS words, 2-byte
+    // aligned) is kept; a longer burst's end is lost.
     BurstWriter(TrackSource& source, CylinderLoader& loader, uint8_t* store, size_t store_len, mfm::Field* fields,
                 size_t max_fields)
         : source_(source),
           loader_(loader),
           scanner_(store, store_len, fields, max_fields),
           amiga_(store, store_len),
+          store_len_(store_len),
           store_(store) {}
 
     // Each sector goes to the disk first, and into the live track only once
@@ -97,6 +100,14 @@ private:
     mfm::FieldScanner scanner_;  // IBM fields
     amiga::SectorScanner amiga_;  // or AmigaDOS sectors, for an Amiga disk; the store is shared
     bool amiga_disk_ = false;
+    // A flux image's write: the cells themselves, spliced into the track.
+    void rawCell(bool one);
+    BurstResult finishRaw(const ibm::Format& fmt);
+    bool raw_disk_ = false;
+    size_t store_len_ = 0;
+    uint32_t raw_words_ = 0;
+    unsigned raw_bits_ = 0;
+    uint16_t raw_word_ = 0;
     uint8_t* store_;
     mfm::DataSeparator separator_{16};
     WriteBurst burst_{};

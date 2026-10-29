@@ -122,3 +122,13 @@ tracks = 0-39.1
 - **A track a little too long** for a revolution (up to 5%, as some 8-inch CompuPro boot tracks are) makes the drive's revolution that much longer, as a GoTek does.
 - **Not yet supported:** different sector sizes within one track (Ensoniq's Mirage), `img_bps` padding, tracks at rates other than the disk's or half of it, and a different speed on some tracks. A section that needs one is reported on the console when the card is read, and the image goes by its size instead.
 - **Size:** images up to 2 MB are copied into PSRAM before they go in. A bigger one (Ensoniq's 5 MB SuperDisk) works, but its tracks are read from the card as the head moves, so seeks are slow.
+
+## Flux images (HFE)
+
+An `.hfe` file holds each track's cells as recorded, not its sectors. So it keeps what a sector image can't: copy protection's deliberately bad CRCs, sectors with the same ID, long tracks and weak bits, and disks this drive has no encoder for. Greaseweazle writes them (`gw read game.hfe`), as do the HxC tools, and FlashFloppy serves them on a GoTek.
+
+- **What's served:** HFE v1 and v3, at the file's bit rate, one or two sides, single- or double-stepped. Every track is the length of the longest, and a revolution takes that long, so long-track protections keep their length.
+- **Weak bits** (a protection that reads differently every time) go out as fresh random flux several times a revolution, as a real drive reads noise there.
+- **Writes** are spliced into the track's cells and written back to the file at once, for v1 files. A v3 file is read-only: its opcodes don't map evenly onto cells.
+- **Not yet:** a bit rate that changes along a track (Rob Northen's Copylock and the like). Those tracks are served at the disk's rate, and the console says how many there are when the image is opened: the protection fails, the rest of the disk works.
+- **Size:** the whole file goes into PSRAM before the disk goes in. A DD disk is about 2 MB, an HD one 4 MB. With one drive both fit; with two, DD ones do, and an HD one is read from the card as the head moves (slow seeks).

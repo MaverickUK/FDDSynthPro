@@ -18,13 +18,17 @@ public:
 
     void clear() { count_ = 0; }
 
-    // A raw image's name: .img, .ima or .dsk (FlashFloppy's), or .adf (an
-    // Amiga disk), any case.
+    // An image's name: .img, .ima or .dsk (FlashFloppy's raw sectors), .adf
+    // (an Amiga disk) or .hfe (a flux image), any case.
     static bool imageName(const char* name) {
         size_t n = std::strlen(name);
         return n > 4 && n < NAME &&
                (strcasecmp(name + n - 4, ".img") == 0 || strcasecmp(name + n - 4, ".ima") == 0 ||
-                strcasecmp(name + n - 4, ".dsk") == 0 || adfName(name));
+                strcasecmp(name + n - 4, ".dsk") == 0 || adfName(name) || hfeName(name));
+    }
+    static bool hfeName(const char* name) {
+        size_t n = std::strlen(name);
+        return n > 4 && strcasecmp(name + n - 4, ".hfe") == 0;
     }
     static bool adfName(const char* name) {
         size_t n = std::strlen(name);

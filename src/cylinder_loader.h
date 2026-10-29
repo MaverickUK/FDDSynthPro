@@ -10,6 +10,10 @@
 // the image's (ibm::Format::imageCylinder), and a cylinder or head the image
 // doesn't have is sent blank.
 //
+// A flux image's track (ibm::ENCODING_RAW) is its cells already: a load is
+// two steps, a head each, copied in. Runs of 8 or more empty cells are weak
+// bits (hfe.h): they go out as random flux, made again by refreshWeak().
+//
 // If the head moves during a load, the load starts again for the new
 // cylinder at the next step: during a seek only the last cylinder is ever
 // finished, so it's ready one load after the last step, not two.
@@ -59,6 +63,17 @@ public:
     // nothing) unless the buffer holds `cylinder`.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data);
 
+    // A flux image's write: `n` words of cells from word `first` of the
+    // head's track (round its end), into the live buffer. Weak bits it
+    // covers aren't weak any more. False unless the buffer holds `cylinder`.
+    bool writeCells(uint8_t cylinder, uint8_t head, uint32_t first, const uint16_t* cells, uint32_t n);
+
+    // New random flux in the loaded cylinder's weak bits: a real drive reads
+    // different noise on every revolution. Core 0 calls it often; cheap
+    // when there are none.
+    void refreshWeak();
+    unsigned weakRuns() const { return weak_count_[0] + weak_count_[1]; }
+
     // The cylinder the buffer holds, or -1 while it is being built. Safe to
     // read from the other core: it turns -1 before the first write into the
     // buffer, and to the cylinder only after the last.
@@ -77,6 +92,17 @@ private:
     uint16_t* scratch_;
     uint8_t* data_[2];
     bool present_[2] = {false, false};
+
+    // Weak runs in each head's loaded track, in cells.
+    struct Run {
+        uint32_t start, cells;
+    };
+    static constexpr unsigned MAX_WEAK = 32;
+    void findWeak(uint8_t head, uint32_t words);
+    void noise(uint16_t* cells, uint32_t words, const Run& r);
+    Run weak_[2][MAX_WEAK];
+    unsigned weak_count_[2] = {0, 0};
+    uint32_t rng_ = 0x2545F491u;
 
     int wanted_ = 0;
     std::atomic<int> ready_{-1};

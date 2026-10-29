@@ -92,7 +92,7 @@ public:
             : slots(ibm::MAX_TRACK_WORDS),
               data0(ibm::MAX_TRACK_DATA),
               data1(ibm::MAX_TRACK_DATA),
-              cache_ram(2 * 1024 * 1024),
+              cache_ram(4718592),  // one drive's on the board: 4.5 MB, an HD flux image
               d(dc),
               source(fmt),
               cache(cache_ram.data(), cache_ram.size()),
@@ -116,7 +116,8 @@ private:
     // and the capture below are built on these.
     Core0Costs costs_;
     std::vector<uint16_t> scratch_ = std::vector<uint16_t>(ibm::MAX_TRACK_WORDS);
-    std::vector<uint8_t> store_ = std::vector<uint8_t>(12 * 1024);
+    // Fields, or a flux image's cells: a track's worth (write_burst.h).
+    std::vector<uint8_t> store_ = std::vector<uint8_t>(2 * ibm::MAX_TRACK_WORDS);
     std::vector<mfm::Field> fields_ = std::vector<mfm::Field>(144);
     // The WDATA capture ring, as on the board (16 KB).
     std::vector<uint8_t> ring_ = std::vector<uint8_t>(16384);

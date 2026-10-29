@@ -28,6 +28,12 @@ public:
         return false;
     }
     virtual bool writable() const { return false; }
+    // A flux image's write: `n` bytes of cells at byte `at` of the track's
+    // (ibm::ENCODING_RAW). False if it can't keep them.
+    virtual bool writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) {
+        (void)cylinder, (void)head, (void)at, (void)data, (void)n;
+        return false;
+    }
 };
 
 // The disk in the drive: whichever source is inserted. The loader and the
@@ -43,6 +49,9 @@ public:
     bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override { return disk_->readTrack(c, h, out); }
     bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
         return disk_->writeSector(c, h, s, data);
+    }
+    bool writeTrackBytes(uint8_t c, uint8_t h, uint32_t at, const uint8_t* data, uint32_t n) override {
+        return disk_->writeTrackBytes(c, h, at, data, n);
     }
     bool writable() const override { return disk_->writable(); }
 

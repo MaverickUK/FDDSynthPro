@@ -30,6 +30,10 @@ void setHead(uint8_t head, const uint16_t* cells, uint32_t words, uint32_t* out)
     for (uint32_t i = 0; i < words; ++i) out[i] = (out[i] & keep) | (spread16(cells[i]) << shift);
 }
 
+void setHeadWords(uint8_t head, const uint16_t* cells, uint32_t first, uint32_t count, uint32_t* out) {
+    setHead(head, cells, count, out + first);
+}
+
 bool buildCylinder(const ibm::Format& fmt, uint8_t cylinder, const uint8_t* head0_data, const uint8_t* head1_data,
                    uint16_t* scratch, uint32_t* out) {
     if (!ibm::buildTrack(fmt, cylinder, 0, head0_data, scratch)) return false;

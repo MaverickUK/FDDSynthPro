@@ -56,3 +56,11 @@ bool ImageCache::writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, con
     if (cached(cylinder, head)) std::memcpy(track(cylinder, head) + sector * size, data, size);
     return true;
 }
+
+bool ImageCache::writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) {
+    // As writeSector: the card first.
+    if (!backing_->writeTrackBytes(cylinder, head, at, data, n)) return false;
+    uint32_t size = format().trackDataBytes(cylinder, head);
+    if (cached(cylinder, head) && at < size) std::memcpy(track(cylinder, head) + at, data, at + n <= size ? n : size - at);
+    return true;
+}

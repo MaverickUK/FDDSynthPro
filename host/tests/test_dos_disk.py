@@ -139,3 +139,66 @@ def test_dos_session_five_and_a_quarter(tmp_path, kb):
     """5.25-inch disks, by their size: 1.2 MB at 360 RPM, 360 KB on 40 cylinders."""
     img, files = make_disk(tmp_path, kb)
     check(tmp_path, img, files, "NEW.TXT", f"A {kb} KB disk.\r\n".encode())
+
+
+def _img_to_hfe(img: Path, hfe: Path, fmt: str, sectors: int):
+    """Greaseweazle's HFE of a sector image."""
+    from greaseweazle.codec import codec
+    from greaseweazle.image.hfe import HFE
+    disk = codec.get_diskdef(fmt)
+    data = img.read_bytes()
+    out = HFE(str(hfe), None)
+    per_track = sectors * 512
+    for cyl in range(80):
+        for head in range(2):
+            t = disk.mk_track(cyl, head)
+            n = (cyl * 2 + head) * per_track
+            t.set_img_track(data[n:n + per_track])
+            out.emit_track(cyl, head, t)
+    hfe.write_bytes(out.get_image())
+
+
+def _hfe_to_img(hfe: Path, img: Path, fmt: str):
+    """The sectors Greaseweazle's decoder reads from an HFE's tracks."""
+    from greaseweazle.codec import codec
+    from greaseweazle.image.hfe import HFE
+    disk = codec.get_diskdef(fmt)
+    h = HFE(str(hfe), None)
+    h.from_bytes(hfe.read_bytes())
+    out = bytearray()
+    for cyl in range(80):
+        for head in range(2):
+            decoded = disk.decode_flux(cyl, head, h.get_track(cyl, head))
+            assert decoded.nr_missing() == 0, f"{cyl}.{head}: {decoded.nr_missing()} sectors missing"
+            out += decoded.get_img_track()
+    img.write_bytes(bytes(out))
+
+
+def test_dos_session_on_a_flux_image(tmp_path):
+    """The same DOS session on an HFE flux image: the PC's sector writes are
+    spliced into the recorded cells. Greaseweazle reads the HFE back, and
+    mtools and fsck.fat judge the disk it holds."""
+    pytest.importorskip("greaseweazle")
+    img, files = make_disk(tmp_path, 1440)
+    hfe_in, hfe_out = tmp_path / "disk.hfe", tmp_path / "after.hfe"
+    _img_to_hfe(img, hfe_in, "ibm.1440", 18)
+    extract = tmp_path / "extracted"
+    extract.mkdir()
+    new = b"Written into a flux image's cells.\r\n" * 30
+    (tmp_path / "new.bin").write_bytes(new)
+    r = subprocess.run([str(TOOL), str(hfe_in), str(hfe_out), str(extract), "FLUX.TXT", str(tmp_path / "new.bin")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "retries=0" in r.stdout, r.stdout
+    for name, data in files.items():
+        assert (extract / name).read_bytes() == data, name
+    after = tmp_path / "after.img"
+    _hfe_to_img(hfe_out, after, "ibm.1440")
+    fsck = subprocess.run(["fsck.fat", "-n", str(after)], capture_output=True, text=True)
+    assert fsck.returncode == 0, fsck.stdout + fsck.stderr
+    got = tmp_path / "got"
+    mtools("mcopy", "-n", "-i", str(after), "::FLUX.TXT", str(got))
+    assert got.read_bytes() == new
+    for name, data in files.items():
+        mtools("mcopy", "-n", "-i", str(after), f"::{name}", str(got))
+        assert got.read_bytes() == data, name

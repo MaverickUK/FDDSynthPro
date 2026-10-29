@@ -81,6 +81,7 @@ uint32_t Format::imageBytes() const {
 }
 
 uint32_t Format::maxTrackDataBytes() const {
+    if (encoding == ENCODING_RAW) return uint32_t(track_bytes) * 2;
     uint32_t most = 0;
     for (unsigned k = 0; k < kind_count; ++k)
         if (kinds[k].dataBytes() > most) most = kinds[k].dataBytes();

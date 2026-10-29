@@ -38,6 +38,9 @@ void BurstWriter::begin(const WriteBurst& burst, uint32_t ticks_per_cell, uint32
     const ibm::Format& fmt = source_.format();
     amiga_disk_ = fmt.encoding == ibm::ENCODING_AMIGA;
     amiga_.reset();
+    raw_disk_ = fmt.encoding == ibm::ENCODING_RAW;
+    raw_words_ = raw_bits_ = 0;
+    raw_word_ = 0;
     int cylinder = fmt.imageCylinder(burst.cylinder);
     const ibm::Track& t = fmt.track(cylinder < 0 ? 0 : uint8_t(cylinder), burst.head);
     separator_.reset(ticks_per_cell * t.scale);
@@ -47,6 +50,11 @@ void BurstWriter::begin(const WriteBurst& burst, uint32_t ticks_per_cell, uint32
 void BurstWriter::feed(const uint8_t* intervals, size_t count) {
     for (size_t i = 0; i < count; ++i) {
         unsigned n = separator_.cells(uint32_t(intervals[i]) + edge_ticks_);
+        if (raw_disk_) {
+            for (unsigned k = 1; k < n; ++k) rawCell(false);
+            rawCell(true);
+            continue;
+        }
         if (amiga_disk_) {
             for (unsigned k = 1; k < n; ++k) amiga_.addCell(false);
             amiga_.addCell(true);
@@ -77,8 +85,51 @@ track_write::Result BurstWriter::interpretAmiga(const ibm::Format& fmt, int cyli
     return r;
 }
 
+void BurstWriter::rawCell(bool one) {
+    raw_word_ = uint16_t(raw_word_ << 1 | one);
+    if (++raw_bits_ < 16) return;
+    uint16_t* words = reinterpret_cast<uint16_t*>(store_);
+    if (raw_words_ < store_len_ / 2) words[raw_words_] = raw_word_;
+    ++raw_words_;
+    raw_bits_ = 0;
+}
+
+BurstResult BurstWriter::finishRaw(const ibm::Format& fmt) {
+    BurstResult r;
+    uint16_t* words = reinterpret_cast<uint16_t*>(store_);
+    uint32_t n = raw_words_ < store_len_ / 2 ? raw_words_ : uint32_t(store_len_ / 2);
+    if (n > fmt.track_bytes) n = fmt.track_bytes;  // a revolution's worth: the rest went over its own start
+    int cylinder = fmt.imageCylinder(burst_.cylinder);
+    if (!n) return r;
+    if (cylinder < 0 || !hasTrack(fmt, uint8_t(cylinder), burst_.head)) {
+        r.decoded.unplaced = 1;
+        return r;
+    }
+    r.decoded.updates = 1;
+    // The disk first, as the file stores cells (MSB first, two bytes a word);
+    // round the end of the track, from the word under the head at WGATE.
+    const uint32_t track = fmt.track_bytes, first = burst_.start_byte % track;
+    for (uint32_t i = 0; i < n; ++i) {
+        uint16_t w = words[i];
+        store_[2 * i] = uint8_t(w >> 8);
+        store_[2 * i + 1] = uint8_t(w);
+    }
+    uint32_t part = n < track - first ? n : track - first;
+    bool ok = source_.writeTrackBytes(uint8_t(cylinder), burst_.head, first * 2, store_, part * 2) &&
+              (part == n || source_.writeTrackBytes(uint8_t(cylinder), burst_.head, 0, store_ + part * 2, (n - part) * 2));
+    for (uint32_t i = 0; i < n; ++i) words[i] = uint16_t(store_[2 * i] << 8 | store_[2 * i + 1]);
+    if (!ok) {
+        r.failed = 1;  // the live track keeps the old cells: what the disk has
+        return r;
+    }
+    r.persisted = 1;
+    r.patched = loader_.writeCells(burst_.cylinder, burst_.head, first, words, n);
+    return r;
+}
+
 BurstResult BurstWriter::finish() {
     const ibm::Format& fmt = source_.format();
+    if (raw_disk_) return finishRaw(fmt);
     BurstResult r;
     // The head's cylinder (the loader's), and the image's (the disk's).
     int cylinder = fmt.imageCylinder(burst_.cylinder);

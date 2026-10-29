@@ -4,6 +4,19 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-29
+
+### Added
+- **HFE flux images** (`.hfe`, v1 and v3; `src/hfe.*`): each track's cells as recorded, so copy-protected disks keep their bad CRCs, duplicate sector IDs, long tracks and weak bits, and disks the drive has no encoder for still work. Matched cell for cell against Greaseweazle's own HFE files (PC, Amiga and FM disks, and synthetic protection tracks); a DOS session on an HFE, written to and decoded back by Greaseweazle, is judged by mtools and fsck.fat.
+- **Weak bits** go out as random flux, renewed several times a revolution.
+- **Writes to an HFE** (v1) are spliced into the track's cells and written back to the file at once.
+- The panel shows `HFE` in place of a size; the console reports tracks whose bit rate changes along them (served at one rate).
+
+### Changed
+- **PSRAM per drive:** 4.5 MB with one drive (an HD flux image), 3 MB each with two.
+- **A second drive's RAM buffers** (77 KB) are allocated at power-on only when one is set up: the one-drive build is down to 49% of RAM statically.
+- Track buffers hold a track 5% longer than an HD revolution (13,125 words), for long-track protections.
+
 ## [0.17.0] - 2026-10-29
 
 ### Added

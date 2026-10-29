@@ -34,6 +34,7 @@ struct Status {
     size_t image = 0;                   // which one is in (or last was)
     const char* image_name = "";
     unsigned kb = 1440;                 // the image's size: 1440, 720, 1200, 360...
+    bool flux = false;                  // a flux image (HFE): no size to show
     bool disk_in = true;
     bool write_protected = false;
     bool swapping = false;              // a swap under way (Swap screen)

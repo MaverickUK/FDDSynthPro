@@ -21,6 +21,7 @@ Slice 0 (listen only): the firmware records every drive select, motor, side, den
 The drive build (`pio run -e bb48_drive`, slices 1-3) is ready for when the hardware arrives:
 - it tracks the head, and drives TRK00, a 300 or 360 RPM index, write protect and disk change (or READY, for Shugart hosts);
 - it streams an image from the SD card on RDATA, or, without one, a welcome disk whose `README.TXT` (from [welcome/README.TXT](welcome/README.TXT)) explains how to set the drive up: PC disks from 160 KB to 1.68 MB (5.25- and 3.5-inch) by their size, and other machines' disks, MFM or FM (Roland, Ensoniq, Kaypro, the Osborne 1, 8-inch CP/M and the like), from GoTek's `IMG.CFG`;
+- it serves HFE flux images too: tracks as recorded, so copy-protected disks keep their bad CRCs, long tracks and weak bits;
 - it takes writes back into the image, from single sectors to whole tracks;
 - it swaps between the images on the card, GoTek style, whatever their formats;
 - it answers as drive A or B, past a twist or on a straight cable, or as Shugart DS0–DS2; or as two drives at once, each with its own disk ([docs/config.md](docs/config.md));

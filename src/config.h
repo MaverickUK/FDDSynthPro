@@ -80,10 +80,12 @@ constexpr unsigned PIN_SD_MISO = 24;  // DAT0
 // before the disk goes in: 160 tracks, about 0.6 s.
 constexpr uint32_t SD_SPI_MHZ = 25;
 
-// The image cache: one whole image in PSRAM, per drive: 2 MB holds every
-// format the streamer can send at 300 RPM but Ensoniq's 5 MB SuperDisk,
-// whose tracks are then read from the card. Two drives use 4 of the 8 MB.
-constexpr size_t IMAGE_CACHE_BYTES = 2 * 1024 * 1024;
+// The image cache: one whole image in PSRAM, per drive. With one drive,
+// 4.5 MB: an HD flux image (4 MB of cells, more with long tracks). With
+// two, 3 MB each: DD flux images and every sector image but Ensoniq's 5 MB
+// SuperDisk. A bigger image's tracks are read from the card (slow seeks).
+constexpr size_t IMAGE_CACHE_BYTES = 4608 * 1024;         // one drive
+constexpr size_t IMAGE_CACHE_BYTES_EACH = 3 * 1024 * 1024;  // each of two
 
 // Audio: a MAX98357A I2S amp, as on HDDSynth_Native. Below GPIO 32, so the
 // I2S PIO program works in the same GPIO 0-31 window as RDATA and WDATA.

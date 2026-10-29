@@ -35,9 +35,10 @@
 
 namespace ibm {
 
-// The streamer's buffers hold a track of up to 12,500 cell words: 500
-// kbit/s at 300 RPM. Track data (one track's sectors) up to 12 KB.
-constexpr uint32_t MAX_TRACK_WORDS = 12500;
+// The streamer's buffers hold a track of up to 13,125 cell words: 500
+// kbit/s at 300 RPM, and 5% more for a long track (a flux image's copy
+// protection, a stretched layout). Track data (one track's sectors) up to 12 KB.
+constexpr uint32_t MAX_TRACK_WORDS = 13125;
 constexpr uint32_t MAX_TRACK_DATA = 12288;
 constexpr unsigned MAX_CYLINDERS = 255;  // FlashFloppy's limit: Ensoniq's SuperDisk
 constexpr unsigned MAX_KINDS = 8;        // distinct track layouts in one disk
@@ -91,6 +92,7 @@ enum FileLayout : uint8_t {
 enum Encoding : uint8_t {
     ENCODING_IBM = 0,  // IBM MFM: ID and data fields with gaps (this file)
     ENCODING_AMIGA,    // AmigaDOS: a whole track of sectors (amiga_track.h)
+    ENCODING_RAW,      // the cells themselves, as recorded: a flux image (hfe.h)
 };
 
 struct Format {
@@ -112,7 +114,11 @@ struct Format {
     const Track& track(uint8_t cylinder, uint8_t head) const {
         return kinds[cylinder < cyls && head < 2 ? kind_of[cylinder][head] : 0];
     }
-    uint32_t trackDataBytes(uint8_t cylinder, uint8_t head) const { return track(cylinder, head).dataBytes(); }
+    // A track's data: its sectors' bytes; for a flux image, its cells (two
+    // bytes a word, every track alike).
+    uint32_t trackDataBytes(uint8_t cylinder, uint8_t head) const {
+        return encoding == ENCODING_RAW ? uint32_t(track_bytes) * 2 : track(cylinder, head).dataBytes();
+    }
     uint32_t dataRate() const { return rate; }
     uint32_t stretched_period_us = 0;
     uint32_t periodUs() const { return stretched_period_us ? stretched_period_us : 60000000u / rpm; }

@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "amiga_track.h"
+#include "hfe.h"
 #include "img_cfg.h"
 #include "settings.h"
 #include "wav.h"
@@ -44,11 +45,26 @@ static bool formatOf(const char* name, uint32_t size, ibm::Format& out, bool rep
     return ibm::formatForSize(size, out);
 }
 
-// A drive's open image.
+// An open file on the card, for the HFE reader.
+class CardFile : public hfe::File {
+public:
+    explicit CardFile(FsFile& f) : f_(f) {}
+    bool read(uint32_t at, uint8_t* out, uint32_t n) override { return f_.seekSet(at) && f_.read(out, n) == int(n); }
+    bool write(uint32_t at, const uint8_t* data, uint32_t n) override {
+        return f_.seekSet(at) && f_.write(data, n) == n;
+    }
+    bool flush() override { return f_.sync(); }
+
+private:
+    FsFile& f_;
+};
+
+// A drive's open image: sectors (IMG, ADF), or a flux image (HFE).
 class ImageSource : public TrackSource {
 public:
-    const ibm::Format& format() const override { return fmt; }
+    const ibm::Format& format() const override { return flux ? disk.format() : fmt; }
     bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) override {
+        if (flux) return disk.readTrack(cylinder, head, out);
         if (!hasTrack(fmt, cylinder, head)) return false;
         uint32_t n = fmt.trackDataBytes(cylinder, head);
         return file.seekSet(fmt.trackOffset(cylinder, head)) && file.read(out, n) == int(n);
@@ -56,16 +72,23 @@ public:
     // Written through at once, and synced: the card holds every sector the
     // host has been told is written, even if the power goes.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) override {
-        if (!writable_ || !hasTrack(fmt, cylinder, head) || sector >= fmt.track(cylinder, head).sectors) return false;
+        if (flux || !writable_ || !hasTrack(fmt, cylinder, head) || sector >= fmt.track(cylinder, head).sectors) return false;
         uint32_t n = fmt.track(cylinder, head).sectorBytes();
         return file.seekSet(fmt.trackOffset(cylinder, head) + sector * n) && file.write(data, n) == n && file.sync();
     }
-    bool writable() const override { return writable_; }
+    // A flux image's write: synced once it's all in.
+    bool writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) override {
+        return flux && disk.writeTrackBytes(cylinder, head, at, data, n);
+    }
+    bool writable() const override { return flux ? disk.writable() : writable_; }
 
     FsFile file;
     char name[ImageList::NAME] = "";
     bool writable_ = false;
     ibm::Format fmt = ibm::HD_1440;
+    bool flux = false;
+    CardFile card{file};
+    hfe::Disk disk;
 };
 
 static ImageSource s_sources[bus::MAX_DRIVES];
@@ -96,9 +119,21 @@ bool mount() {
     while (f.openNext(&root, O_RDONLY)) {
         char name[ImageList::NAME];
         ibm::Format fmt;
-        if (!f.isDir() && f.getName(name, sizeof name) && ImageList::imageName(name) &&
-            formatOf(name, uint32_t(f.fileSize()), fmt, true))
-            s_images.add(name, uint32_t(f.fileSize()));
+        if (!f.isDir() && f.getName(name, sizeof name) && ImageList::imageName(name)) {
+            bool ok;
+            if (ImageList::hfeName(name)) {  // a flux image: by its header
+                uint8_t block0[64];
+                hfe::Header h;
+                const char* why = f.read(block0, sizeof block0) == int(sizeof block0)
+                                      ? hfe::parseHeader(block0, sizeof block0, h)
+                                      : "can't read it";
+                if (why) Serial.printf("# %s: %s\n", name, why);
+                ok = !why;
+            } else {
+                ok = formatOf(name, uint32_t(f.fileSize()), fmt, true);
+            }
+            if (ok) s_images.add(name, uint32_t(f.fileSize()));
+        }
         f.close();
     }
     root.close();
@@ -153,6 +188,18 @@ TrackSource* open(size_t index, unsigned drive) {
         if (!src.writable_ && !src.file.open(name, O_RDONLY)) return nullptr;
     }
     std::strcpy(src.name, name);
+    src.flux = ImageList::hfeName(name);
+    if (src.flux) {
+        if (const char* why = src.disk.open(src.card, src.writable_)) {
+            Serial.printf("# %s: %s\n", name, why);
+            return nullptr;
+        }
+        if (src.disk.variableRateTracks())
+            Serial.printf("# %s: %u tracks change bit rate along them: served at one rate\n", name,
+                          src.disk.variableRateTracks());
+        if (src.disk.header().version == 3) Serial.printf("# %s: HFE v3, so read-only\n", name);
+        return &src;
+    }
     if (!formatOf(name, s_images.size(index), src.fmt, false)) return nullptr;
     return &src;
 }

@@ -27,6 +27,9 @@ uint16_t headCells(uint32_t slots, uint8_t head);
 // leaving the other head's as they are.
 void setHead(uint8_t head, const uint16_t* cells, uint32_t words, uint32_t* out);
 
+// The same for `count` words from word `first` (a write, or new noise).
+void setHeadWords(uint8_t head, const uint16_t* cells, uint32_t first, uint32_t count, uint32_t* out);
+
 // Builds both tracks of a cylinder into `out` (fmt.track_bytes words).
 // `head0_data` and `head1_data` are each track's sector data, as
 // ibm::buildTrack takes it. `scratch` holds fmt.track_bytes cell words.

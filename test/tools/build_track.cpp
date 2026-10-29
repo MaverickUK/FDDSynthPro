@@ -9,6 +9,10 @@
 //       Cylinder N as the RDATA streamer is fed it (rdata_stream.h):
 //       track_bytes 32-bit slot words, big-endian.
 //
+//   build_track hfe:FILE > tracks.bin
+//       An HFE flux image's tracks as the drive serves them (hfe.h): every
+//       track the same length, its cells as recorded (weak bits empty).
+//
 // FORMAT is 1440 or 720 (the PC formats), adf (an Amiga disk), size:BYTES (a raw image's format
 // by its size: ibm::formatForSize), or cfg:IMG.CFG:NAME:BYTES (the IMG.CFG
 // section for an image of that name and size). Without an image, the
@@ -20,6 +24,7 @@
 #include <vector>
 
 #include "gen_disk.h"
+#include "hfe.h"
 #include "ibm_track.h"
 #include "img_cfg.h"
 #include "rdata_stream.h"
@@ -59,7 +64,32 @@ static bool parseFormat(const char* arg, ibm::Format& fmt) {
     return false;
 }
 
+static int hfeTracks(const char* path) {
+    std::vector<uint8_t> bytes = readFile(path);
+    hfe::MemoryFile file(bytes.data(), uint32_t(bytes.size()));
+    hfe::Disk disk;
+    if (const char* why = disk.open(file, false)) {
+        std::fprintf(stderr, "%s: %s\n", path, why);
+        return 1;
+    }
+    const ibm::Format& fmt = disk.format();
+    std::vector<uint8_t> track(fmt.track_bytes * 2u);
+    for (uint8_t c = 0; c < fmt.cyls; ++c)
+        for (uint8_t h = 0; h < fmt.heads; ++h) {
+            if (!disk.readTrack(c, h, track.data())) {
+                std::fprintf(stderr, "track %u.%u unreadable\n", c, h);
+                return 1;
+            }
+            std::fwrite(track.data(), 1, track.size(), stdout);
+        }
+    std::fprintf(stderr, "HFE v%u cyls=%u heads=%u rate=%u words=%u period_us=%u variable=%u\n", disk.header().version,
+                 fmt.cyls, fmt.heads, unsigned(fmt.rate), unsigned(fmt.track_bytes), unsigned(fmt.periodUs()),
+                 disk.variableRateTracks());
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc == 2 && std::strncmp(argv[1], "hfe:", 4) == 0) return hfeTracks(argv[1] + 4);
     const char* image_path = nullptr;
     int cylinder = -1;
     ibm::Format fmt;

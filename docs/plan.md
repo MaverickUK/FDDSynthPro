@@ -19,6 +19,7 @@ The prototype has also gone well past its first scope:
 | The Amiga: ADF images, DF0/DF1, pin 2 (/CHNG) after a board rework | 0.14 |
 | The welcome disk (with no card), a fixed startup image | 0.15, 0.16 |
 | FM (single density), tracks at half a disk's rate | 0.17 |
+| HFE flux images: copy protection, weak bits, spliced writes | 0.18 |
 
 The settings, formats and interfaces are described in [config.md](config.md).
 
@@ -34,7 +35,7 @@ The prototype proves one thing: an RP2350B can act as a 3.5-inch PC floppy drive
 - Activity events for the sounds: motor, steps, seeks, the head hitting the track 0 stop.
 
 **Still out of scope**
-- Flux images (HFE, SCP) and copy-protected disks; Mac GCR, Apple II and C64 disks.
+- SCP and other raw flux formats; bit rates that change along a track (some copy protections). HFE covers the rest, Mac GCR, Apple II and C64 disks included, as recorded.
 - ED disks (2.88 MB, the Sinclair QL's 3.2 MB): a 1 Mbit/s track is twice what the buffers hold.
 - FlashFloppy's `FF.CFG` and its `host=` geometry tables (Akai, Ensoniq, Roland and the like by size alone): `IMG.CFG` covers them.
 
@@ -175,7 +176,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
 2. Image selection: buttons or an encoder and an OLED, GoTek style. *Done (0.8): `src/panel.*` and the screens in `docs/oled`.*
 3. 5.25-inch drives: 360 KB and 1.2 MB, 360 RPM for HD, double stepping. *Done (0.13).*
 4. Other formats: Atari ST, Amiga ADF (a different sector layout and drive-ready behaviour). *Done: ST disks are PC-style MFM, served by size or `IMG.CFG` (0.13); the Amiga in 0.14.*
-5. Flux images (HFE) for copy-protected disks. *Not started.*
+5. Flux images (HFE) for copy-protected disks. *Done (0.18), but for tracks whose bit rate changes along them.*
 6. A PCB. *Rev B done: the carrier board, with the SN7407 and termination. A rev C would route the SN7407's spare gate to floppy pin 2 (the Amiga's /CHNG), and could add Schmitt-trigger input buffering.*
 
 ## Risks and open questions
@@ -189,7 +190,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
 | Erratum E9 on A2-stepping RP2350s | Never use internal pull-downs |
 | RDATA pulse width and jitter the controller won't accept | Match the reference drive (measured with the logic analyser), and check `gw read` margins with its flux histogram |
 | Core 0 falls behind a long write | Writes stream through a 16 KB ring (44 ms at 1.44 MB) and decode in 2 KB chunks. An overrun drops that burst rather than writing junk; watch `capture_overruns` |
-| RAM: the drive build uses 58% statically (buffers for two drives and the largest track), plus the sample pack at run time (152 KB for the stand-in pack, up to 160 KB) | Watch for heap trouble at bring-up. The second drive's buffers could be allocated only when it's set up; packs with longer samples would stream from SD, as HDDSynth_Native does |
+| RAM: the drive build uses 49% statically, plus the sample pack at run time (152 KB for the stand-in pack, up to 160 KB), plus a second drive's 77 KB when one is set up | Watch for heap trouble at bring-up, with two drives especially (`# no RAM for a second drive` on the console). Packs with longer samples would stream from SD, as HDDSynth_Native does |
 | Core 0 stalls longer than the 46 ms audio queue | Writes decode in chunks with audio between them; the longest remaining step is an SD read or a track encode (a few ms). `audio_underruns` in `s` |
 | The card fails or is pulled out while writing | Sectors reach the live track only once the card has them, so a read-back shows the old data. After any lost write, the drive reports write-protect until the disk is inserted again, so the host's next write fails visibly (`write_faults` in `s`). A failed read gives a blank track: the host sees missing sectors |
 | SD reads slower than the settle time | They are (3.5 ms a track at 25 MHz): since 0.10 each image is copied into PSRAM before it goes in, and tracks load from there |

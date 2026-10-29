@@ -7,6 +7,9 @@
 //
 //   dos_session <in.img> <out.img> <extract folder> <new file name> <new file contents>
 //
+// An .hfe in (and out) instead: the same session on a flux image (hfe.h),
+// the writes spliced into its tracks.
+//
 // stdout: one "FILE <name> <size>" line per file read, then a summary line.
 //
 // Or, with the drive as A and B on one cable, COPY A:*.* B:
@@ -21,6 +24,7 @@
 #include <vector>
 
 #include "dos.h"
+#include "hfe.h"
 #include "machine.h"
 #include "track_source.h"
 #include "virtual_pc.h"
@@ -113,18 +117,33 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::vector<uint8_t> image = load(argv[1]);
+    std::string in(argv[1]);
+    bool flux = in.size() > 4 && in.compare(in.size() - 4, 4, ".hfe") == 0;
+    hfe::MemoryFile file(image.data(), uint32_t(image.size()));
+    hfe::Disk hfe_disk;
+    if (flux) {
+        if (const char* why = hfe_disk.open(file, true)) {
+            std::fprintf(stderr, "%s: %s\n", argv[1], why);
+            return 1;
+        }
+    }
     ibm::Format format;
-    const ibm::Format* fmt = ibm::formatForSize(uint32_t(image.size()), format) ? &format : nullptr;
+    const ibm::Format* fmt = flux ? &hfe_disk.format()
+                             : ibm::formatForSize(uint32_t(image.size()), format) ? &format
+                                                                                   : nullptr;
     if (!fmt) {
         std::fprintf(stderr, "%s: not an image of a size the drive knows\n", argv[1]);
         return 1;
     }
 
     // The machine, with this image in, and the PC as at power-on.
-    Machine m(*fmt, Core0Costs{}, 37);
-    MemorySource disk(*fmt, std::move(image));
+    Machine m(flux ? ibm::HD_1440 : *fmt, Core0Costs{}, 37);
+    MemorySource disk(*fmt, flux ? std::vector<uint8_t>() : image);
     m.eject();
-    m.insert(disk);
+    if (flux)
+        m.insert(hfe_disk);
+    else
+        m.insert(disk);
     VirtualPc pc(m);
     if (!start(pc)) {
         std::fprintf(stderr, "the PC couldn't read the disk\n");
@@ -165,7 +184,7 @@ int main(int argc, char** argv) {
     }
     pc.motorOff();
     pc.run(100000);
-    if (!save(argv[2], disk.image())) return 1;
+    if (!save(argv[2], flux ? image : disk.image())) return 1;
     std::printf("SESSION read=%u written=%u retries=%u free_before=%u free_after=%u\n", dos.sectorsRead,
                 dos.sectorsWritten, pc.retries, free_before, again.freeClusters());
     return 0;

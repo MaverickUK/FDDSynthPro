@@ -132,7 +132,7 @@ void home(Canvas& c, const ui::Status& s) {
 
     // The format, and write protection.
     char size[8];
-    c.text(40, 13, formatName(s.kb, size));
+    c.text(40, 13, s.flux ? "HFE" : formatName(s.kb, size));
     if (s.write_protected) {
         c.fillRect(72, 12, 15, 9);
         c.text(74, 13, "WP", false);
