@@ -3,6 +3,7 @@
 #include "amiga_track.h"
 #include "crc16.h"
 #include "mfm.h"
+#include "ram_func.h"
 
 namespace ibm {
 
@@ -248,23 +249,52 @@ public:
         : out_(out), words_(words), fm_(fm), scale_(scale) {}
 
     // A data byte: FM with every clock cell set; MFM after the last bit.
-    void byte(uint8_t b) {
-        put(fm_ ? fmCells(b, 0xFF) : mfm::encodeByte(b, last_bit_));
+    ALWAYS_INLINE void byte(uint8_t b) {
+        put(fm_ ? fmCells(b, 0xFF) : mfm::encodeByteFast(b, last_bit_));
         last_bit_ = b & 1;
     }
-    void fill(uint8_t b, size_t n) {
+    ALWAYS_INLINE void fill(uint8_t b, size_t n) {
+        if (fastPath(n) && n) {
+            // MFM at the disk's rate: after the first byte, every word is the same.
+            uint16_t* o = out_ + size_;
+            o[0] = mfm::encodeByteFast(b, last_bit_);
+            const uint16_t w = mfm::encodeByteFast(b, b & 1);
+            for (size_t i = 1; i < n; ++i) o[i] = w;
+            size_ += uint32_t(n);
+            last_bit_ = b & 1;
+            return;
+        }
         for (size_t i = 0; i < n; ++i) byte(b);
     }
-    void bytes(const uint8_t* p, size_t n) {
+    // A field's bytes, returning the CRC run on over them. The fast path
+    // keeps everything in registers: it's most of a track (18 x 512 bytes).
+    ALWAYS_INLINE uint16_t bytesWithCrc(const uint8_t* p, size_t n, uint16_t crc) {
+        if (fastPath(n)) {
+            uint16_t* o = out_ + size_;
+            bool last = last_bit_;
+            for (size_t i = 0; i < n; ++i) {
+                const uint8_t b = p[i];
+                o[i] = mfm::encodeByteFast(b, last);
+                last = b & 1;
+                crc = crc16::updateFast(crc, b);
+            }
+            size_ += uint32_t(n);
+            last_bit_ = last;
+            return crc;
+        }
+        bytes(p, n);
+        return crc16::compute(p, n, crc);
+    }
+    ALWAYS_INLINE void bytes(const uint8_t* p, size_t n) {
         for (size_t i = 0; i < n; ++i) byte(p[i]);
     }
     // MFM: a sync word as is (A1 or C2, missing a clock).
-    void sync(uint16_t cells) {
+    ALWAYS_INLINE void sync(uint16_t cells) {
         put(cells);
         last_bit_ = cells & 1;
     }
     // FM: a mark, with its clocks (C7 or D7: missing some).
-    void mark(uint8_t b, uint8_t clock) {
+    ALWAYS_INLINE void mark(uint8_t b, uint8_t clock) {
         put(fmCells(b, clock));
         last_bit_ = b & 1;
     }
@@ -286,13 +316,16 @@ public:
     }
 
 private:
+    // MFM, one word a byte, and room for n more: the loops can write directly.
+    bool fastPath(size_t n) const { return !fm_ && scale_ == 1 && n <= words_ - size_; }
+
     // 8 cells as 16: each one, then an empty one.
     static uint16_t stretch(uint8_t cells) {
         uint16_t w = 0;
         for (int i = 7; i >= 0; --i) w = uint16_t(w << 2 | ((cells >> i) & 1) << 1);
         return w;
     }
-    void put(uint16_t cells) {
+    ALWAYS_INLINE void put(uint16_t cells) {
         if (scale_ == 1) {
             push(cells);
         } else {
@@ -300,7 +333,7 @@ private:
             push(stretch(uint8_t(cells)));
         }
     }
-    void push(uint16_t w) {
+    ALWAYS_INLINE void push(uint16_t w) {
         if (size_ < words_)
             out_[size_++] = w;
         else
@@ -318,7 +351,7 @@ private:
 
 // A field: its zeros, its sync (MFM: A1 A1 A1 and the mark; FM: the mark
 // with clock C7), the field and its CRC, which covers the sync bytes too.
-static void syncedField(TrackCells& e, bool fm, uint8_t mark, const uint8_t* field, size_t n) {
+RAM_FUNC(ibm_syncedField) static void syncedField(TrackCells& e, bool fm, uint8_t mark, const uint8_t* field, size_t n) {
     uint16_t crc = crc16::INITIAL;
     if (fm) {
         e.fill(0x00, 6);
@@ -330,13 +363,12 @@ static void syncedField(TrackCells& e, bool fm, uint8_t mark, const uint8_t* fie
         e.byte(mark);
     }
     crc = crc16::update(crc, mark);
-    e.bytes(field, n);
-    crc = crc16::compute(field, n, crc);
+    crc = e.bytesWithCrc(field, n, crc);
     e.byte(uint8_t(crc >> 8));
     e.byte(uint8_t(crc));
 }
 
-bool buildTrack(const Format& fmt, uint8_t cylinder, uint8_t head, const uint8_t* data, uint16_t* out) {
+RAM_FUNC(ibm_buildTrack) bool buildTrack(const Format& fmt, uint8_t cylinder, uint8_t head, const uint8_t* data, uint16_t* out) {
     const Track& t = fmt.track(cylinder, head);
     if (fmt.encoding == ENCODING_AMIGA) return amiga::buildTrack(cylinder, head, t.sectors, data, out, fmt.track_bytes);
     if (t.usedBytes() > fmt.track_bytes) return false;

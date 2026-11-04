@@ -150,15 +150,48 @@ TEST(test_observer_reports_changes_only) {
     DriveEvent out[3];
     CHECK_EQ(obs.observe(0, d, drive::StepEvent{}, out), 0u);  // power-on state: nothing
     d.onSample(10, fdd::INPUT_MASK & ~fdd::maskOf(cfg::PIN_MOTEB));
-    CHECK_EQ(obs.observe(10, d, drive::StepEvent{}, out), 1u);
+    CHECK_EQ(obs.observe(10, d, drive::StepEvent{}, out), 0u);  // not yet: the hold
+    const uint32_t on = 10 + activity::DriveObserver::MOTOR_HOLD_US;
+    CHECK_EQ(obs.observe(on, d, drive::StepEvent{}, out), 1u);
     CHECK(out[0].input == Input::MotorOn);
-    CHECK_EQ(obs.observe(11, d, drive::StepEvent{}, out), 0u);
+    CHECK_EQ(out[0].time_us, on);
+    CHECK_EQ(obs.observe(on + 1, d, drive::StepEvent{}, out), 0u);
     d.ejectDisk();
     drive::StepEvent step{true, head::Step::In, 1};
-    CHECK_EQ(obs.observe(12, d, step, out), 2u);
+    CHECK_EQ(obs.observe(on + 2, d, step, out), 2u);
     CHECK(out[0].input == Input::Eject);
     CHECK(out[1].input == Input::Step);
     CHECK_EQ(out[1].cylinder, 1);
+}
+
+TEST(test_observer_ignores_motor_glitches) {
+    // The Feather's pulse at the start of a command: up to 34 us, then
+    // released. Neither edge is heard.
+    drive::Drive d;
+    d.insertDisk(true);
+    activity::DriveObserver obs;
+    DriveEvent out[3];
+    const uint32_t motor_on = fdd::INPUT_MASK & ~fdd::maskOf(cfg::PIN_MOTEB);
+    obs.observe(0, d, drive::StepEvent{}, out);
+    unsigned heard = 0;
+    for (uint32_t t = 100; t < 100 + 34; t += 2) {
+        d.onSample(t, motor_on);
+        heard += obs.observe(t, d, drive::StepEvent{}, out);
+    }
+    for (uint32_t t = 134; t < 5000; t += 2) {
+        d.onSample(t, fdd::INPUT_MASK);
+        heard += obs.observe(t, d, drive::StepEvent{}, out);
+    }
+    CHECK_EQ(heard, 0u);
+    // A motor that stays off for less than the hold isn't heard stopping either.
+    d.onSample(5000, motor_on);
+    obs.observe(5000, d, drive::StepEvent{}, out);
+    CHECK_EQ(obs.observe(5000 + activity::DriveObserver::MOTOR_HOLD_US, d, drive::StepEvent{}, out), 1u);
+    d.onSample(8000, fdd::INPUT_MASK);
+    CHECK_EQ(obs.observe(8000, d, drive::StepEvent{}, out), 0u);
+    d.onSample(8500, motor_on);
+    CHECK_EQ(obs.observe(8500, d, drive::StepEvent{}, out), 0u);
+    CHECK_EQ(obs.observe(20000, d, drive::StepEvent{}, out), 0u);
 }
 
 // ---- Fed by the virtual hosts ----------------------------------------------------------
@@ -175,8 +208,10 @@ struct Pipeline {
             for (unsigned i = 0; i < n; ++i) tr.onDriveEvent(out[i]);
             for (const auto& ev : drain(tr)) events.push_back(ev);
         };
+        host.sample_every_us = 500;  // core 1 samples all the time, not only on a change
     }
     std::vector<activity::Event> finish() {
+        host.idle(10000);  // long enough for a last motor change to be heard
         tr.update(host.now + 1000000);
         for (const auto& ev : drain(tr)) events.push_back(ev);
         CHECK_EQ(tr.dropped(), 0u);
@@ -219,6 +254,25 @@ TEST(test_feather_steps_click) {
     CHECK_EQ(countOf(ev, Sound::Step), 10u);
     CHECK_EQ(countOf(ev, Sound::SeekStart), 0u);
     CHECK_EQ(movingSteps(ev), 10u);
+}
+
+TEST(test_feather_command_start_is_silent) {
+    // `gw seek` then `gw rpm`, each starting with the Feather's pin set-up
+    // glitches: one motor run (rpm's), no blips, no stray steps.
+    Pipeline<VirtualAdafruitFloppy> p;
+    p.host.commandStart();
+    p.host.select(true);
+    CHECK(p.host.gotoTrack(2));
+    p.host.select(false);
+    p.host.commandStart();
+    p.host.select(true);
+    CHECK(p.host.motorOn());
+    p.host.motorOff();
+    p.host.select(false);
+    auto ev = p.finish();
+    CHECK_EQ(countOf(ev, Sound::MotorOn), 1u);
+    CHECK_EQ(countOf(ev, Sound::MotorOff), 1u);
+    CHECK_EQ(movingSteps(ev), 2u);
 }
 
 TEST(test_feather_recalibrate_from_mid_disk) {
@@ -300,8 +354,10 @@ void runActivityTests() {
     RUN(test_tracker_queue_keeps_the_newest);
     RUN(test_format_truncates);
     RUN(test_observer_reports_changes_only);
+    RUN(test_observer_ignores_motor_glitches);
     RUN(test_greaseweazle_seek_is_one_seek);
     RUN(test_feather_steps_click);
+    RUN(test_feather_command_start_is_silent);
     RUN(test_feather_recalibrate_from_mid_disk);
     RUN(test_noclick_step_bumps);
     RUN(test_motor_on_and_off);

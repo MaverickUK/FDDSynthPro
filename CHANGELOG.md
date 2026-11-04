@@ -4,6 +4,17 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-04
+
+First run on the carrier board (with a plain BB48: no PSRAM or card), against the Feather host: slices 0 and 1 pass, and slice 2 reads the generated disk byte for byte.
+
+### Changed
+- **Encoding a track is 5 times faster** (26 ms to 3.0 ms an HD head, measured on the board), so a cylinder is ready within the host's 15 ms settle time. Lookup tables for the MFM encoder, the CRC and the cell interleave, kept in RAM; the encoder's and interleave's loops run from RAM (`src/ram_func.h`), out of the flash cache that core 1 runs from; and a field's bytes are encoded, stored and added to its CRC in one pass.
+- **The motor is heard only once its line has held for 1 ms** (`DriveObserver::MOTOR_HOLD_US`). The Feather host pulses the motor line for up to 34 us at the start of every command, which played a blip of spin-up.
+
+### Added
+- Console `t`: times a loader step on the board, in its parts (`BENCH ... read_us build_us interleave_us`, min/mean/max). Console `z` zeroes the loader's timings; `s` shows their means and counts as well as the maxima.
+
 ## [0.18.0] - 2026-10-29
 
 ### Added

@@ -27,6 +27,14 @@ TEST(test_crc16_check_values) {
     CHECK_EQ(crc16::compute(with_crc, sizeof with_crc), 0);
 }
 
+TEST(test_crc16_table_matches_bitwise) {
+    bool ok = true;
+    for (unsigned crc = 0; crc < 0x10000; crc += 0x0101)
+        for (unsigned b = 0; b < 256; ++b)
+            if (crc16::updateFast(uint16_t(crc), uint8_t(b)) != crc16::update(uint16_t(crc), uint8_t(b))) ok = false;
+    CHECK(ok);
+}
+
 // ---- MFM ---------------------------------------------------------------------
 
 TEST(test_mfm_known_words) {
@@ -45,6 +53,14 @@ TEST(test_mfm_round_trip) {
     for (int b = 0; b < 256; ++b)
         for (int prev = 0; prev < 2; ++prev)
             if (mfm::decodeWord(mfm::encodeByte(uint8_t(b), prev)) != b) ok = false;
+    CHECK(ok);
+}
+
+TEST(test_mfm_table_matches_loop) {
+    bool ok = true;
+    for (int b = 0; b < 256; ++b)
+        for (int prev = 0; prev < 2; ++prev)
+            if (mfm::encodeByteFast(uint8_t(b), prev) != mfm::encodeByte(uint8_t(b), prev)) ok = false;
     CHECK(ok);
 }
 
@@ -289,8 +305,10 @@ TEST(test_clock_divider) {
 
 void runTrackTests() {
     RUN(test_crc16_check_values);
+    RUN(test_crc16_table_matches_bitwise);
     RUN(test_mfm_known_words);
     RUN(test_mfm_round_trip);
+    RUN(test_mfm_table_matches_loop);
     RUN(test_mfm_encoder);
     RUN(test_track_formats_fit);
     RUN(test_track_layout_hd);

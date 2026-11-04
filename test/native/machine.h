@@ -62,8 +62,9 @@ private:
 };
 
 // Core 0's costs per loader step: track reads from the image cache in PSRAM
-// (image_cache.h; test_loader.cpp's estimate), and an assumed encode
-// time until the board measures it (test_loader.cpp uses the same). And the
+// (image_cache.h; test_loader.cpp's estimate), and the encode as measured
+// on the board (console `t`, 2026-11-04: an HD track built in 1.56 ms and
+// interleaved in 1.48 ms; test_loader.cpp uses the same). And the
 // front panel's frame: screens::draw every 100 ms, which takes core 0 for
 // draw_us between other steps, but never while a load is under way
 // (panel.cpp). Frames come every frame_us plus up to 3 ms, as on the board,
@@ -74,7 +75,7 @@ private:
 // reports its own as draw_us_max (console `s`). 0 leaves the panel out.
 struct Core0Costs {
     uint32_t read_us = 1000;
-    uint32_t encode_us = 2500;
+    uint32_t encode_us = 3100;
     uint32_t draw_us = 2000;
     uint32_t frame_us = 100000;
 };

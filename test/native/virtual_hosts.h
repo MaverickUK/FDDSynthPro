@@ -30,6 +30,14 @@ public:
     int cylinder = -1;                    // where the host thinks the head is (-1: unknown)
     // Called after every sample the drive takes, as core 1's loop would.
     std::function<void(uint32_t now, const drive::StepEvent&)> on_sample;
+    // Non-zero: waiting also calls on_sample this often, with the lines
+    // unchanged, as core 1's loop samples all the time. Needed by anything
+    // that acts on how long a line has held (the observer's motor hold).
+    // The virtual PC ticks its Machine itself instead.
+    uint32_t sample_every_us = 0;
+
+    // Time passing with the host doing nothing.
+    void idle(uint32_t us) { wait(us); }
 
     bool trk0() { return cable().trk00; }
     uint32_t pins() const { return pins_; }
@@ -80,7 +88,18 @@ protected:
         if (e.stepped) steps.push_back(e);
         if (on_sample) on_sample(now, e);
     }
-    void wait(uint32_t us) { now += us; }
+    void wait(uint32_t us) {
+        if (!sample_every_us || !on_sample) {
+            now += us;
+            return;
+        }
+        while (us) {
+            uint32_t slice = us < sample_every_us ? us : sample_every_us;
+            now += slice;
+            us -= slice;
+            on_sample(now, drive::StepEvent{});
+        }
+    }
 
     // The drive that answers on the host's select line, for where its disk
     // is under the head (a test's shortcut: a host would time it from INDEX).
@@ -185,6 +204,34 @@ public:
         wait(10);
     }
 
+    // What the Feather does at the start of every `gw` command, before the
+    // command itself: it sets its pins up one by one, and each output dips
+    // low for microseconds. Select, motor, STEP and SIDE1 come back released;
+    // DIR and DENSEL stay asserted. Not from the source: measured on the rig
+    // (slice 0's seek trace, 2026-11-04), with select low 6-19 us and the
+    // motor 5-34 us, and the command following about 9 ms later.
+    void commandStart() {
+        set(select_, true);
+        wait(19);
+        set(select_, false);
+        wait(4);
+        set(motor_, true);
+        wait(34);
+        set(motor_, false);
+        wait(6);
+        set(cfg::PIN_DIR, true);
+        wait(5);
+        set(cfg::PIN_STEP, true);
+        wait(5);
+        set(cfg::PIN_STEP, false);
+        set(cfg::PIN_SIDE1, true);
+        wait(7);
+        set(cfg::PIN_SIDE1, false);
+        wait(12);
+        set(cfg::PIN_DENSEL, true);
+        wait(9000);
+    }
+
     // spin_motor(true): true if an index pulse came and went within 1 s.
     bool motorOn() {
         set(motor_, true);
@@ -200,6 +247,8 @@ public:
         }
         return true;
     }
+    // spin_motor(false): released at once.
+    void motorOff() { set(motor_, false); }
 
     // goto_track(): false where it couldn't find track 0.
     bool gotoTrack(int track) {

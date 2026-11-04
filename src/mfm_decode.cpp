@@ -126,7 +126,7 @@ void FieldScanner::addCell(bool one) {
 
     // Body: one more byte of the field.
     uint8_t byte = decodeWord(word);
-    crc_ = crc16::update(crc_, byte);
+    crc_ = crc16::updateFast(crc_, byte);
     if (current_.mark == MARK_IDAM)
         header_[body_pos_] = byte;
     else if (body_pos_ < current_.data_len)

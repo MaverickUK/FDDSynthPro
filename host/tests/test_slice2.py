@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from conftest import require_build
+from conftest import require_build, rpm_tolerance
 from fddproto import gen_disk
 
 pytestmark = pytest.mark.slice2
@@ -73,6 +73,9 @@ def test_random_tracks(gw, expected, tmp_path):
 
 
 def test_cylinder_loads_within_settle_time(drive, gw):
+    # This disk's loads only: the maxima since power-on include the disk
+    # served before the swap (the welcome disk, slow to read without PSRAM).
+    drive.command("z", "# timings zeroed")
     for cyl in (1, 40, 79, 0):
         assert gw.seek(cyl).ok
         assert int(stats(drive)["ready"]) == cyl
@@ -84,5 +87,6 @@ def test_cylinder_loads_within_settle_time(drive, gw):
 
 
 def test_rpm_still_exact(gw):
+    tolerance = rpm_tolerance(gw)
     m = re.search(r"Rate: ([\d.]+) rpm", gw.rpm().output)
-    assert m and abs(float(m.group(1)) - 300.0) < 0.1
+    assert m and abs(float(m.group(1)) - 300.0) < tolerance

@@ -18,6 +18,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "ram_func.h"
+
 namespace mfm {
 
 constexpr uint16_t SYNC_A1 = 0x4489;
@@ -35,6 +37,27 @@ constexpr uint16_t encodeByte(uint8_t byte, bool previous_bit) {
     return cells;
 }
 
+// encodeByte for every byte, after a 0 bit. The previous bit only decides
+// the first clock cell (the top bit), which a 1 before it clears. A lookup
+// for the encoder's inner loop: the loop above takes 8 steps a byte, and a
+// track is 12,500 bytes.
+//
+// Not const, so it lives in RAM (.data) on the board rather than in flash:
+// reading flash goes through the XIP cache that core 1's code runs from.
+// The constexpr constructor fills it at compile time; nothing writes it.
+struct EncodeTable {
+    uint16_t cells[256];
+    constexpr EncodeTable() : cells() {
+        for (unsigned b = 0; b < 256; ++b) cells[b] = encodeByte(uint8_t(b), false);
+    }
+};
+inline EncodeTable ENCODE_TABLE;
+
+ALWAYS_INLINE uint16_t encodeByteFast(uint8_t byte, bool previous_bit) {
+    uint16_t cells = ENCODE_TABLE.cells[byte];
+    return previous_bit ? uint16_t(cells & 0x7FFF) : cells;
+}
+
 // The data bits of a word of cells (its odd cells). Sync words decode to
 // their byte: 0x4489 -> A1, 0x5224 -> C2.
 constexpr uint8_t decodeWord(uint16_t cells) {
@@ -49,7 +72,7 @@ class Encoder {
 public:
     Encoder(uint16_t* out, size_t capacity) : out_(out), capacity_(capacity) {}
 
-    void byte(uint8_t b) { put(encodeByte(b, last_bit_)); }
+    void byte(uint8_t b) { put(encodeByteFast(b, last_bit_)); }
     void fill(uint8_t b, size_t count) {
         for (size_t i = 0; i < count; ++i) byte(b);
     }

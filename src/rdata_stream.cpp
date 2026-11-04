@@ -1,17 +1,33 @@
 #include "rdata_stream.h"
 
+#include "ram_func.h"
+
 namespace rdata {
 
 // Spreads the 8 bits of a byte to every other bit of 16: abcdefgh -> 0a0b0c0d0e0f0g0h.
-static uint16_t spread8(uint8_t b) {
+static constexpr uint16_t spread8(uint8_t b) {
     uint16_t x = b;
-    x = (x | (x << 4)) & 0x0F0F;
-    x = (x | (x << 2)) & 0x3333;
-    x = (x | (x << 1)) & 0x5555;
+    x = uint16_t((x | (x << 4)) & 0x0F0F);
+    x = uint16_t((x | (x << 2)) & 0x3333);
+    x = uint16_t((x | (x << 1)) & 0x5555);
     return x;
 }
 
-static uint32_t spread16(uint16_t w) { return (uint32_t(spread8(uint8_t(w >> 8))) << 16) | spread8(uint8_t(w)); }
+// spread8 for every byte: setHead runs it twice per word, 12,500 words a
+// head, and the shifts above cost about 45 cycles a word on the board where
+// a lookup costs a few. Not const, so it's in RAM on the board, out of core
+// 1's XIP cache (see mfm::EncodeTable); filled at compile time.
+struct SpreadTable {
+    uint16_t v[256];
+    constexpr SpreadTable() : v() {
+        for (unsigned b = 0; b < 256; ++b) v[b] = spread8(uint8_t(b));
+    }
+};
+static SpreadTable SPREAD;
+
+ALWAYS_INLINE static uint32_t spread16(uint16_t w) {
+    return (uint32_t(SPREAD.v[w >> 8]) << 16) | SPREAD.v[w & 0xFF];
+}
 
 uint32_t interleave(uint16_t head0_cells, uint16_t head1_cells) {
     return (spread16(head0_cells) << 1) | spread16(head1_cells);
@@ -24,7 +40,7 @@ uint16_t headCells(uint32_t slots, uint8_t head) {
     return cells;
 }
 
-void setHead(uint8_t head, const uint16_t* cells, uint32_t words, uint32_t* out) {
+RAM_FUNC(rdata_setHead) void setHead(uint8_t head, const uint16_t* cells, uint32_t words, uint32_t* out) {
     const uint32_t keep = head == 0 ? 0x55555555u : 0xAAAAAAAAu;  // the other head's bits
     const unsigned shift = head == 0 ? 1 : 0;
     for (uint32_t i = 0; i < words; ++i) out[i] = (out[i] & keep) | (spread16(cells[i]) << shift);

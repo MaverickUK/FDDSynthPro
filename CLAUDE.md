@@ -37,7 +37,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
 - **Python tests:** in `host/` (pytest). One marker per slice; `sim` needs no hardware.
   - Plain `pytest` runs only the `sim` tests.
   - `host/fddproto/greaseweazle.py` wraps the `gw` tool; every call goes into a transcript that failing tests save.
-  - The Feather host offers only `--drive A` (pins 12/16), has no `gw pin get 34`, and must never get `gw update`. `gw reset` and `gw delays` hang on it (it answers the delays request with 12 bytes, `gw` waits for 16): reset with `fddproto.gw_reset`, as `Greaseweazle.reset()` does. It refuses `--drive B` with "Command Failed: Select" but exits 0; starts every command with microsecond glitches on its lines (use `Trace.held_signals()`, not `asserted_signals()`); holds WDATA low from its first command; and its reset leaves DIR as the last seek set it. Rig tests skip what a host can't do rather than fail.
+  - The Feather host offers only `--drive A` (pins 12/16), reads only pin 26 with `gw pin get` (any other answers "bad pin" plus a stray byte, which `gw` reports as garbage), and must never get `gw update`. Its clock runs 0.4-0.6% fast against the 24 MHz it reports, so it measures our 300 RPM as 298.3-298.7 (`conftest.rpm_tolerance`). `gw reset` and `gw delays` hang on it (it answers the delays request with 12 bytes, `gw` waits for 16): reset with `fddproto.gw_reset`, as `Greaseweazle.reset()` does. It refuses `--drive B` with "Command Failed: Select" but exits 0; starts every command with microsecond glitches on its lines (use `Trace.held_signals()`, not `asserted_signals()`); holds WDATA low from its first command; and its reset leaves DIR as the last seek set it. Rig tests skip what a host can't do rather than fail.
   - Greaseweazle's codec is the reference for MFM and FM. `tests/test_track_encoder.py` uses it as a library (`greaseweazle.codec.codec.get_diskdef`), at the pinned version:
     - every track from `test/tools/build_track` must match its encoder cell for cell;
     - its decoder must read every track back to the original data.
@@ -88,6 +88,7 @@ At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, el
 - **The image cache** holds up to 4.5 MB with one drive, 3 MB each with two (`IMAGE_CACHE_BYTES`, `_EACH`); a bigger image is read from the card.
 - **The SD card** is the BB48R's slot in SPI mode (only DAT0 and DAT3 are wired), at 25 MHz: 3.5 ms a track, too slow to read as the head moves. So the drive serves every disk from its `ImageCache` in PSRAM, filled **before the disk goes in** (at power-on, and in a swap's ejected pause), and the virtual PC's reads cost 1 ms. Writes go to the card first, then the cache.
 - **PSRAM is used through its uncached alias** (`XIP_NOCACHE_NOALLOC_BASE`): it shares the 16 KB XIP cache with the flash core 1 runs from, and copying tracks through that cache would evict core 1's loop. Without PSRAM (`pmalloc` fails), the cache holds nothing and reads go to the card.
+- **Hot loops run from RAM:** `RAM_FUNC` (`src/ram_func.h`) puts a function in RAM, and its lookup tables are non-const (so in `.data`, RAM) with constexpr constructors. Both cores share one 16 KB flash cache, so code and tables in flash stall. Check with `nm` that a RAM function's helpers are inlined (`ALWAYS_INLINE`): GCC kept them out of line in flash, and the RAM function called out to them for every byte. Console `t` measures the result.
 - **PIO blocks:** `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window, leaving PIO 0 to libraries. Keep new programs off PIO 0.
 
 ## The welcome disk
@@ -121,7 +122,7 @@ The loader and `BurstWriter` work through a `DiskSlot`, never an image directly.
 
 `test/native/virtual_pc.h` drives a `Machine` (`test/native/machine.h`): the drive as both cores run it, in simulated time.
 - Core 1's per-sample work (sound events, `WriteGate`) runs on every pin change and on every `tick`.
-- Core 0's loader steps take `Core0Costs` (3 ms a read, 2.5 ms an encode until the board measures them).
+- Core 0's loader steps take `Core0Costs` (1 ms a read from PSRAM, an estimate; 3.1 ms an encode, measured on the board with console `t`).
 - The PC reads by watching `Machine::rdataCells` (nothing while `Drive::streams` is false), and writes by feeding `captureInterval`.
 - A `Machine` built with a `bus::Setup` of two drives has a `Unit` each (`unit(i)`); `d`, `source`, `loader` and the rest name drive 0's. `VirtualPc::useDrive` changes drives as the BIOS does (the last motor keeps running), and `Dos(pc, drive)` works on one.
 
@@ -132,6 +133,7 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 ## Sound events
 
 `src/activity.*` (rationale: `docs/activity.md`). Core 1's `DriveObserver` diffs the drive model after each sample (motor, disk, and the `StepEvent`) into `DriveEvent`s on `g_drive_events`. Core 0's `Tracker` turns them into `ACT` lines.
+- The motor is heard once its line has held for `MOTOR_HOLD_US` (1 ms): the Feather pulses it for microseconds at the start of every command (`VirtualAdafruitFloppy::commandStart`). The observer needs calling while time passes (core 1 does; the virtual hosts do with `sample_every_us`).
 - A step against a stop is a `BUMP`, never a click, and ends a seek.
 - A seek is two or more same-direction steps within `seek_gap_us` (20 ms). Its first step has already clicked, and `SEEK_END`'s count includes it.
 - Two packs: `samples/Placeholder` (synthesised, `scripts/make_placeholder_samples.py`) and `samples/Recorded` (cut from a real drive's recording, `scripts/make_recorded_pack.py`, which notes where each cut comes from). `test_synth.py` compares the mixer with the player on both. Rebuild a pack with its script rather than editing the WAVs.
@@ -146,7 +148,7 @@ Keep its BIOS and controller timings faithful. It's the stand-in for slice 6's r
 - **Showreel:** `scripts/make_showreel.py` (mtools, ffmpeg, Pillow) renders `media/showreel.mp4`: `test/tools/showreel` runs a virtual PC session while scripted inputs work the panel, drawing the real screens every 100 ms (through `Machine::on_tick`) and mixing the real sound, volume included. Re-render it after changing a screen or the sounds, then point the README's link at the commit that holds the new video: it plays through jsDelivr, pinned to a commit because `@main` stays cached for hours.
 - **Previews:** `FDDSYNTH_PREVIEW_DIR=docs/oled test/run_native_tests.sh && python3 test/pbm_to_png.py docs/oled` regenerates the reference PNGs. Add `FDDSYNTH_PREVIEW_ALL=1` for the extra frames, or run `scripts/build_panel_page.py out.html` for the interactive page. Look at the PNGs after changing a screen.
 - **The hardware side is `src/panel.*`** (drive build, core 0). `controls.h` turns the encoder's detents and the buttons into `ui::Input`s, and `ssd1306.h` makes a frame's bus bytes; both are pure and tested. `main.cpp`'s `panelStatus()` fills the `ui::Status`, and `servicePanel()` acts on the model's requests and sets the mixer's volume.
-- **Frames and the settle time:** the virtual PC's `Machine` models the panel on core 0 (`Core0Costs::draw_us`, 2 ms, pessimistic; frames drift against the rotation as on the board). A frame never starts mid-load (`CylinderLoader::loading()`), so the worst case is one starting just as the head steps: `test_pc_panel_margin` shows frames up to 4 ms keep every cylinder within 15 ms. Keep `draw_us_max` on the board under that.
+- **Frames and the settle time:** the virtual PC's `Machine` models the panel on core 0 (`Core0Costs::draw_us`, 2 ms, pessimistic; frames drift against the rotation as on the board). A frame never starts mid-load (`CylinderLoader::loading()`), so the worst case is one starting just as the head steps: `test_pc_panel_margin` shows frames up to 6.75 ms keep every cylinder within 15 ms. Keep `draw_us_max` on the board under that.
 - **A frame never blocks core 0:** HDDSynth_Native's 25 ms blocking frame would break the 15 ms settle time. `panel.cpp` feeds the I2C FIFO each pass instead; with the FIFO empty and no STOP sent, the RP2350's I2C block holds SCL low until more comes. Keep it that way.
 - **Packs:** the Sounds screen's press opens the pack list (`ui::Screen::Packs`). `main.cpp`'s `servicePack` loads a choice only when `driveIdle()`: reading a pack takes long enough to miss a seek. `sd_image::loadPack` frees the last pack first, and `Mixer::reset` drops what pointed into it. The mixer hears every drive event even with no pack loaded, so it knows the motor's state when one arrives.
 - **Remembered across power-off** (`src/settings.*`, `/FDDSYNTH.CFG`, [docs/config.md](docs/config.md)): the disk by name (`last`; `image`, set only by hand, overrides it at power-on), the pack by name, the volume. The bus setup lives there too; the firmware only copies it back. Written by `serviceSettings` `SaveTimer::SETTLE_MS` after the last change, and only when `driveIdle()`. A missing or damaged file falls back to the defaults: never let it stop the drive starting.
@@ -168,6 +170,8 @@ Console:
 - `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
 - `d`: eject or insert the disk (drive build);
 - `g`: swap in the generated test disk, or back (drive build);
+- `t`: time a loader step in its parts (`BENCH`: read, build, interleave; drive build);
+- `z`: zero the loader's timings (`read_us_*`, `encode_us_*` in `s`; drive build);
 - `1` / `2`: which drive `i`, `[`, `]` and `d` act on, with two drives (drive build);
 - `k`: load the next sample pack, once the drive is idle (drive build);
 - `i`: the image being served (drive build);

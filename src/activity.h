@@ -47,6 +47,14 @@ class DriveObserver {
 public:
     static constexpr unsigned MAX_EVENTS = 2 + bus::MAX_DRIVES;  // motor, step, a disk each
 
+    // How long the motor must stay on (or off) before it's heard. The
+    // Feather host pulses the motor line for up to 34 us at the start of
+    // every command, setting its pins up; a real motor ignores that, and
+    // the sound must too. 1 ms is nothing beside a spin-up, and far longer
+    // than any glitch. Needs observe() called while time passes, as core 1's
+    // loop does, not only when a line changes.
+    static constexpr uint32_t MOTOR_HOLD_US = 1000;
+
     // Call after every Drive::onSample (and after an insert or eject) with
     // what it returned. Writes up to three events to `out`; returns how many.
     unsigned observe(uint32_t now_us, drive::Drive& d, const drive::StepEvent& step, DriveEvent out[3]) {
@@ -60,7 +68,9 @@ public:
 
 private:
     bool started_ = false;
-    bool motor_ = false;
+    bool motor_ = false;      // as last reported
+    bool line_ = false;       // as last seen
+    uint32_t line_since_ = 0;  // when it last changed
     bool disk_[bus::MAX_DRIVES] = {};
 };
 

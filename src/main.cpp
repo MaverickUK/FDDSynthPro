@@ -33,6 +33,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 
 #include "config.h"
 #include "drive.h"
@@ -51,6 +52,7 @@
 #include "image_cache.h"
 #include "panel.h"
 #include "rdata_pio.h"
+#include "rdata_stream.h"
 #include "sd_image.h"
 #include "settings.h"
 #include "synth.h"
@@ -435,6 +437,10 @@ static uint8_t (*g_track_data[bus::MAX_DRIVES])[ibm::MAX_TRACK_DATA] = {g_track_
 static uint16_t g_track_scratch[ibm::MAX_TRACK_WORDS];  // used within one loader step: shared
 static uint32_t g_read_us_max = 0;    // slowest track read (console `s`): from the cache
 static uint32_t g_encode_us_max = 0;  // slowest track encode
+// Their totals and counts, for the means in `s` (console `z` zeroes all four
+// and the maxima).
+static uint64_t g_read_us_sum = 0, g_encode_us_sum = 0;
+static uint32_t g_reads = 0, g_encodes = 0;
 static uint32_t g_card_read_us_max = 0;  // slowest track read from the card, filling the cache
 static uint32_t g_fill_ms = 0;           // how long the last fill took
 
@@ -775,10 +781,90 @@ static void serviceLoaders() {
         uint32_t took = time_us_32() - started;
         if (step == CylinderLoader::Step::ReadHead0 || step == CylinderLoader::Step::ReadHead1) {
             if (took > g_read_us_max) g_read_us_max = took;
+            g_read_us_sum += took;
+            ++g_reads;
         } else if (step != CylinderLoader::Step::Idle) {
             if (took > g_encode_us_max) g_encode_us_max = took;
+            g_encode_us_sum += took;
+            ++g_encodes;
         }
     }
+}
+
+// Console `z`: the loader's timings start again, so a test can measure one
+// phase on its own (the maxima since power-on include the first loads).
+static void zeroTimings() {
+    g_read_us_max = g_encode_us_max = 0;
+    g_read_us_sum = g_encode_us_sum = 0;
+    g_reads = g_encodes = 0;
+    Serial.println("# timings zeroed");
+}
+
+// Console `t`: what a loader step costs, in its parts, on the drive's disk:
+// reading a track from its source, building it (ibm::buildTrack), and
+// interleaving it into a cylinder buffer (rdata::setHead, into a spare one,
+// so the live buffer is untouched). Each part BENCH_RUNS times; min, mean and
+// max in microseconds. Core 1 keeps running, as it does for a real load.
+// Only while the drive isn't loading: it uses the loader's scratch buffer.
+constexpr unsigned BENCH_RUNS = 8;
+
+struct BenchTimes {
+    uint32_t min = UINT32_MAX, max = 0;
+    uint64_t sum = 0;
+    void add(uint32_t us) {
+        if (us < min) min = us;
+        if (us > max) max = us;
+        sum += us;
+    }
+};
+
+static void printBench(const char* name, const BenchTimes& t) {
+    Serial.printf(" %s=%lu/%lu/%lu", name, (unsigned long)t.min, (unsigned long)(t.sum / BENCH_RUNS),
+                  (unsigned long)t.max);
+}
+
+static void benchLoader(unsigned drive) {
+    DriveState& s = g_drv[drive];
+    if (s.loader->loading()) {
+        Serial.println("# bench: the drive is loading a cylinder; try again when it's idle");
+        return;
+    }
+    const ibm::Format& fmt = s.slot->format();
+    if (fmt.encoding == ibm::ENCODING_RAW) {
+        Serial.println("# bench: a flux image has no encode step");
+        return;
+    }
+    uint8_t* data = static_cast<uint8_t*>(std::malloc(ibm::MAX_TRACK_DATA));
+    uint32_t* slots = static_cast<uint32_t*>(std::malloc(sizeof(uint32_t) * fmt.track_bytes));
+    if (!data || !slots) {
+        std::free(data);
+        std::free(slots);
+        Serial.println("# bench: no RAM for the buffers");
+        return;
+    }
+    const uint8_t cyl = 40, head = 1;  // a track from the middle of the disk
+    BenchTimes read, build, interleave;
+    bool ok = true;
+    for (unsigned i = 0; i < BENCH_RUNS; ++i) {
+        uint32_t t0 = time_us_32();
+        ok &= s.slot->readTrack(cyl, head, data);
+        uint32_t t1 = time_us_32();
+        ok &= ibm::buildTrack(fmt, cyl, head, data, g_track_scratch);
+        uint32_t t2 = time_us_32();
+        rdata::setHead(head, g_track_scratch, fmt.track_bytes, slots);
+        uint32_t t3 = time_us_32();
+        read.add(t1 - t0);
+        build.add(t2 - t1);
+        interleave.add(t3 - t2);
+        audio::service();  // a part at a time, as the loader goes
+    }
+    std::free(data);
+    std::free(slots);
+    Serial.printf("BENCH c=%u:h=%u words=%u ok=%d", cyl, head, (unsigned)fmt.track_bytes, (int)ok);
+    printBench("read_us", read);
+    printBench("build_us", build);
+    printBench("interleave_us", interleave);
+    Serial.print("\n");
 }
 
 // A flux image's weak bits: new noise several times a revolution, as a real
@@ -1011,6 +1097,10 @@ static void printStats() {
     }
     Serial.printf(" side=%u read_us_max=%lu encode_us_max=%lu", (unsigned)g_side.load(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
+    Serial.printf(" read_us_mean=%lu encode_us_mean=%lu reads=%lu encodes=%lu",
+                  (unsigned long)(g_reads ? g_read_us_sum / g_reads : 0),
+                  (unsigned long)(g_encodes ? g_encode_us_sum / g_encodes : 0), (unsigned long)g_reads,
+                  (unsigned long)g_encodes);
     Serial.printf(" card_read_us_max=%lu fill_ms=%lu", (unsigned long)g_card_read_us_max, (unsigned long)g_fill_ms);
     Serial.printf(" written=%lu write_bad_crc=%lu write_unplaced=%lu bursts_dropped=%lu "
                   "capture_overruns=%lu write_faults=%lu write_us_max=%lu",
@@ -1087,7 +1177,8 @@ static void handleConsole() {
                                "b reboot to bootloader");
 #else
                 Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, "
-                               "g generated disk on/off, 1 2 which drive i [ ] d g act on, k next sample pack, m mark, "
+                               "g generated disk on/off, 1 2 which drive i [ ] d g t act on, k next sample pack, "
+                               "t time a loader step, z zero timings, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
@@ -1121,6 +1212,8 @@ static void handleConsole() {
             case ']': requestSwap(true); break;
             case 'd': toggleDisk(g_console_drive); break;
             case 'g': toggleGenerated(); break;
+            case 't': benchLoader(g_console_drive); break;
+            case 'z': zeroTimings(); break;
 #endif
             case 'b':
                 Serial.println("# rebooting to bootloader");

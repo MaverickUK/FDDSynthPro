@@ -14,13 +14,15 @@ The drive build prints one `ACT` line per event:
 
 | Line | When | Suggested sound |
 |---|---|---|
-| `ACT <t> MOTOR_ON` | The motor line is asserted | `spinup.wav`, then `spin.wav` looping |
-| `ACT <t> MOTOR_OFF` | The motor line is released | `spindown.wav` |
+| `ACT <t> MOTOR_ON` | The motor line has been asserted for 1 ms | `spinup.wav`, then `spin.wav` looping |
+| `ACT <t> MOTOR_OFF` | The motor line has been released for 1 ms | `spindown.wav` |
 | `ACT <t> STEP IN\|OUT <cyl>` | One step, on its own | `step.wav`, a single click |
 | `ACT <t> SEEK_START IN\|OUT <cyl>` | A second step close behind the first: a seek begins | `seek.wav` looping, the buzz of rapid steps |
 | `ACT <t> SEEK_END <cyl> <steps>` | No step for 20 ms: the seek is over | Stop `seek.wav`. `<steps>` gives the distance, for variety |
 | `ACT <t> BUMP OUTER\|INNER` | A step out at cylinder 0, or in at the last cylinder: the head knocks the stop and stays put | `bump.wav`; a run of them is the recalibrate "grind" |
 | `ACT <t> INSERT` / `EJECT` | A disk goes in or out (console `d` now; a button later) | `insert.wav`, `eject.wav` |
+
+The motor waits 1 ms (`DriveObserver::MOTOR_HOLD_US`) before it's heard either way: the Feather host pulses the motor line for up to 34 µs at the start of every command, as it sets its pins up, and a real motor doesn't notice that. 1 ms is nothing beside a spin-up.
 
 `<t>` is the drive's microsecond clock. A seek's first step has already played as a `STEP`. `SEEK_END` is timed at the seek's last step, but printed 20 ms later, once the gap shows that the seek is over.
 

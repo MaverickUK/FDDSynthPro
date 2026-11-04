@@ -17,9 +17,14 @@ unsigned DriveObserver::observe(uint32_t now_us, drive::Drive* const drives[], u
         started_ = true;
         for (unsigned i = 0; i < count; ++i) disk_[i] = drives[i]->diskPresent();
     }
-    if (motor != motor_) {
-        out[n++] = DriveEvent{now_us, motor ? Input::MotorOn : Input::MotorOff, head::Step::In, 0};
-        motor_ = motor;
+    // The motor is heard once it has held its new state for MOTOR_HOLD_US.
+    if (motor != line_) {
+        line_ = motor;
+        line_since_ = now_us;
+    }
+    if (line_ != motor_ && now_us - line_since_ >= MOTOR_HOLD_US) {
+        out[n++] = DriveEvent{now_us, line_ ? Input::MotorOn : Input::MotorOff, head::Step::In, 0};
+        motor_ = line_;
     }
     for (unsigned i = 0; i < count; ++i) {
         bool disk = drives[i]->diskPresent();

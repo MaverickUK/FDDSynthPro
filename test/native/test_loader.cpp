@@ -245,13 +245,13 @@ static uint32_t worstReady(int from, int to, uint32_t interval_us, Costs c) {
 TEST(test_ready_within_settle_time) {
     // Reads from the image cache in the BB48R's PSRAM (image_cache.h): a
     // 9 KB copy over QSPI, allowed 1 ms until the board measures it
-    // (read_us_max). Encoding a track: assumed 2.5 ms on the RP2350 until
-    // measured (encode_us_max; bringup.md step 8).
-    const Costs cached{1000, 2500};
+    // (read_us_max). Encoding a track: 3.1 ms, as measured on the board
+    // (console `t`, 2026-11-04: built in 1.56 ms, interleaved in 1.48 ms).
+    const Costs cached{1000, 3100};
     const uint32_t SETTLE_US = 15000;
     // The longest a load could take after the last step: the step in
     // progress when the head arrives, then a whole load.
-    const uint32_t bound = 2500 + 2 * 1000 + 2 * 2500;
+    const uint32_t bound = 3100 + 2 * 1000 + 2 * 3100;
     struct { int from, to; uint32_t interval; } seeks[] = {
         {0, 1, 3000},     // one step, PC step rate
         {0, 79, 3000},    // a full seek at the PC's fastest rate
@@ -274,7 +274,7 @@ TEST(test_slow_card_misses_the_settle_time) {
     // for a panel frame; the cache is why the card can run at 25 MHz. Too slow
     // for 15 ms; the host then finds no sectors on its first revolution and
     // retries on the next.
-    const Costs slow{9000, 2500};
+    const Costs slow{9000, 3100};
     CHECK(worstReady(0, 1, 3000, slow) > 15000);
 }
 
