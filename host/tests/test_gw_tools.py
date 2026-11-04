@@ -33,6 +33,15 @@ def test_drive_only_on_drive_actions(gw):
     assert gw.log[-1].ok
 
 
+def test_sub_action_before_options(gw):
+    """gw parses `pin get`'s options only after `get`: `gw pin --device D get`
+    prints the usage and fails."""
+    gw.log.clear()
+    gw.pin_get(26)
+    assert gw.log[-1].command[1:3] == ["pin", "get"]
+    assert gw.log[-1].command[-3:] == ["--drive", "B", "26"]
+
+
 def test_reset_is_not_gw_reset(tmp_path):
     """The reset sends only the reset command (gw_reset.py), never `gw reset`,
     which hangs on the Feather. With no host there, it fails at once."""

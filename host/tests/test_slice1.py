@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from conftest import require_build
+from conftest import require_build, rpm_tolerance
 
 pytestmark = pytest.mark.slice1
 
@@ -30,9 +30,18 @@ def stats(drive) -> dict[str, str]:
 
 def pin_level(gw, pin: int) -> str | None:
     """`gw pin get`: "Low" or "High", or None if this Greaseweazle can't read the pin."""
-    r = gw.run("pin", "get", str(pin))
+    r = gw.pin_get(pin)
     m = re.search(r"Pin \d+ is (Low|High)", r.output)
     return m.group(1) if m else None
+
+
+def require_pin(gw, pin: int) -> str:
+    """The pin's level, or a skip if this host can't read it (the Feather
+    reads only 26)."""
+    level = pin_level(gw, pin)
+    if level is None:
+        pytest.skip(f"this Greaseweazle can't read pin {pin}")
+    return level
 
 
 @pytest.fixture
@@ -68,21 +77,23 @@ def test_full_sweeps(drive, gw):
 
 def test_track0_line(gw):
     assert gw.seek(0).ok
-    assert pin_level(gw, 26) == "Low"
+    assert require_pin(gw, 26) == "Low"
     assert gw.seek(1).ok
     assert pin_level(gw, 26) == "High"
 
 
 def test_write_protect_line(gw, disk_in):
-    assert pin_level(gw, 28) == "Low", "the disk is read-only until slice 5"
+    assert require_pin(gw, 28) == "Low", "the disk is read-only until slice 5"
 
 
 def test_rpm(gw, disk_in):
+    """300 RPM as the host measures it (rpm_tolerance: the Feather's clock)."""
+    tolerance = rpm_tolerance(gw)
     r = gw.rpm()
     assert r.ok, r.output
     m = re.search(r"Rate: ([\d.]+) rpm", r.output)
     assert m, r.output
-    assert abs(float(m.group(1)) - 300.0) < 0.1, r.output
+    assert abs(float(m.group(1)) - 300.0) < tolerance, r.output
 
 
 def test_no_index_without_disk(drive, gw, disk_in):

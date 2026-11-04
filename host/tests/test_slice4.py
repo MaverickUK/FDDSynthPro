@@ -25,6 +25,10 @@ def drive_build(firmware_slice):
 def capture(drive, run_dir):
     """Runs an action and returns the trace of everything that followed."""
     def run(name: str, action) -> trace.Trace:
+        # The last action's tail first: `gw` exits before the drive has
+        # printed its last step's ACT and the step run's line (flushed 60 ms
+        # after the run), which would otherwise land in this capture.
+        drive.wait_quiet(QUIET_S, timeout=TIMEOUT_S)
         mark = drive.mark()
         action()
         drive.wait_quiet(QUIET_S, timeout=TIMEOUT_S)

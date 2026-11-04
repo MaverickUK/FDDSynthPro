@@ -74,6 +74,15 @@ def require_build(firmware_slice: int, drive_build: bool):
         pytest.skip("needs the listen-only build: scripts/rig.sh ... (PIO_ENV=bb48)")
 
 
+def rpm_tolerance(gw) -> float:
+    """How far from 300 the host's `gw rpm` may read. The Feather's clock runs
+    0.4-0.6% fast against the 24 MHz its firmware reports (measured
+    2026-11-04: its flux intervals are long by the same ratio, and the BB48
+    keeps within 30 ppm of the Mac), so it reads 298.3-298.7: it gets a
+    looser bound than a Greaseweazle."""
+    return 3.0 if "Adafruit" in gw.info().output else 0.1
+
+
 @pytest.fixture
 def gw():
     """A Greaseweazle, reset to its power-on state before and after the test."""
@@ -102,12 +111,16 @@ def run_dir(request, session_stamp):
     drive_mark = None
     if "drive" in request.fixturenames:
         drive_mark = request.getfixturevalue("drive").mark()
+    # Fetched now, so it's set up before this fixture and torn down after it:
+    # a test that names `gw` after a fixture using run_dir would otherwise
+    # lose it before its transcript is saved.
+    gw = request.getfixturevalue("gw") if "gw" in request.fixturenames else None
     yield path
     report = getattr(request.node, "report_call", None)
     if report is not None and report.failed:
         if drive_mark is not None:
             lines = request.getfixturevalue("drive").lines_since(drive_mark)
             (path / "drive.log").write_text("\n".join(lines) + "\n")
-        if "gw" in request.fixturenames:
-            (path / "gw.log").write_text(request.getfixturevalue("gw").transcript())
+        if gw is not None:
+            (path / "gw.log").write_text(gw.transcript())
         (path / "failure.txt").write_text(report.longreprtext)

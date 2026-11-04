@@ -21,7 +21,11 @@ from pathlib import Path
 from .paths import HOST
 
 # Actions that address a drive and so take --drive.
-DRIVE_ACTIONS = {"read", "write", "erase", "clean", "seek", "rpm"}
+DRIVE_ACTIONS = {"read", "write", "erase", "clean", "seek", "rpm", "pin get"}
+
+# Actions with a sub-action (`gw pin get 26`): gw parses the sub-action's own
+# options only after it, so it has to come before --device.
+SUB_ACTIONS = {"pin"}
 
 
 def find_gw() -> str | None:
@@ -56,8 +60,13 @@ class Greaseweazle:
 
     def run(self, action: str, *args: str, drive: str | None = None, timeout: float = 120) -> GwResult:
         """Runs `gw <action> [--device D] [--drive X] <args>` and returns its result.
+        For an action with a sub-action, the first arg is the sub-action and
+        goes before the options (`gw pin get --device D 26`).
         Never raises on a non-zero exit: in slice 0 most actions are expected to fail."""
         command = [self.gw, action]
+        if action in SUB_ACTIONS and args:
+            command.append(args[0])
+            action, args = f"{action} {args[0]}", args[1:]
         if self.device:
             command += ["--device", self.device]
         if action in DRIVE_ACTIONS:
@@ -90,6 +99,12 @@ class Greaseweazle:
 
     def rpm(self, drive: str | None = None) -> GwResult:
         return self.run("rpm", drive=drive)
+
+    def pin_get(self, pin: int, drive: str | None = None) -> GwResult:
+        """`gw pin get`, with the drive selected. The Feather's firmware reads
+        only pin 26 (TRK00); for any other it answers "bad pin" with a stray
+        byte that gw then reports as garbage."""
+        return self.run("pin", "get", str(pin), drive=drive)
 
     def read(self, image: Path, fmt: str = "ibm.1440", tracks: str | None = None) -> GwResult:
         args = ["--format", fmt] + (["--tracks", tracks] if tracks else []) + [str(image)]
