@@ -235,9 +235,14 @@ TEST(test_hfe_read_cylinder_matches_read_track) {
         for (uint8_t c = 0; c < k.cyls; ++c) {
             std::vector<uint8_t> a0(n), a1(n), b0(n, 0x55), b1(n, 0x55);
             CHECK(d.readTrack(c, 0, a0.data()) && d.readTrack(c, 1, a1.data()));
+            static unsigned betweens;  // the firmware's audio, between reads
+            betweens = 0;
+            d.between_reads = [] { ++betweens; };
             bool ok[2] = {};
             d.readCylinder(c, b0.data(), b1.data(), ok);
             CHECK(ok[0] && ok[1]);
+            // v1's 6,250-byte sides are 25 blocks: two groups, one call between.
+            CHECK_EQ(betweens, k.cyls == 3 ? 1u : 0u);
             CHECK(a0 == b0);
             CHECK(a1 == b1);
         }

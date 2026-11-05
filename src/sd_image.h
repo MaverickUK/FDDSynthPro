@@ -27,6 +27,10 @@ const ImageList& images();
 // or nullptr if it can't be opened.
 TrackSource* open(size_t index, unsigned drive = 0);
 
+// Called between the card reads of a long track load (an HFE cylinder, 50
+// ms): the firmware's audio, whose queue is shorter than that.
+void setBetweenReads(void (*between)());
+
 // The drive's open image's name, and whether its clusters are contiguous
 // (reads are fastest then).
 const char* name(unsigned drive = 0);

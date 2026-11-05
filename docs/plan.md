@@ -1,12 +1,12 @@
 # Pico Floppy Drive Emulator: Prototype Plan
 
-22 Oct 2026, Peter Bridger. Status updated 5 Nov 2026 (firmware 0.22.0).
+22 Oct 2026, Peter Bridger. Status updated 5 Nov 2026 (firmware 0.23.3).
 
 ## Where it stands
 
 Every slice below is built and passes its tests on the Mac, against virtual hosts (a Greaseweazle, the Feather, a PC's BIOS and controller, an Amiga) and Greaseweazle's own encoder and decoder.
 
-**On hardware (5 Nov 2026):** a rev B carrier ([hardware/README.md](../hardware/README.md)) with a BB48R (PSRAM and microSD), against the Feather host. Every slice the Feather can test passes, with images served from the card through PSRAM. Running on hardware found what the Mac couldn't: the write decoder and the track encoder too slow from flash (both now run from RAM), HFE loading slow, a card sync per sector, and a PSRAM cache line shared between cached and uncached use. All fixed (0.19 to 0.22). A first carrier with a plain BB48 (no PSRAM or card) passed slices 0, 1, 2 and 4 the day before. The bring-up steps are in [bringup.md](bringup.md).
+**On hardware (5 Nov 2026):** a rev B carrier ([hardware/README.md](../hardware/README.md)) with a BB48R (PSRAM and microSD), against the Feather host. Every slice the Feather can test passes, with images served from the card through PSRAM. Running on hardware found what the Mac couldn't: the write decoder and the track encoder too slow from flash (both now run from RAM), HFE loading slow, a card sync per sector, and a PSRAM cache line shared between cached and uncached use, and core 0's start-up overrunning its stack into core 1's (with an IMG.CFG on the card, core 1 never started). All fixed (0.19 to 0.23). The front panel and amplifier are fitted and work: frames under 1.5 ms, no audio dropouts during writes. A 6-hour soak (random reads, writes, swaps and restarts) is the latest run. A first carrier with a plain BB48 (no PSRAM or card) passed slices 0, 1, 2 and 4 the day before. The bring-up steps are in [bringup.md](bringup.md).
 
 | Slice | Mac | Rig |
 |---|---|---|
@@ -15,17 +15,20 @@ Every slice below is built and passes its tests on the Mac, against virtual host
 | 2 Generated disk | ✅ | ✅ (worst cylinder load 11.7 ms, inside the 15 ms settle time) |
 | 3 Images on SD | ✅ | ✅ byte for byte |
 | 4 Sound events | ✅ | ✅ |
-| 5 Write | ✅ | ✅ 100 random tracks written and read back, no mismatch |
+| 5 Write | ✅ | ✅ 100 random tracks written and read back, no mismatch; DD and HFE too |
+| Other formats | ✅ | ✅ 160 KB to 1.68 MB DMF, and FM (Acorn DFS) from `IMG.CFG` (`-m formats`) |
 | 6 Real PC | ✅ (virtual PC) | swaps round all images ✅; the PC itself next |
-| HFE image | ✅ | ✅ read back byte for byte |
+| HFE image | ✅ | ✅ read back byte for byte; writes; loads in 3.9 s |
 | Amiga tracks | ✅ (virtual Amiga) | ✅ ADF read and whole-track writes (`-m amiga`, Shugart DS1: the Feather can't drive an Amiga drive's latched motor) |
 
-**Not yet on hardware:** DSKCHG on pin 34 (the Feather can't read it); a real controller's read and write timing; the Amiga's motor latch, `/RDY` and `/CHNG` (pin 2, after a rework); two drives on one cable; the I2S amp and the front panel, not yet fitted.
+**Not yet on hardware:** DSKCHG on pin 34 (the Feather can't read it); a real controller's read and write timing; the Amiga's motor latch, `/RDY` and `/CHNG` (pin 2, after a rework); two drives on one cable; seek sounds at a PC's step rate.
 
 **Next** ([hardware-tests.md](hardware-tests.md) has the steps):
 1. A real PC: DOS reads, writes, disk changes, FORMAT, and a soak (slice 6's exit).
 2. The pin 2 rework, then a real Amiga.
-3. Writes a track's sectors to the card in one go (a track write holds core 0 for 50 to 64 ms now), and the amp and panel when fitted.
+3. A new sample pack recorded from a real drive driven by the Feather, with insert and eject, and seek sounds chosen by step rate (a fast seek now plays as separate step clicks).
+
+(A track's sectors written to the card in one go was tried and was slower on the test card; a burst now takes 12 ms to finish, 65 before 0.23.)
 
 The prototype has also gone well past its first scope:
 
@@ -42,6 +45,7 @@ The prototype has also gone well past its first scope:
 | FM (single density), tracks at half a disk's rate | 0.17 |
 | HFE flux images: copy protection, weak bits, spliced writes | 0.18 |
 | Settings shared with HDDSynthPro (`device0`, `device1`), and changed over USB (console `e`, `!`) | 0.20, 0.22 |
+| Soak and formats rig tests, stack and audio diagnostics in `s` | 0.23 |
 
 The settings, formats and interfaces are described in [config.md](config.md).
 

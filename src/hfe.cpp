@@ -140,10 +140,13 @@ static bool sideBytes(File& f, uint16_t block, uint16_t len, uint8_t head, Each 
 // Both sides' bytes in one pass over the blocks: each half of each block to
 // its own function. Reading a side on its own reads nearly every block too
 // (the halves interleave), so this halves the card's work for a cylinder.
+// `between`, when set, runs between the groups' reads (the firmware's audio:
+// an HD cylinder is about 50 ms of card reads, longer than its queue).
 template <typename Each0, typename Each1>
-static bool bothSides(File& f, uint16_t block, uint16_t len, Each0 each0, Each1 each1) {
+static bool bothSides(File& f, uint16_t block, uint16_t len, void (*between)(), Each0 each0, Each1 each1) {
     uint32_t todo = len / 2;
     for (uint32_t b = 0; todo; b += GROUP_BLOCKS) {
+        if (b && between) between();
         uint32_t blocks = (todo + 255) / 256;
         if (blocks > GROUP_BLOCKS) blocks = GROUP_BLOCKS;
         uint32_t last = todo - (blocks - 1) * 256;
@@ -306,12 +309,12 @@ void Disk::readCylinder(uint8_t cylinder, uint8_t* out0, uint8_t* out1, bool ok[
     uint32_t index0 = 0, index1 = 0;
     bool read;
     if (header_.version == 1) {
-        read = bothSides(*file_, track_block_[cylinder], track_len_[cylinder], [&](uint8_t b) { bits0.put(b, 8); },
+        read = bothSides(*file_, track_block_[cylinder], track_len_[cylinder], between_reads, [&](uint8_t b) { bits0.put(b, 8); },
                          [&](uint8_t b) { bits1.put(b, 8); });
     } else {
         const uint32_t nominal = V3_TICKS_HZ / (2000u * header_.bitrate);
         Expander ex0(bits0, nominal), ex1(bits1, nominal);
-        read = bothSides(*file_, track_block_[cylinder], track_len_[cylinder], [&](uint8_t b) { ex0.byte(b); },
+        read = bothSides(*file_, track_block_[cylinder], track_len_[cylinder], between_reads, [&](uint8_t b) { ex0.byte(b); },
                          [&](uint8_t b) { ex1.byte(b); });
         index0 = ex0.index;
         index1 = ex1.index;

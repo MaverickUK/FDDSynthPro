@@ -618,6 +618,7 @@ static void chooseDisk(unsigned i) {
 }
 
 static void chooseDisks() {
+    sd_image::setBetweenReads(audio::service);  // an HFE cylinder's load outlasts the audio queue
     bool card = sd_image::mount();
     g_card = card;
     if (card) {

@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-11-05
+
+### Fixed
+- Loading an HFE cylinder (both heads, about 50 ms of card reads) gave the audio no turn, longer than its 46 ms queue: a swap to an HFE image could drop the sound out. `hfe::Disk::between_reads` services the audio between its 16-block reads (`sd_image::setBetweenReads`).
+
 ## [0.23.2] - 2026-11-05
 
 ### Fixed

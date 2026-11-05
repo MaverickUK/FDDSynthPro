@@ -99,6 +99,9 @@ public:
 };
 
 static ImageSource s_sources[bus::MAX_DRIVES];
+static void (*s_between_reads)() = nullptr;
+
+void setBetweenReads(void (*between)()) { s_between_reads = between; }
 
 bool mount() {
     // The BB48R's slot, in SPI mode on SPI1. SdFat drives the chip select.
@@ -197,6 +200,7 @@ TrackSource* open(size_t index, unsigned drive) {
     std::strcpy(src.name, name);
     src.flux = ImageList::hfeName(name);
     if (src.flux) {
+        src.disk.between_reads = s_between_reads;
         if (const char* why = src.disk.open(src.card, src.writable_)) {
             Serial.printf("# %s: %s\n", name, why);
             return nullptr;
