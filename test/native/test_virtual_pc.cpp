@@ -272,7 +272,10 @@ TEST(test_pc_gives_up_on_a_card_that_never_answers) {
     // A card so slow (10 s a track) that the cylinder is never ready within
     // the BIOS's three tries: RDATA stays released, and the read fails
     // rather than returning anything stale.
-    Machine m(ibm::HD_1440, Core0Costs{10000000, 2500});
+    Core0Costs slow;
+    slow.read_us = 10000000;
+    slow.encode_us = 2500;
+    Machine m(ibm::HD_1440, slow);
     VirtualPc pc(m);
     std::vector<uint8_t> buf(512);
     pc.motorOn();
@@ -348,6 +351,95 @@ TEST(test_pc_write_to_a_failing_card) {
     CHECK(pc.writeSectors(8, 0, 4, 1, data.data()) == Status::Ok);
     CHECK(pc.readSectors(8, 0, 4, 1, buf.data()) == Status::Ok);
     CHECK(buf == data);
+}
+
+// The write path as the board times it (0.23.5, IMG on the test card):
+// decoding at 1,650 KB/s, and a one-sector burst's finish (its card write
+// and the sync) 4 ms. That's from the rig: a whole track (18 sector writes,
+// one sync) finishes in 12 ms, and took 74 with a sync per sector (0.22),
+// so a sync is about 3.6 ms and a sector's write 0.3.
+static Core0Costs boardWriteCosts(uint32_t finish_us = 4000) {
+    Core0Costs costs;
+    costs.decode_kbps = 1650;
+    costs.finish_us = finish_us;
+    return costs;
+}
+
+struct StallOutcome {
+    unsigned overruns = 0, wrong = 0, stale = 0, retries = 0;
+    bool protected_after = false;
+};
+
+// DOS copying a file, as it writes one: whole tracks of 18 sectors, a
+// burst each, one after another round the track, then each read straight
+// back. The card holds the finish of burst `stalled` for `stall_us`.
+static StallOutcome stalledCopy(uint32_t stall_us, unsigned stalled, uint32_t finish_us = 4000) {
+    Core0Costs costs = boardWriteCosts(finish_us);
+    costs.card_stall_us = [=](unsigned n) { return n == stalled ? stall_us : 0u; };
+    Machine m(ibm::HD_1440, costs, 0);
+    VirtualPc pc(m);
+    StallOutcome o;
+    std::vector<uint8_t> file(18 * 512), buf(18 * 512);
+    pc.motorOn();
+    pc.recalibrate();
+    for (uint8_t track = 0; track < 4; ++track) {
+        uint8_t cyl = uint8_t(20 + track / 2), head = uint8_t(track % 2);
+        std::vector<uint8_t> old = sectors(m.source, cyl, head, 1, 18);
+        for (size_t i = 0; i < file.size(); ++i) file[i] = uint8_t(i * 13 + track * 101 + 1);
+        if (pc.writeSectors(cyl, head, 1, 18, file.data()) != Status::Ok) {
+            o.protected_after = true;
+            break;
+        }
+        CHECK(pc.readSectors(cyl, head, 1, 18, buf.data()) == Status::Ok);
+        for (unsigned s = 0; s < 18; ++s) {
+            const uint8_t* got = buf.data() + s * 512;
+            if (std::memcmp(got, file.data() + s * 512, 512) == 0) continue;
+            if (std::memcmp(got, old.data() + s * 512, 512) == 0)
+                ++o.stale;  // the old data: the write was lost, or not shown yet
+            else
+                ++o.wrong;
+        }
+    }
+    for (const auto& w : m.writes) o.overruns += w.overrun;
+    o.retries = pc.retries;
+    o.protected_after = o.protected_after || m.d.writeProtected();
+    return o;
+}
+
+TEST(test_pc_timed_writes_keep_up) {
+    // With the board's timings, a whole track of sector writes, one burst
+    // straight after another, keeps up: nothing overruns the 16 KB capture
+    // ring, and every sector reads back.
+    StallOutcome o = stalledCopy(0, 0);
+    for (uint32_t finish_ms : {6u, 8u, 10u, 12u}) {  // how slow a finish can be
+        StallOutcome f = stalledCopy(0, 0, finish_ms * 1000);
+        std::printf("    finish %2u ms a sector: overruns %u, stale %u\n", finish_ms, f.overruns, f.stale);
+    }
+    CHECK_EQ(o.overruns, 0u);
+    CHECK_EQ(o.wrong, 0u);
+    CHECK_EQ(o.stale, 0u);
+    CHECK_EQ(o.retries, 0u);
+    CHECK(!o.protected_after);
+}
+
+TEST(test_pc_card_stalls) {
+    // The card holding one write (seen in the soak: 50-60 ms) while the PC
+    // writes the rest of the track. Up to 60 ms the capture ring rides it
+    // out (the 16 KB ring lost the write from 60 ms). Whatever the stall,
+    // a sector never reads back as anything but what was written or what
+    // was there, and a lost write sets write-protect, so DOS's next write
+    // fails visibly.
+    for (uint32_t stall_ms : {30u, 60u, 70u, 100u, 150u, 250u, 500u}) {
+        StallOutcome o = stalledCopy(stall_ms * 1000, 5);
+        std::printf("    stall %3u ms: overruns %u, stale %u, wrong %u, retries %u%s\n", stall_ms, o.overruns, o.stale,
+                    o.wrong, o.retries, o.protected_after ? ", write-protected" : "");
+        CHECK_EQ(o.wrong, 0u);
+        if (o.stale || o.overruns) CHECK(o.protected_after);
+        if (stall_ms <= 60) {
+            CHECK_EQ(o.overruns, 0u);
+            CHECK_EQ(o.stale, 0u);
+        }
+    }
 }
 
 // Seeks, reading one sector after each, as a busy DOS program does: every
@@ -493,5 +585,7 @@ void runVirtualPcTests() {
     RUN(test_pc_panel_keeps_up);
     RUN(test_pc_panel_frame_rate);
     RUN(test_pc_panel_margin);
+    RUN(test_pc_timed_writes_keep_up);
+    RUN(test_pc_card_stalls);
     RUN(test_image_list);
 }

@@ -98,14 +98,14 @@ With no card, or no image on it, each drive serves the welcome disk (`src/welcom
 
 ## Writes
 
-The capture streams through a 16 KB ring (`cfg::CAPTURE_RING_BYTES`). An endless DMA fills it, and `fdd_wdata` runs only while WGATE is asserted and the drive is selected, has a disk and isn't write-protected.
+The capture streams through a 32 KB ring (`cfg::CAPTURE_RING_BYTES`, the DMA's largest ring wrap; core 0 can fall 77 ms behind). An endless DMA fills it, and `fdd_wdata` runs only while WGATE is asserted and the drive is selected, has a disk and isn't write-protected.
 - **Core 1** marks each burst's start (with its cylinder, head and track position, `start_byte` from the spindle's phase) and end on `g_capture_marks`. Every pass it publishes `wdata_pio::produced()`, the DMA's free-running position.
 - **Core 0's `CaptureStream`** feeds each burst to a `BurstWriter` in chunks (`WRITE_CHUNK_BYTES`) as it arrives, so nothing waits for a whole burst and audio gets a turn between chunks.
 - **If core 0 falls a whole ring behind,** that burst is abandoned and counted (`capture_overruns`), never decoded from overwritten bytes. A burst with no room for its marks is dropped (`bursts_dropped`).
 
 `BurstWriter` (`begin`/`feed`/`finish`, or `apply` for a whole burst) runs the intervals through `mfm::DataSeparator`, `mfm::FieldScanner` and `track_write::interpret`. It then patches each sector into the loader's track (`CylinderLoader::writeSector` re-encodes that head in place; unchanged cells are rewritten with the same values, so RDATA stays valid) and writes it through to the `TrackSource`.
 - `fdd_wdata.pio` doesn't count `EDGE_TICKS` (2) at each edge; the reader adds them back. Its 8-bit counts wrap after about 16 cells, which only the first interval can reach.
-- **The decoder must keep up with the capture:** an HD write is about 370 KB/s of intervals, against a 16 KB ring. `BurstWriter::feed` runs from RAM with the separator and scanner inlined, a whole interval at a time (`FieldScanner::addInterval`, `amiga::SectorScanner::addInterval`; FM goes cell by cell), at about 1,700 KB/s on the board; from flash, cell by cell, it managed 200 and every HD write overran. `s` reports `decode_kbps`; keep it well above 370. `test_interval_path_matches_cells` holds the fast path to the per-cell one.
+- **The decoder must keep up with the capture:** an HD write is about 370 KB/s of intervals, against a 32 KB ring. `BurstWriter::feed` runs from RAM with the separator and scanner inlined, a whole interval at a time (`FieldScanner::addInterval`, `amiga::SectorScanner::addInterval`; FM goes cell by cell), at about 1,700 KB/s on the board; from flash, cell by cell, it managed 200 and every HD write overran. `s` reports `decode_kbps`; keep it well above 370. `test_interval_path_matches_cells` holds the fast path to the per-cell one.
 - The data separator uses Greaseweazle's gains (60% phase, 5% period). Lower gains take more jitter but follow speed errors worse; `test/native/test_write_decode.cpp` measures both.
 - **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
 - **Card first, then the live track:** `BurstWriter::finish` writes each sector to the `TrackSource`, syncs once (`TrackSource::flush`: a sync per sector took a track write 74 ms), and patches the loader only with sectors written and synced, so a read-back after a card failure shows the old data.
@@ -125,6 +125,7 @@ The loader and `BurstWriter` work through a `DiskSlot`, never an image directly.
 `test/native/virtual_pc.h` drives a `Machine` (`test/native/machine.h`): the drive as both cores run it, in simulated time.
 - Core 1's per-sample work (sound events, `WriteGate`) runs on every pin change and on every `tick`.
 - Core 0's loader steps take `Core0Costs` (1 ms a read from PSRAM, an estimate; 3.1 ms an encode, measured on the board with console `t`).
+- Writes take no time unless `Core0Costs::decode_kbps` is set: then core 0 decodes a chunk a pass and each burst's finish takes `finish_us` (plus `card_stall_us(n)`), and the host sees its sectors only once the finish is over. `test_pc_card_stalls` uses it (a one-sector finish is about 4 ms on the board).
 - The PC reads by watching `Machine::rdataCells` (nothing while `Drive::streams` is false), and writes by feeding `captureInterval`.
 - A `Machine` built with a `bus::Setup` of two drives has a `Unit` each (`unit(i)`); `d`, `source`, `loader` and the rest name drive 0's. `VirtualPc::useDrive` changes drives as the BIOS does (the last motor keeps running), and `Dos(pc, drive)` works on one.
 

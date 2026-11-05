@@ -138,9 +138,9 @@ private:
 // Positions are free-running byte counts: the ring index is the count
 // modulo the ring size. If core 0 falls a whole ring behind, the bytes it
 // hasn't read are gone: that burst is abandoned and counted, never decoded
-// from overwritten data. It gives up a quarter ring early (GUARD): the DMA
-// keeps writing while a chunk is read, and must not lap the bytes being
-// read. A quarter of the 16 KB ring is 11 ms of writing at 1.44 MB, far
+// from overwritten data. It gives up a little early (the guard: a quarter
+// ring, at most 4 KB): the DMA keeps writing while a chunk is read, and must
+// not lap the bytes being read. 4 KB is 11 ms of writing at 1.44 MB, far
 // longer than reading a chunk takes.
 class CaptureStream {
 public:
@@ -153,7 +153,7 @@ public:
     };
 
     CaptureStream(const uint8_t* ring, uint32_t ring_bytes, BurstWriter& writer)
-        : ring_(ring), mask_(ring_bytes - 1), guard_(ring_bytes / 4), writers_{&writer, &writer}, writer_(&writer) {}
+        : ring_(ring), mask_(ring_bytes - 1), guard_(ring_bytes / 4 < 4096 ? ring_bytes / 4 : 4096), writers_{&writer, &writer}, writer_(&writer) {}
 
     // The writer for drive `drive`'s bursts (WriteBurst::drive); the one
     // given to the constructor takes the rest.

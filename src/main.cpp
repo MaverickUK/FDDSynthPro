@@ -1442,7 +1442,7 @@ void loop() {
         has_pending = false;
     }
     // During a write, only a few lines a pass: the capture must be decoded
-    // at the rate it arrives (16 KB is 46 ms of HD), and printing a flood of
+    // at the rate it arrives (32 KB is 88 ms of HD), and printing a flood of
     // trace lines (noise on undriven lines while WDATA toggles, seen on the
     // Feather rig) took long enough to overrun it. A trace line can wait or
     // be dropped; a write can't.

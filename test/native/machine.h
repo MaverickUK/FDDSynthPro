@@ -84,7 +84,19 @@ struct Core0Costs {
     uint32_t encode_us = 3100;
     uint32_t draw_us = 2000;
     uint32_t frame_us = 100000;
+    // The write path, timed; with decode_kbps 0 it takes no time, as before.
+    // Core 0 decodes a chunk (WRITE_CHUNK_BYTES) a pass at decode_kbps, then
+    // finishes each burst (the card's writes and sync) in finish_us, plus
+    // whatever card_stall_us(n) adds for the n-th burst: the card now and
+    // then holds a write for 50-60 ms. The host sees a burst's sectors only
+    // once its finish is over, as on the board.
+    uint32_t decode_kbps = 0;
+    uint32_t finish_us = 0;
+    std::function<uint32_t(unsigned burst)> card_stall_us;
 };
+
+// Core 0's decoding chunk, as main.cpp's serviceWrites.
+constexpr size_t WRITE_CHUNK_BYTES = 2048;
 
 class Machine {
 public:
@@ -126,8 +138,8 @@ private:
     // Fields, or a flux image's cells: a track's worth (write_burst.h).
     std::vector<uint8_t> store_ = std::vector<uint8_t>(2 * ibm::MAX_TRACK_WORDS);
     std::vector<mfm::Field> fields_ = std::vector<mfm::Field>(144);
-    // The WDATA capture ring, as on the board (16 KB).
-    std::vector<uint8_t> ring_ = std::vector<uint8_t>(16384);
+    // The WDATA capture ring, as on the board.
+    std::vector<uint8_t> ring_ = std::vector<uint8_t>(cfg::CAPTURE_RING_BYTES);
     std::vector<std::unique_ptr<Unit>> units_;
 
 public:
@@ -217,9 +229,11 @@ public:
     void runCore0(uint32_t now) {
         // Writes first, as on the board: decode whatever has arrived.
         BurstResult r;
-        while (stream.service(produced_, SIZE_MAX, [this](CaptureStream::Mark& m) { return nextMark(m); }, r)) {
-            writes.push_back(r);
-            if (lostWrite(r)) units_[burst_drive_]->d.setWriteProtected(true);  // as core 1 does on the board
+        if (!costs_.decode_kbps) {
+            while (stream.service(produced_, SIZE_MAX, [this](CaptureStream::Mark& m) { return nextMark(m); }, r))
+                burstDone(r);
+        } else if (finishing_ && int32_t(now - finish_at_) >= 0) {
+            finishBurst();
         }
         if (costs_.draw_us && !frames_started_) {
             next_frame_us_ = now;
@@ -230,6 +244,15 @@ public:
             for (auto& u : units_) {
                 u->loader.request(u->d.head().cylinder());
                 loading = loading || u->loader.loading();
+            }
+            // A pass: a chunk of a write first (main.cpp's serviceWrites),
+            // then a loader step or a panel frame.
+            if (costs_.decode_kbps && !finishing_ && writeStep()) {
+                if (finishing_) {
+                    if (int32_t(now - finish_at_) < 0) break;  // it ends later: its sectors show then
+                    finishBurst();
+                }
+                if (int32_t(now - core0_us_) <= 0) break;
             }
             bool frame_due = costs_.draw_us && int32_t(core0_us_ - next_frame_us_) >= 0;
             if (frame_due && !loading) {
@@ -378,6 +401,62 @@ private:
         if (us > longest_step_us) longest_step_us = us;
     }
 
+    void burstDone(const BurstResult& r) {
+        writes.push_back(r);
+        if (lostWrite(r)) units_[burst_drive_]->d.setWriteProtected(true);  // as core 1 does on the board
+    }
+
+    // The timed write path's pass: decodes up to a chunk of the current
+    // burst, or, when the rest of it fits in the chunk and its end is
+    // marked, starts its finish (finishBurst ends it at finish_at_). False
+    // with nothing to do.
+    bool writeStep() {
+        auto next = [this](CaptureStream::Mark& m) { return nextMark(m); };
+        if (!stream.inBurst()) {  // begin the next burst, if one has started
+            BurstResult r;
+            if (stream.service(produced_, 0, next, r)) {
+                ++bursts_;
+                burstDone(r);
+                return true;
+            }
+            if (!stream.inBurst()) return false;
+        }
+        size_t end_mark = 2 * bursts_ + 1;  // marks alternate: start, end
+        if (stream.inBurst() && end_mark < marks_.size() &&
+            marks_[end_mark].at - stream.consumed() <= WRITE_CHUNK_BYTES) {
+            uint32_t rest = marks_[end_mark].at - stream.consumed();
+            uint32_t stall = costs_.card_stall_us ? costs_.card_stall_us(bursts_) : 0;
+            uint32_t took = decodeUs(rest) + costs_.finish_us + stall;
+            finish_produced_ = produced_;  // the overrun check, as the board makes it as the finish starts
+            finish_at_ = core0_us_ + took;
+            finishing_ = true;
+            busy(took);
+            return true;
+        }
+        uint32_t before = stream.consumed();
+        BurstResult r;
+        bool done = stream.service(produced_, WRITE_CHUNK_BYTES, next, r);
+        uint32_t fed = stream.consumed() - before;
+        if (done) {  // an overrun, abandoned; or a burst whose end mark just came
+            ++bursts_;
+            burstDone(r);
+        }
+        if (!fed && !done) return false;
+        busy(decodeUs(fed));
+        return true;
+    }
+
+    void finishBurst() {
+        BurstResult r;
+        auto next = [this](CaptureStream::Mark& m) { return nextMark(m); };
+        while (!stream.service(finish_produced_, SIZE_MAX, next, r)) {}
+        finishing_ = false;
+        ++bursts_;
+        burstDone(r);
+    }
+
+    uint32_t decodeUs(uint32_t bytes) const { return uint32_t(uint64_t(bytes) * 1000 / costs_.decode_kbps); }
+
     void drainSounds() {
         activity::Event ev;
         while (tracker.pop(ev)) sounds.push_back(ev);
@@ -395,6 +474,12 @@ private:
     uint32_t produced_ = 0;
     std::vector<CaptureStream::Mark> marks_;
     size_t next_mark_ = 0;
+    // The timed write path: bursts finished (or abandoned), and the one
+    // being finished.
+    unsigned bursts_ = 0;
+    bool finishing_ = false;
+    uint32_t finish_at_ = 0;
+    uint32_t finish_produced_ = 0;
     WriteBurst burst_{};
     size_t burst_drive_ = 0;
     activity::DriveObserver observer_;

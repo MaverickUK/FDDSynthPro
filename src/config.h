@@ -119,9 +119,12 @@ constexpr uint32_t BUTTON_LONG_MS = 1000;     // a long action: eject or insert
 // samples are cut short.
 constexpr size_t SAMPLE_POOL_MAX_BYTES = 160 * 1024;
 
-// The WDATA capture ring: 16 KB is 44 ms of writing at 1.44 MB, far longer
-// than core 0 goes between chunks of decoding.
-constexpr size_t CAPTURE_RING_BYTES = 16 * 1024;
+// The WDATA capture ring: 32 KB is 88 ms of writing at 1.44 MB, the most
+// the DMA's ring wrap allows. Core 0 can fall 77 ms behind (the rest is the
+// stream's guard): enough for the card holding a write for 50-60 ms, as it
+// now and then does, while a PC writes a track's sectors one after another.
+// The 16 KB ring (33 ms) lost the write (test_pc_card_stalls).
+constexpr size_t CAPTURE_RING_BYTES = 32 * 1024;
 constexpr size_t WAV_HEADER_BYTES = 4096;  // a WAV's data must start within this (HDDSynth_Native's rule)
 
 // Mixing on core 0: blocks of 128 frames (5.8 ms at 22.05 kHz), 16 of them

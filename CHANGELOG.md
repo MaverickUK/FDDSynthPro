@@ -4,6 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.6] - 2026-11-05
+
+### Fixed
+- **A card pause could lose a PC's write:** the card now and then holds a write or sync for 50-60 ms (seen in the soak). While a PC writes a track's sectors one after another, the 16 KB capture ring (33 ms of slack) overran, the write was lost and write-protect went on. The ring is now 32 KB, the DMA's largest ring wrap, and the stream's guard is capped at 4 KB, so core 0 can fall 77 ms behind. The Feather never showed it: it writes a whole track as one burst, and the pause falls in the gap after it.
+
+### Added
+- The virtual PC can time the write path (`Core0Costs::decode_kbps`, `finish_us`, `card_stall_us`): `test_pc_card_stalls` writes tracks of sectors while the card stalls, and checks that a sector never reads back wrong, that a lost write sets write-protect, and that stalls up to 60 ms lose nothing.
+
 ## [0.23.5] - 2026-11-05
 
 ### Changed

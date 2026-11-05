@@ -28,7 +28,7 @@ void stop();
 // Bytes written into the ring since begin(), free-running (the ring index
 // is this modulo the ring size). Call on every pass of core 1's loop: it
 // counts the ring's wraps from the DMA's write address, so it must see each
-// one (16 KB is 44 ms of writing at 1.44 MB).
+// one (32 KB is 88 ms of writing at 1.44 MB).
 uint32_t produced();
 
 // Ticks the program doesn't count at each edge (fdd_wdata.pio): add them to
