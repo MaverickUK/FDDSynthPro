@@ -74,7 +74,7 @@ TEST(test_tracker_close_steps_are_a_seek) {
     auto ev = lines(drain(tr));
     CHECK_EQ(ev.size(), 3u);
     CHECK_STR(ev[0], "ACT 1000 STEP OUT 9");
-    CHECK_STR(ev[1], "ACT 4000 SEEK_START OUT 8");
+    CHECK_STR(ev[1], "ACT 4000 SEEK_START OUT 8 3000");  // 3 ms since the first step: its rate
     CHECK_STR(ev[2], "ACT 28000 SEEK_END 0 10");  // timed at its last step
 }
 

@@ -92,6 +92,9 @@ struct Event {
     bool inwards;      // Step, SeekStart; Bump: true for the inner stop
     uint8_t cylinder;  // Step, SeekStart, SeekEnd
     uint16_t steps;    // SeekEnd
+    // SeekStart: the time between the seek's first two steps, its rate (up
+    // to seek_gap_us). The synth clicks at it (docs/activity.md).
+    uint16_t interval_us = 0;
 };
 
 const char* soundName(Sound s);

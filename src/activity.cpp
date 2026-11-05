@@ -119,7 +119,7 @@ void Tracker::onDriveEvent(const DriveEvent& e) {
         seeking_ = true;
         seek_steps_ = 2;
         ++seeks_;
-        emit(Event{e.time_us, Sound::SeekStart, inwards, e.cylinder, 0});
+        emit(Event{e.time_us, Sound::SeekStart, inwards, e.cylinder, 0, uint16_t(e.time_us - last_step_us_)});
     } else {
         ++clicks_;
         emit(Event{e.time_us, Sound::Step, inwards, e.cylinder, 0});
@@ -139,9 +139,11 @@ size_t format(const Event& e, char* buf, size_t size) {
     const char* dir = e.inwards ? "IN" : "OUT";
     switch (e.sound) {
         case Sound::Step:
+            n = std::snprintf(buf, size, "ACT %lu STEP %s %u\n", (unsigned long)e.time_us, dir, (unsigned)e.cylinder);
+            break;
         case Sound::SeekStart:
-            n = std::snprintf(buf, size, "ACT %lu %s %s %u\n", (unsigned long)e.time_us, soundName(e.sound), dir,
-                              (unsigned)e.cylinder);
+            n = std::snprintf(buf, size, "ACT %lu SEEK_START %s %u %u\n", (unsigned long)e.time_us, dir,
+                              (unsigned)e.cylinder, (unsigned)e.interval_us);
             break;
         case Sound::SeekEnd:
             n = std::snprintf(buf, size, "ACT %lu SEEK_END %u %u\n", (unsigned long)e.time_us, (unsigned)e.cylinder,

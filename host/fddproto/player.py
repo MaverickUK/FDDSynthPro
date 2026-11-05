@@ -12,7 +12,10 @@ The rules are the ones the synth's firmware will follow (docs/activity.md):
   MOTOR_ON    spinup.wav, then spin.wav looping until MOTOR_OFF
   MOTOR_OFF   the spin loop stops; spindown.wav
   STEP        step.wav
-  SEEK_START  seek.wav looping until SEEK_END (at its last step)
+  SEEK_START  seek.wav, one step of a seek, clicking at the seek's own rate
+              (SEEK_START's interval), cut short when the steps come faster
+              than it lasts; until the last step's click, from SEEK_END's
+              step count
   BUMP        bump.wav
   INSERT      insert.wav;  EJECT  eject.wav
 
@@ -64,6 +67,32 @@ def load_pack(folder: Path) -> Pack:
     return Pack(rate, sounds)
 
 
+def cdiv(a: int, b: int) -> int:
+    """Integer division towards zero, as C++'s."""
+    q = abs(a) // b
+    return q if a >= 0 else -q
+
+
+@dataclass
+class Seek:
+    """A seek's clicks: seek.wav's first `length` samples every `period`
+    samples from `start`, the last `fade` of them fading out."""
+    start: int
+    period: int
+    length: int
+    fade: int
+
+
+def seek_clicks(seek: list[int], start: int, interval_us: int, rate: int) -> Seek:
+    """How a seek clicks: at its rate, or with no rate given (an old trace)
+    at seek.wav's own length. A click longer than the step is cut short,
+    fading over its last quarter, at most 1 ms."""
+    period = max(1, interval_us * rate // 1_000_000) if interval_us else len(seek)
+    length = min(period, len(seek))
+    fade = min(length // 4, rate // 1000) if period < len(seek) else 0
+    return Seek(start, period, length, fade)
+
+
 def render(events: list[trace.Act], pack: Pack) -> list[int]:
     """Mixes the pack's sounds as the events call for them. Returns 16-bit samples."""
     if not events:
@@ -90,6 +119,16 @@ def render(events: list[trace.Act], pack: Pack) -> list[int]:
         for i in range(max(0, start), min(stop, len(out))):
             out[i] += s[(i - start) % len(s)]
 
+    def clicks(k: Seek, stop: int):
+        s = pack.sounds["seek"]
+        for i in range(max(0, k.start), min(stop, len(out))):
+            phase = (i - k.start) % k.period
+            if phase < k.length:
+                v = s[phase]
+                if k.fade and phase >= k.length - k.fade:
+                    v = cdiv(v * (k.length - phase), k.fade)
+                out[i] += v
+
     motor_on = seek_on = None
     for e in events:
         n = at(e.t_us)
@@ -103,9 +142,19 @@ def render(events: list[trace.Act], pack: Pack) -> list[int]:
         elif e.sound == "STEP":
             place("step", n)
         elif e.sound == "SEEK_START" and seek_on is None:
-            seek_on = n
+            interval = int(e.args[2]) if len(e.args) > 2 else 0
+            seek_on = seek_clicks(pack.sounds["seek"], n, interval, rate)
         elif e.sound == "SEEK_END" and seek_on is not None:
-            loop("seek", seek_on, n + len(pack.sounds["step"]))  # until the last step's click dies away
+            # The clicks run until this event (it comes once the gap shows
+            # the seek is over, 20 ms after its last step: the firmware's
+            # mixer can't know sooner), then the one sounding finishes,
+            # unless the step count says the last step's click is over.
+            # The seek clicked from its second step (the first was a STEP).
+            steps = int(e.args[1]) if len(e.args) > 1 else 0
+            stop = n + seek_on.length
+            if steps >= 2:
+                stop = max(n, min(stop, seek_on.start + (steps - 2) * seek_on.period + seek_on.length))
+            clicks(seek_on, stop)
             seek_on = None
         elif e.sound == "BUMP":
             place("bump", n)
@@ -114,7 +163,7 @@ def render(events: list[trace.Act], pack: Pack) -> list[int]:
     if motor_on is not None:  # still spinning at the end of the trace
         loop("spin", motor_on, len(out))
     if seek_on is not None:
-        loop("seek", seek_on, len(out))
+        clicks(seek_on, len(out))
 
     return [32767 if v > 32767 else -32768 if v < -32768 else v for v in out]
 

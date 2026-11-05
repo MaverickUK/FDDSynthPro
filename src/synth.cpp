@@ -39,21 +39,39 @@ void Mixer::event(const activity::Event& e) {
             play(pack_.step);
             return;
         case Sound::SeekStart: {
-            if (seeking_ >= 0) return;
+            if (seeking_ >= 0 || !pack_.seek.length) return;
             for (size_t i = 0; i < SEEK_LOOPS; ++i) {
-                if (!seeks_[i].on) {
-                    seeks_[i] = Loop{true, pos_, UINT32_MAX};
-                    seeking_ = int(i);
-                    return;
-                }
+                if (seeks_[i].on) continue;
+                Clicks& c = seeks_[i];
+                c.on = true;
+                c.start = pos_;
+                c.stop = UINT32_MAX;
+                const uint32_t own = pack_.seek.length;
+                uint32_t period = uint32_t(uint64_t(e.interval_us) * pack_.rate / 1000000);
+                c.period = e.interval_us ? (period ? period : 1) : own;
+                c.length = c.period < own ? c.period : own;
+                uint32_t ms = pack_.rate / 1000;
+                c.fade = c.period < own ? (c.length / 4 < ms ? c.length / 4 : ms) : 0;
+                seeking_ = int(i);
+                return;
             }
             return;  // all four still sounding their tails: this seek stays silent
         }
-        case Sound::SeekEnd:
+        case Sound::SeekEnd: {
             if (seeking_ < 0) return;
-            seeks_[seeking_].stop = pos_ + pack_.step.length;
+            // The clicks have run until now (this event comes 20 ms after the
+            // last step); the one sounding finishes, unless the step count
+            // says the last step's click is already over.
+            Clicks& c = seeks_[seeking_];
+            uint32_t stop = pos_ + c.length;
+            if (e.steps >= 2) {
+                uint32_t last = c.start + uint32_t(e.steps - 2) * c.period + c.length;
+                if (last < stop) stop = last > pos_ ? last : pos_;
+            }
+            c.stop = stop;
             seeking_ = -1;
             return;
+        }
         case Sound::Bump:
             play(pack_.bump);
             return;
@@ -75,9 +93,23 @@ static void addLoop(int32_t* mix, size_t n, uint32_t from, uint32_t start, uint3
     }
 }
 
+// Adds a seek's clicks for [from, from + n) to `mix`.
+static void addClicks(int32_t* mix, size_t n, uint32_t from, uint32_t start, uint32_t stop, uint32_t period,
+                      uint32_t length, uint32_t fade, const Sample& s) {
+    for (size_t k = 0; k < n; ++k) {
+        uint32_t i = from + uint32_t(k);
+        if (i < start || i >= stop) continue;
+        uint32_t phase = (i - start) % period;
+        if (phase >= length) continue;
+        int32_t v = s.data[phase];
+        if (fade && phase >= length - fade) v = v * int32_t(length - phase) / int32_t(fade);  // towards zero
+        mix[k] += v;
+    }
+}
+
 void Mixer::reset() {
     for (OneShot& o : shots_) o = OneShot{};
-    for (Loop& l : seeks_) l = Loop{};
+    for (Clicks& c : seeks_) c = Clicks{};
     seeking_ = -1;
     spin_ = motor_ ? Loop{true, pos_, UINT32_MAX} : Loop{};
 }
@@ -107,10 +139,10 @@ void Mixer::render(int16_t* out, size_t frames) {
             addLoop(mix, n, pos_, spin_.start, spin_.stop, pack_.spin);
             if (pos_ + n >= spin_.stop) spin_.on = false;
         }
-        for (Loop& l : seeks_) {
-            if (!l.on) continue;
-            addLoop(mix, n, pos_, l.start, l.stop, pack_.seek);
-            if (pos_ + n >= l.stop) l.on = false;
+        for (Clicks& c : seeks_) {
+            if (!c.on) continue;
+            addClicks(mix, n, pos_, c.start, c.stop, c.period, c.length, c.fade, pack_.seek);
+            if (pos_ + n >= c.stop) c.on = false;
         }
 
         for (size_t k = 0; k < n; ++k) {

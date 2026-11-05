@@ -75,3 +75,28 @@ def test_the_virtual_pcs_session(pack, tmp_path):
     out_path = tmp_path / "session.wav"
     assert player.main([str(SESSION), str(out_path)]) == 0
     assert out_path.stat().st_size > 100_000
+
+
+def test_a_seek_clicks_at_its_rate(pack):
+    # A seek alone (its first step's click left out), 3 ms a step: seek.wav's
+    # start every 3 ms (cut short, faded), the same each time, for steps 2
+    # to 20, then nothing.
+    period = 3000 * pack.rate // 1_000_000
+    out = player.render(events(["ACT 1000000 SEEK_START IN 2 3000", "ACT 1054000 SEEK_END 20 20"]), pack)
+    start = int(player.LEAD_IN_S * pack.rate)
+    seek = pack.sounds["seek"]
+    assert out[start] == seek[0]
+    assert all(out[i] == out[i + period] for i in range(start, start + 18 * period))
+    assert any(out[start:start + period])
+    length = min(period, len(seek))
+    assert all(v == 0 for v in out[start + 18 * period + length:])
+
+
+def test_seek_click_longer_than_the_step_fades(pack):
+    seek = pack.sounds["seek"]
+    k = player.seek_clicks(seek, 0, 3000, pack.rate)
+    assert k.period == 3000 * pack.rate // 1_000_000
+    if k.period < len(seek):
+        assert k.length == k.period and 0 < k.fade <= pack.rate // 1000
+    slow = player.seek_clicks(seek, 0, 100000, pack.rate)  # slower than the click lasts
+    assert slow.length == len(seek) and slow.fade == 0

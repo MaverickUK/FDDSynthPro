@@ -6,8 +6,13 @@
 //   MOTOR_ON    spinup plays once; the spin loop starts where it ends
 //   MOTOR_OFF   the spin loop stops; spindown plays once
 //   STEP        step plays once
-//   SEEK_START  the seek loop starts
-//   SEEK_END    the seek loop stops one step-sample later (the last click's tail)
+//   SEEK_START  seek (one step of a seek) clicks at the seek's rate (the
+//               event's interval_us), cut short with a fade over its last
+//               quarter (at most 1 ms) when the steps come faster than it
+//               lasts; with no interval, at its own length
+//   SEEK_END    the clicks run until this event (20 ms after the seek's last
+//               step: nothing tells the mixer sooner); then the sounding one
+//               finishes, unless the step count says the last step's is over
 //   BUMP        bump plays once;  INSERT, EJECT  insert, eject play once
 // Loops play from their own start, so each begins at its first sample. The
 // mix is the plain sum of everything playing, saturated to 16 bits. The
@@ -90,6 +95,11 @@ private:
         uint32_t start = 0;
         uint32_t stop = UINT32_MAX;  // the first sample not played
     };
+    // A seek's clicks: seek's first `length` samples every `period` from
+    // `start`, the last `fade` of them fading out.
+    struct Clicks : Loop {
+        uint32_t period = 1, length = 0, fade = 0;
+    };
 
     void play(const Sample& s);
 
@@ -98,7 +108,7 @@ private:
     OneShot shots_[ONE_SHOTS];
     Loop spin_;
     bool motor_ = false;
-    Loop seeks_[SEEK_LOOPS];
+    Clicks seeks_[SEEK_LOOPS];
     int seeking_ = -1;  // the seek loop a SEEK_END will stop
     uint32_t stolen_ = 0;
     uint32_t gain_ = UNITY, target_gain_ = UNITY;

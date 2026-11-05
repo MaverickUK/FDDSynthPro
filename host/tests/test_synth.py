@@ -97,3 +97,14 @@ def test_random_sessions(pack):
             else:
                 lines.append(f"ACT {t} BUMP OUTER")
         compare(lines, pack)
+
+
+def test_seeks_at_their_own_rate(pack):
+    # A PC's 3 ms (each click cut short), a Greaseweazle's 10, the Feather's
+    # 26 (were the tracker to call it a seek), and a seek with no rate (an
+    # old trace: seek.wav's own length).
+    for interval in (3000, 4500, 10000, 26000, None):
+        rate = "" if interval is None else f" {interval}"
+        gap = interval or 6000
+        compare([f"ACT 0 STEP IN 1", f"ACT {gap} SEEK_START IN 2{rate}",
+                 f"ACT {gap * 19 + 20000} SEEK_END 20 20"], pack)

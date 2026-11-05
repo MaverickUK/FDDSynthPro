@@ -34,9 +34,9 @@ def test_pack(maker, tmp_path):
 
 def test_loops_are_whole_cycles(maker):
     rate = maker.RATE
-    # spin: whole revolutions at 300 RPM; seek: whole 6 ms steps.
+    # spin: whole revolutions at 300 RPM; seek: one 6 ms step.
     assert len(maker.spin()) % (rate // 5) == 0
-    assert len(maker.seek()) % int(0.006 * rate) == 0
+    assert len(maker.seek()) == int(0.006 * rate)
 
 
 def test_same_pack_every_time(maker, tmp_path):

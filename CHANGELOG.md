@@ -4,6 +4,12 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-06
+
+### Changed
+- **A seek sounds at its own rate:** `SEEK_START` carries the time between the seek's first two steps (`ACT ... SEEK_START IN|OUT <cyl> <interval>`), and the synth plays `seek.wav`, now one step of a seek, once a step at that rate. A click longer than the step is cut short with a fade (at most 1 ms), so a PC's 3 ms seek buzzes higher than a Greaseweazle's 10 ms one. The clicks stop at `SEEK_END`, trimmed by its step count. The player (`fddproto.player`), the spec, does the same, sample for sample.
+- Both packs' `seek.wav` are one step: the Placeholder's a 6 ms tick, the Recorded pack's one step of its 10 ms seek. A pack from before 0.24 with a many-step `seek.wav` still plays, but a seek slower than its steps doubles them.
+
 ## [0.23.6] - 2026-11-05
 
 ### Fixed

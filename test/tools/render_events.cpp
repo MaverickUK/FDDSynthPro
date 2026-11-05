@@ -42,9 +42,9 @@ static bool load(const std::string& path, Loaded& out) {
 }
 
 static bool parseEvent(const char* line, int64_t& t, activity::Event& e) {
-    char sound[16] = "", a[16] = "", b[16] = "";
+    char sound[16] = "", a[16] = "", b[16] = "", c[16] = "";
     long long us = 0;
-    int got = std::sscanf(line, "ACT %lld %15s %15s %15s", &us, sound, a, b);
+    int got = std::sscanf(line, "ACT %lld %15s %15s %15s %15s", &us, sound, a, b, c);
     if (got < 2) return false;
     using activity::Sound;
     struct { const char* name; Sound s; } names[] = {
@@ -56,6 +56,8 @@ static bool parseEvent(const char* line, int64_t& t, activity::Event& e) {
         if (std::strcmp(sound, n.name) == 0) {
             t = us;
             e = activity::Event{uint32_t(us), n.s, std::strcmp(a, "IN") == 0 || std::strcmp(a, "INNER") == 0, 0, 0};
+            if (n.s == Sound::SeekStart) e.interval_us = uint16_t(std::atoi(c));  // IN|OUT <cyl> <interval>
+            if (n.s == Sound::SeekEnd) e.steps = uint16_t(std::atoi(b));          // <cyl> <steps>
             return true;
         }
     }

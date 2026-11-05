@@ -38,6 +38,6 @@ def test_fits_the_sample_pool():
 
 
 def test_loops_are_whole_cycles():
-    # spin: 4 revolutions (199.8 ms each, as measured); seek: 20 steps 10 ms apart.
+    # spin: 4 revolutions (199.8 ms each, as measured); seek: one 10 ms step.
     assert abs(frames("spin") - 4 * 0.1998 * RATE) <= 1
-    assert frames("seek") == 20 * RATE // 100
+    assert frames("seek") == round(0.010 * RATE)

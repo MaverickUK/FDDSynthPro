@@ -140,7 +140,9 @@ def step() -> list[float]:
 
 
 def seek() -> list[float]:
-    # Steps every 6 ms, a whole number of them, so it loops: 20 x 6 ms.
+    # One step of a seek, 6 ms: the synth repeats it at each seek's own rate
+    # (docs/activity.md). Made as the 20-step loop it used to be, so the
+    # random numbers (and the sounds after it) stay as they were.
     interval = int(0.006 * RATE)
     out = [0.0] * (interval * 20)
     for k in range(20):
@@ -148,7 +150,7 @@ def seek() -> list[float]:
         # Wrap the tail of each tick round, so the loop has no seam.
         for i, v in enumerate(t):
             out[(k * interval + i) % len(out)] += v * rng.uniform(0.8, 1.0)
-    return out
+    return out[:interval]
 
 
 def bump() -> list[float]:
@@ -215,7 +217,7 @@ def demo(sounds: dict[str, list[float]]) -> list[float]:
     for k in range(3):  # single steps
         place(out, sounds["step.wav"], t + int((0.3 + 0.25 * k) * RATE))
     seek_at = t + int(1.3 * RATE)
-    for k in range(6):  # a seek: the loop played six times
+    for k in range(20):  # a seek: 20 steps at its own 6 ms
         place(out, sounds["seek.wav"], seek_at + k * len(sounds["seek.wav"]))
     grind_at = t + int(2.6 * RATE)
     for k in range(6):  # bumps 6 ms apart: the recalibrate grind

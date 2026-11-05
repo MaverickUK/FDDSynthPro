@@ -15,7 +15,8 @@ click onsets and their spacing, and the spectra):
   spindown  47.85-49.4 s the motor off: the thumps slow and fade.
   step      28.401 s     one step of a slow sweep across the disk (79 steps,
                          172 ms apart): the most typical of the 79.
-  seek      5.55 s on    a seek: steps 10 ms apart, 20 of them, looped.
+  seek      5.55 s       one step of a seek (steps 10 ms apart), made to loop:
+                         the synth repeats it at each seek's own rate.
   bump      2.363 s      the loudest click in the recording, matching the
                          knocks of the recalibrate at 4.8-5.5 s (a seek about
                          12 dB louder than the others): a step against the
@@ -133,7 +134,7 @@ def make_sounds(rec: Recording) -> dict[str, list[float]]:
         "spin": rec.loop(spin_at, int(round(4 * ROTATION_S * RATE)), int(0.02 * RATE)),
         "spindown": fade(rec.cut(47.85, 49.40), fade_out=0.4),
         "step": fade(rec.cut(step_at - 0.003, step_at + 0.080), fade_in=0.002, fade_out=0.025),
-        "seek": rec.loop(seek_at - 0.002, int(round(20 * SEEK_STEP_S * RATE)), int(0.003 * RATE)),
+        "seek": rec.loop(seek_at - 0.002, int(round(SEEK_STEP_S * RATE)), int(0.003 * RATE)),
         "bump": fade(rec.cut(bump_at - 0.003, bump_at + 0.100), fade_in=0.002, fade_out=0.03),
     }
     # One gain for all but the bump, putting a step 6 dB under the bump's
