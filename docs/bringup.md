@@ -157,6 +157,10 @@ Note the numbers in `docs/plan.md`, under the open questions.
 - [ ] Delete `/FDDSYNTH.CFG`, or put nonsense in it: the drive still starts, on the first disk and pack at 75%.
 - [ ] During a long `gw read` with the panel on, `audio_underruns` stays 0, `draw_us_max` is well under 6750 (the most `test_pc_panel_margin` allows: above that, a frame just as the head steps could make a cylinder late for a PC's 15 ms settle time), and `oled_aborts=0`. Also note `read_us_max` and `encode_us_max`: the margin assumes 1 ms and 3.1 ms; if they're higher, rerun the test with them. Then repeat slice 2's seek test: the panel must not make a read miss its settle time.
 
+## 15. Real computers
+
+Once the rig tests pass: a PC, then an Amiga, in [hardware-tests.md](hardware-tests.md).
+
 ## If something fails
 
 - **Evidence.** Each failing test leaves a folder in `host/runs/` with the drive's trace and the `gw` transcript.

@@ -1,26 +1,31 @@
 # Pico Floppy Drive Emulator: Prototype Plan
 
-22 Oct 2026, Peter Bridger. Status updated 5 Nov 2026 (firmware 0.19.0).
+22 Oct 2026, Peter Bridger. Status updated 5 Nov 2026 (firmware 0.22.0).
 
 ## Where it stands
 
 Every slice below is built and passes its tests on the Mac, against virtual hosts (a Greaseweazle, the Feather, a PC's BIOS and controller, an Amiga) and Greaseweazle's own encoder and decoder.
 
-**On hardware (4 Nov 2026):** the rev B carrier ([hardware/README.md](../hardware/README.md)) is on the rig with the Feather host, but with a plain BB48 fitted, not a BB48R: no PSRAM and no microSD. On it, slices 0, 1, 2 and 4 pass their exit tests. Slice 2 needed the track encoder made faster (0.19): a cylinder now loads in 11.6 ms at worst, inside the host's 15 ms settle time. The bring-up steps are in [bringup.md](bringup.md).
+**On hardware (5 Nov 2026):** a rev B carrier ([hardware/README.md](../hardware/README.md)) with a BB48R (PSRAM and microSD), against the Feather host. Every slice the Feather can test passes, with images served from the card through PSRAM. Running on hardware found what the Mac couldn't: the write decoder and the track encoder too slow from flash (both now run from RAM), HFE loading slow, a card sync per sector, and a PSRAM cache line shared between cached and uncached use. All fixed (0.19 to 0.22). A first carrier with a plain BB48 (no PSRAM or card) passed slices 0, 1, 2 and 4 the day before. The bring-up steps are in [bringup.md](bringup.md).
 
 | Slice | Mac | Rig |
 |---|---|---|
 | 0 Listen only | ✅ | ✅ |
 | 1 Head, index, status | ✅ | ✅ (pins 28 and 34 skipped: the Feather reads only pin 26) |
-| 2 Generated disk | ✅ | ✅ |
-| 3 Images on SD | ✅ | waits for a BB48R |
+| 2 Generated disk | ✅ | ✅ (worst cylinder load 11.7 ms, inside the 15 ms settle time) |
+| 3 Images on SD | ✅ | ✅ byte for byte |
 | 4 Sound events | ✅ | ✅ |
-| 5 Write | ✅ | waits for a BB48R |
-| 6 Real PC | ✅ (virtual PC) | waits for a PC |
+| 5 Write | ✅ | ✅ 100 random tracks written and read back, no mismatch |
+| 6 Real PC | ✅ (virtual PC) | swaps round all images ✅; the PC itself next |
+| HFE image | ✅ | ✅ read back byte for byte |
+| Amiga tracks | ✅ (virtual Amiga) | ✅ ADF read and whole-track writes (`-m amiga`, Shugart DS1: the Feather can't drive an Amiga drive's latched motor) |
 
-**Next:**
-1. A second carrier with a BB48R: the solder-bridge test, slices 0 and 1 again, then slices 3 and 5. Then what only hardware can show: image swaps, two drives (the RDATA switch), an HFE image, audio through the I2S amp with packs from the card, and the front panel (`draw_us_max` under 6.75 ms).
-2. Meanwhile, on the plain BB48: a real PC reading the welcome disk (J7 closed for 1 kΩ, a cable with the twist; DOS `DIR` and `TYPE`; read-only without PSRAM). A real drive and a logic analyser on the Feather to answer the open timing questions, and a look at RDATA's edges.
+**Not yet on hardware:** DSKCHG on pin 34 (the Feather can't read it); a real controller's read and write timing; the Amiga's motor latch, `/RDY` and `/CHNG` (pin 2, after a rework); two drives on one cable; the I2S amp and the front panel, not yet fitted.
+
+**Next** ([hardware-tests.md](hardware-tests.md) has the steps):
+1. A real PC: DOS reads, writes, disk changes, FORMAT, and a soak (slice 6's exit).
+2. The pin 2 rework, then a real Amiga.
+3. Writes a track's sectors to the card in one go (a track write holds core 0 for 50 to 64 ms now), and the amp and panel when fitted.
 
 The prototype has also gone well past its first scope:
 
@@ -36,6 +41,7 @@ The prototype has also gone well past its first scope:
 | The welcome disk (with no card), a fixed startup image | 0.15, 0.16 |
 | FM (single density), tracks at half a disk's rate | 0.17 |
 | HFE flux images: copy protection, weak bits, spliced writes | 0.18 |
+| Settings shared with HDDSynthPro (`device0`, `device1`), and changed over USB (console `e`, `!`) | 0.20, 0.22 |
 
 The settings, formats and interfaces are described in [config.md](config.md).
 
@@ -170,7 +176,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - Both heads are interleaved in one stream and chosen per cell by the PIO program, so a head switch needs nothing from the CPU. Rebuild the cylinder on a step.
   - *Before hardware:* the track encoder checked byte for byte against `gw convert` output and decoded by `gw convert`; the PIO program in `pio_sim.py`, decoded by a Python model of a floppy controller's data separator.
   - **Exit:** `gw read --format ibm.1440` gives the generated image byte for byte, ten times; random single-track reads too.
-- **Slice 3: images on SD.** *Done in firmware (0.4.0) and in host tests; waiting for a BB48R.*
+- **Slice 3: images on SD.** *Done (0.4.0); passes on the rig with a BB48R (Nov 2026).*
   - IMG/IMA files, geometry from size (720 KB and 1.44 MB to start), one cylinder cached, loaded on each step within the settle time. 720 KB brings the 250 kbit/s rate.
   - *Before hardware:* geometry and cache tests with a fake SD, including how long a load may take.
   - **Exit:** real images (a DOS boot disk, a full data disk) read byte for byte; seek-heavy reads at the host's fastest step rate.
@@ -178,11 +184,11 @@ Each slice ends in a passing automated test before the next starts. Each one als
   - Motor spin-up and spin-down, single steps, seeks (with distance), recalibration and the track 0 stop, reading versus idle, disk insert and eject. Printed as `ACT` lines, like HDDSynthPro.
   - *Before hardware:* the classifier, on recorded slice 0–3 traces.
   - **Exit:** scripted `gw` sessions produce the expected event sequence every time.
-- **Slice 5: write.** *Done in firmware (0.6.0) and host tests; waiting for a BB48R.*
+- **Slice 5: write.** *Done (0.6.0); passes on the rig with a BB48R since 0.21.0's faster decoder, 100 tracks without a mismatch (Nov 2026).*
   - WGATE and WDATA captured by PIO, decoded from MFM, written back to the image on SD when the head moves or the motor stops. WPT follows a per-image setting.
   - *Before hardware:* the decoder against flux from `gw convert`; the capture program in `pio_sim.py`.
   - **Exit:** `gw write` then `gw read`, 100 images, zero mismatches; the image survives a power cycle.
-- **Slice 6: a real PC, disk swaps and soak.** *A virtual PC already reads and writes a real FAT12 disk end to end on the Mac, checked by mtools and fsck.fat (`host/tests/test_dos_disk.py`); the real PC waits for hardware.*
+- **Slice 6: a real PC, disk swaps and soak.** *A virtual PC already reads and writes a real FAT12 disk end to end on the Mac, checked by mtools and fsck.fat (`host/tests/test_dos_disk.py`); swaps pass on the rig; the real PC is next ([hardware-tests.md](hardware-tests.md)).*
   - BIOS boot from the drive, DOS `DIR`, `COPY` and `FORMAT`. A button to change image, with DSKCHG set as a real disk change does.
   - **Exit:** an overnight soak of copies and compares with zero mismatches and zero hangs.
 
