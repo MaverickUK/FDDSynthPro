@@ -1263,6 +1263,15 @@ static void applySettingLine() {
         return;
     }
     g_settings = g_latest = next;
+    // The volume and the pack also take effect now: serviceSettings() saves
+    // what's in use (the panel's volume, the loaded pack), so leaving them
+    // to the restart put the old values back in the file if a second
+    // setting came first. The drive is idle, so a pack can load now.
+    panel::model().setVolume(next.volume);
+    if (sd_image::packs().count()) {
+        size_t pack = sd_image::packs().find(next.pack);
+        if (pack < sd_image::packs().count() && pack != g_pack_index) loadPack(pack);
+    }
     for (size_t at = 0; at < n;) {
         size_t end = at;
         while (end < n && text[end] != '\n') ++end;

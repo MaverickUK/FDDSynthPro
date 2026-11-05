@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-11-05
+
+### Fixed
+- **A volume or pack set with console `e` could be lost:** the drive saves what's in use (the panel's volume, the loaded pack), so the old value went back into the file when a second setting followed before a restart. `e` now applies the volume, and loads the pack, at once.
+
 ## [0.23.1] - 2026-11-05
 
 ### Changed
