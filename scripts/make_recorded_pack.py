@@ -21,8 +21,9 @@ click onsets and their spacing, and the spectra):
                          12 dB louder than the others): a step against the
                          end stop.
 
-The whole pack gets one gain, so the sounds keep the drive's own balance:
-the clicks loud over a quiet motor. The format is the firmware's: mono,
+The pack gets one gain, putting a step 6 dB under full scale, so the sounds
+keep the drive's own balance (the clicks loud over a quiet motor); the bump
+alone is scaled to the peak, 6 dB over a step instead of the recording's 12. The format is the firmware's: mono,
 16-bit, 22.05 kHz, within the 160 KB sample pool (cfg::SAMPLE_POOL_MAX_BYTES).
 
     scripts/make_recorded_pack.py                       # writes samples/Recorded/
@@ -135,8 +136,15 @@ def make_sounds(rec: Recording) -> dict[str, list[float]]:
         "seek": rec.loop(seek_at - 0.002, int(round(20 * SEEK_STEP_S * RATE)), int(0.003 * RATE)),
         "bump": fade(rec.cut(bump_at - 0.003, bump_at + 0.100), fade_in=0.002, fade_out=0.03),
     }
-    gain = PEAK / max(abs(v) for s in sounds.values() for v in s)
-    return {name: [v * gain for v in s] for name, s in sounds.items()}
+    # One gain for all but the bump, putting a step 6 dB under the bump's
+    # peak (and nothing else over it), so the drive's balance holds. The bump
+    # gets its own gain to the peak: in the recording it's 12 dB over a step,
+    # and one gain for everything (as before 0.23.0) left the pack about
+    # 15 dB quieter than the placeholder one.
+    peak = {name: max(abs(v) for v in s) for name, s in sounds.items()}
+    gain = min(PEAK / 2 / peak["step"], PEAK / max(p for name, p in peak.items() if name != "bump"))
+    gains = {name: PEAK / peak["bump"] if name == "bump" else gain for name in sounds}
+    return {name: [v * gains[name] for v in s] for name, s in sounds.items()}
 
 
 def write_wav(path: Path, x: list[float]):

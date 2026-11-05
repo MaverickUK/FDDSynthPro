@@ -106,9 +106,24 @@ BurstResult BurstWriter::finishRaw(const ibm::Format& fmt) {
         store_[2 * i] = uint8_t(w >> 8);
         store_[2 * i + 1] = uint8_t(w);
     }
+    // In pieces that end on 4 KB boundaries of the track (an HFE file's
+    // 16-block groups), giving the audio a turn between them: a whole track
+    // to the card takes 80 ms or more.
+    auto write = [&](uint32_t at, const uint8_t* data, uint32_t bytes) {
+        constexpr uint32_t PIECE = 4096;
+        while (bytes) {
+            uint32_t run = PIECE - at % PIECE;
+            if (run > bytes) run = bytes;
+            if (between_writes) between_writes();
+            if (!source_.writeTrackBytes(uint8_t(cylinder), burst_.head, at, data, run)) return false;
+            at += run;
+            data += run;
+            bytes -= run;
+        }
+        return true;
+    };
     uint32_t part = n < track - first ? n : track - first;
-    bool ok = source_.writeTrackBytes(uint8_t(cylinder), burst_.head, first * 2, store_, part * 2) &&
-              (part == n || source_.writeTrackBytes(uint8_t(cylinder), burst_.head, 0, store_ + part * 2, (n - part) * 2));
+    bool ok = write(first * 2, store_, part * 2) && (part == n || write(0, store_ + part * 2, (n - part) * 2));
     for (uint32_t i = 0; i < n; ++i) words[i] = uint16_t(store_[2 * i] << 8 | store_[2 * i + 1]);
     if (!ok) {
         r.failed = 1;  // the live track keeps the old cells: what the disk has

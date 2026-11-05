@@ -53,7 +53,7 @@ void fillAll(ImageCache& cache) {
     CHECK(steps <= 160u);
 }
 
-TEST(test_cache_fills_a_track_at_a_time) {
+TEST(test_cache_fills_a_cylinder_at_a_time) {
     Card card(ibm::HD_1440);
     std::vector<uint8_t> ram(1474560);
     ImageCache cache(ram.data(), ram.size());
@@ -61,9 +61,10 @@ TEST(test_cache_fills_a_track_at_a_time) {
     CHECK(cache.fits());
     CHECK(!cache.complete());
     CHECK(cache.fill());
-    CHECK_EQ(card.reads, 1u);  // one track per step: core 0 stays responsive
+    CHECK_EQ(card.reads, 2u);  // one cylinder per step: core 0 stays responsive
     CHECK(cache.cached(0, 0));
-    CHECK(!cache.cached(0, 1));
+    CHECK(cache.cached(0, 1));
+    CHECK(!cache.cached(1, 0));
     fillAll(cache);
     CHECK(cache.complete());
     CHECK_EQ(cache.cachedTracks(), 160u);
@@ -187,7 +188,7 @@ TEST(test_cache_attach_starts_again) {
 }  // namespace
 
 void runImageCacheTests() {
-    RUN(test_cache_fills_a_track_at_a_time);
+    RUN(test_cache_fills_a_cylinder_at_a_time);
     RUN(test_cache_reads_from_memory);
     RUN(test_cache_reads_the_card_until_filled);
     RUN(test_cache_writes_reach_the_card_first);

@@ -4,6 +4,18 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-05
+
+### Changed
+- **The Recorded pack is about 9 dB louder:** one gain for the whole pack was set by the bump, 12 dB over every other click, which left the rest about 15 dB under the placeholder pack (inaudible at low volumes). `make_recorded_pack.py` now gives the clicks and motor one gain (a step 6 dB under full scale) and scales the bump on its own; it's still the loudest sound. The showreel is re-rendered with it.
+- **An HD HFE image loads in 3.9 s, not 5.8:** the cache fills a cylinder at a time (`TrackSource::readCylinder`), and an HFE file, whose blocks hold both heads' halves, is read once for the two instead of once each; its cells are staged and copied into PSRAM 64 bytes at a time.
+
+### Added
+- Console `s`: `audio_gap_us_max`, the longest wait between two services of the audio queue (46 ms long); `z` zeroes it. The soak's log records it with `audio_underruns`.
+
+### Fixed
+- HFE writes no longer hold up the audio: the track goes to the card in 4 KB pieces, with the audio serviced between them (a whole track took 84 ms, against a 46 ms audio queue).
+
 ## [0.23.0] - 2026-11-05
 
 The panel and amplifier on the rig, an HFE write fix, and other formats proved against the Feather.

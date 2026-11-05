@@ -9,6 +9,7 @@ namespace audio {
 static I2S s_i2s(OUTPUT);
 static synth::Mixer* s_mixer = nullptr;
 static uint32_t s_underruns = 0;
+static uint32_t s_last_us = 0, s_gap_us_max = 0;  // the longest wait between services
 
 void begin(synth::Mixer& mixer, uint32_t rate) {
     s_mixer = &mixer;
@@ -29,6 +30,9 @@ void service() {
     static int16_t mono[cfg::AUDIO_BLOCK_FRAMES];
     static uint32_t stereo[cfg::AUDIO_BLOCK_FRAMES];
     constexpr size_t block_bytes = sizeof stereo;
+    uint32_t now = time_us_32();
+    if (s_last_us && now - s_last_us > s_gap_us_max) s_gap_us_max = now - s_last_us;
+    s_last_us = now;
     if (s_i2s.getUnderflow()) ++s_underruns;
     while (s_i2s.availableForWrite() >= int(block_bytes)) {
         s_mixer->render(mono, cfg::AUDIO_BLOCK_FRAMES);
@@ -44,5 +48,7 @@ void service() {
 
 bool running() { return s_mixer != nullptr; }
 uint32_t underruns() { return s_underruns; }
+uint32_t gapUsMax() { return s_gap_us_max; }
+void zeroGap() { s_gap_us_max = 0; }
 
 }  // namespace audio

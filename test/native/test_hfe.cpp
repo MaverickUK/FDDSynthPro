@@ -207,6 +207,43 @@ TEST(test_hfe_write_splices_cells) {
     CHECK(!v3.disk.writeTrackBytes(0, 0, 0, bytes.data(), 4));
 }
 
+TEST(test_hfe_read_cylinder_matches_read_track) {
+    // Both heads from one pass (as the cache fills) must be what each head
+    // read alone gives: v1 with sides of different lengths (one shorter, so
+    // it loops) across several groups, and v3 with an index part-way round.
+    uint32_t seed = 11;
+    auto rnd = [&]() { return seed = seed * 1103515245u + 12345u, uint8_t(seed >> 16); };
+    std::vector<std::vector<uint8_t>> sides;
+    for (unsigned c = 0; c < 3; ++c)
+        for (unsigned h = 0; h < 2; ++h) {
+            std::vector<uint8_t> side(c == 1 && h == 1 ? 5000 : 6250);
+            for (uint8_t& x : side) x = rnd();
+            sides.push_back(side);
+        }
+    std::vector<uint8_t> v3s = {0xA5, 0x3C, hfe::OP_INDEX, 0xC3, 0x99, hfe::OP_NOP, 0x5A};
+    std::vector<uint8_t> v3t = {0x11, hfe::OP_SKIPBITS, 4, 0x0B, hfe::OP_INDEX, 0x22, 0x33};
+    struct Case {
+        std::vector<uint8_t> file;
+        uint8_t cyls;
+    };
+    for (const Case& k : {Case{makeHfe(1, 3, 500, sides), 3}, Case{makeHfe(3, 1, 250, {v3s, v3t}), 1}}) {
+        std::vector<uint8_t> f = k.file;
+        hfe::MemoryFile file(f.data(), uint32_t(f.size()));
+        hfe::Disk d;
+        CHECK(d.open(file, false) == nullptr);
+        const size_t n = d.format().track_bytes * 2u;
+        for (uint8_t c = 0; c < k.cyls; ++c) {
+            std::vector<uint8_t> a0(n), a1(n), b0(n, 0x55), b1(n, 0x55);
+            CHECK(d.readTrack(c, 0, a0.data()) && d.readTrack(c, 1, a1.data()));
+            bool ok[2] = {};
+            d.readCylinder(c, b0.data(), b1.data(), ok);
+            CHECK(ok[0] && ok[1]);
+            CHECK(a0 == b0);
+            CHECK(a1 == b1);
+        }
+    }
+}
+
 TEST(test_hfe_write_groups_match_byte_writes) {
     // Writes long enough to span several 16-block groups, on both heads,
     // some round the end of the track, some ending mid-block: the file must
@@ -246,6 +283,7 @@ TEST(test_hfe_write_groups_match_byte_writes) {
 
 void runHfeTests() {
     RUN(test_hfe_write_groups_match_byte_writes);
+    RUN(test_hfe_read_cylinder_matches_read_track);
     RUN(test_hfe_header);
     RUN(test_hfe_v1_cells_and_length);
     RUN(test_hfe_v3_opcodes);

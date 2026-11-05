@@ -83,7 +83,7 @@ A track is an array of 16-bit cell words, one per encoded byte, first cell in th
 
 ## Loading cylinders
 
-At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, else the welcome disk), and copies the image into PSRAM (`ImageCache`, `image_cache.h`; about 0.6 s). Only then does core 1 start the streamer, since the data rate depends on the format. From then on core 0 calls `CylinderLoader::service()` on every pass: one bounded step (read a track, or encode one into the live buffer).
+At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, else the welcome disk), and copies the image into PSRAM (`ImageCache`, `image_cache.h`; about 0.6 s, 3.9 s for an HD HFE). Only then does core 1 start the streamer, since the data rate depends on the format. From then on core 0 calls `CylinderLoader::service()` on every pass: one bounded step (read a track, or encode one into the live buffer).
 - `ready()` is atomic: -1 before the first write into the buffer, the cylinder after the last. Core 1 only lets RDATA out when it equals the head's cylinder.
 - A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
 - **The image cache** holds up to 4.5 MB with one drive, 3 MB each with two (`IMAGE_CACHE_BYTES`, `_EACH`); a bigger image is read from the card.
@@ -117,7 +117,7 @@ The capture streams through a 16 KB ring (`cfg::CAPTURE_RING_BYTES`). An endless
 The loader and `BurstWriter` work through a `DiskSlot`, never an image directly. A swap is a four-state handshake (`g_swap` in `main.cpp`):
 1. Core 0 asks for an eject.
 2. Core 1 ejects, once no capture is running.
-3. With no burst pending, core 0 opens the image and fills the cache with it, a track per pass. Once it's full and `SWAP_EJECTED_MS` has passed, it puts the cache in the slot and resets and reloads the loader.
+3. With no burst pending, core 0 opens the image and fills the cache with it, a cylinder per pass (`TrackSource::readCylinder`: an HFE file's heads interleave, so both come from one read). Once it's full and `SWAP_EJECTED_MS` has passed, it puts the cache in the slot and resets and reloads the loader.
 4. Core 1 retunes `rdata_pio`/`wdata_pio` if the format changed, and inserts the disk.
 
 ## The virtual PC
@@ -169,7 +169,7 @@ The Python parser is `host/fddproto/trace.py`; change both together.
 Console:
 - `h`: help, and the READY line with version and build;
 - `p`: input pin levels (wiring check);
-- `s`: stats; on the drive build also `core1` (5: running), `core0_stack`, `cyl`, `side`, `selected`, `disk`, the knock counts, the write path's (`decode_kbps`, `finish_us_max`, `burst_gap_us_max`) and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
+- `s`: stats; on the drive build also `core1` (5: running), `core0_stack`, `cyl`, `side`, `selected`, `disk`, the knock counts, the write path's (`decode_kbps`, `finish_us_max`, `burst_gap_us_max`) and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`) and the audio's (`audio_underruns`, `audio_gap_us_max`);
 - `d`: eject or insert the disk (drive build);
 - `g`: swap in the generated test disk, or back (drive build);
 - `t`: time a loader step in its parts (`BENCH`: read, build, interleave; drive build);

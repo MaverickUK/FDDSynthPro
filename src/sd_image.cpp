@@ -69,6 +69,12 @@ public:
         uint32_t n = fmt.trackDataBytes(cylinder, head);
         return file.seekSet(fmt.trackOffset(cylinder, head)) && file.read(out, n) == int(n);
     }
+    void readCylinder(uint8_t cylinder, uint8_t* out0, uint8_t* out1, bool ok[2]) override {
+        if (flux)
+            disk.readCylinder(cylinder, out0, out1, ok);
+        else
+            TrackSource::readCylinder(cylinder, out0, out1, ok);
+    }
     // Written through at once, and synced by flush() at the burst's end:
     // the card holds every sector before the live track shows it.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) override {

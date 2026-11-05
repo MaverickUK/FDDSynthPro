@@ -129,7 +129,8 @@ def test_soak(drive, gw, tmp_path, session_stamp):
             for k in FAULTS:
                 assert int(now[k]) == base[k], f"{k} went from {base[k]} to {now[k]} at step {step}"
             if step % 20 == 0:
-                note(f"step {step}: {counts}, decode_kbps={now.get('decode_kbps')} finish_us_max={now.get('finish_us_max')}")
+                note(f"step {step}: {counts}, decode_kbps={now.get('decode_kbps')} finish_us_max={now.get('finish_us_max')}"
+                     f" audio_underruns={now.get('audio_underruns')} audio_gap_us_max={now.get('audio_gap_us_max')}")
         note(f"done: {counts}")
         print(f"soak {HOURS} h: {counts}")
     except Exception as e:

@@ -111,6 +111,8 @@ public:
     bool writable() const override { return writable_; }
     // The track's cells (format().track_bytes words, as bytes, MSB first).
     bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) override;
+    // Both heads from one pass over the cylinder's blocks.
+    void readCylinder(uint8_t cylinder, uint8_t* out0, uint8_t* out1, bool ok[2]) override;
     bool writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) override;
 
     // Tracks whose cell time changes along them (v3): served at the disk's rate.

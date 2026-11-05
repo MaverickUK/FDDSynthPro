@@ -22,5 +22,9 @@ void service();
 bool running();
 // Times the output ran dry: core 0 stalled longer than the queue.
 uint32_t underruns();
+// The longest time between two service() calls (console `s`, `z` zeroes it):
+// it must stay under the queue's length, AUDIO_BUFFERS x AUDIO_BLOCK_FRAMES.
+uint32_t gapUsMax();
+void zeroGap();
 
 }  // namespace audio

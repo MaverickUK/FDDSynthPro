@@ -21,6 +21,13 @@ public:
     // Returns false for a track the disk doesn't have, or a read error: the
     // drive then sends a blank track.
     virtual bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) = 0;
+    // Both heads' tracks of a cylinder; ok[h] says which were read. A flux
+    // image stores the two interleaved, so reading them together reads the
+    // file once, not twice (hfe::Disk).
+    virtual void readCylinder(uint8_t cylinder, uint8_t* out0, uint8_t* out1, bool ok[2]) {
+        ok[0] = readTrack(cylinder, 0, out0);
+        ok[1] = readTrack(cylinder, 1, out1);
+    }
     // Writes one sector (index from 0) back to the disk. Returns false if it
     // can't keep it: a read-only image, or the generated disk. It may wait
     // in the disk's own buffers until flush().
@@ -52,6 +59,9 @@ public:
 
     const ibm::Format& format() const override { return disk_->format(); }
     bool readTrack(uint8_t c, uint8_t h, uint8_t* out) override { return disk_->readTrack(c, h, out); }
+    void readCylinder(uint8_t c, uint8_t* out0, uint8_t* out1, bool ok[2]) override {
+        disk_->readCylinder(c, out0, out1, ok);
+    }
     bool writeSector(uint8_t c, uint8_t h, uint8_t s, const uint8_t* data) override {
         return disk_->writeSector(c, h, s, data);
     }

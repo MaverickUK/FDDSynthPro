@@ -25,7 +25,16 @@ bool ImageCache::fill() {
         if (head >= format().heads) continue;
         // A track the card can't read stays uncached: reads of it go to the
         // card, which fails again, and the drive sends a blank track as it
-        // always has.
+        // always has. Two heads are read together (a flux image reads its
+        // file once for both).
+        if (head == 0 && format().heads > 1) {
+            bool ok[2];
+            backing_->readCylinder(cylinder, track(cylinder, 0), track(cylinder, 1), ok);
+            cached_[at] = ok[0];
+            cached_[at + 1] = ok[1];
+            next_ = at + 2;
+            return true;
+        }
         cached_[at] = backing_->readTrack(cylinder, head, track(cylinder, head));
         return true;
     }

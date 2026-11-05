@@ -23,13 +23,21 @@ public:
         // A whole byte on a byte boundary (every v1 byte): stored at once. Bit
         // by bit took 24 s for a 4 MB image on the drive, each bit a
         // read-modify-write of the output.
+        // Staged, and copied out 64 bytes at a time: the output is uncached
+        // PSRAM, where a byte costs as much as a word (5.8 s for an HD HFE).
         if (n == 8 && len_ % 8 == 0) {
-            if (out_ && len_ + 8 <= cap_) out_[len_ / 8] = cells;
-            if (!out_ || len_ + 8 <= cap_) {
+            if (!out_) {
                 len_ += 8;
                 return;
             }
+            if (len_ + 8 <= cap_) {
+                stage_[staged_++] = cells;
+                len_ += 8;
+                if (staged_ == sizeof stage_) flush();
+                return;
+            }
         }
+        flush();
         for (unsigned i = 0; i < n; ++i, ++len_) {
             if (!out_ || len_ >= cap_) continue;
             uint8_t& b = out_[len_ / 8];
@@ -41,11 +49,19 @@ public:
         }
     }
     uint32_t size() const { return len_; }
+    // The staged bytes into the output: before reading it back.
+    void flush() {
+        if (!staged_) return;
+        std::memcpy(out_ + len_ / 8 - staged_, stage_, staged_);
+        staged_ = 0;
+    }
 
 private:
     uint8_t* out_;
     uint32_t cap_;
     uint32_t len_ = 0;
+    alignas(4) uint8_t stage_[64];
+    uint32_t staged_ = 0;
 };
 
 bool bit(const uint8_t* b, uint32_t i) { return (b[i / 8] >> (7 - i % 8)) & 1; }
@@ -115,6 +131,29 @@ static bool sideBytes(File& f, uint16_t block, uint16_t len, uint8_t head, Each 
             uint32_t n = todo > 256 ? 256 : todo;
             const uint8_t* p = s_group + k * BLOCK + head * 256u;
             for (uint32_t i = 0; i < n; ++i) each(reverse8(p[i]));
+            todo -= n;
+        }
+    }
+    return true;
+}
+
+// Both sides' bytes in one pass over the blocks: each half of each block to
+// its own function. Reading a side on its own reads nearly every block too
+// (the halves interleave), so this halves the card's work for a cylinder.
+template <typename Each0, typename Each1>
+static bool bothSides(File& f, uint16_t block, uint16_t len, Each0 each0, Each1 each1) {
+    uint32_t todo = len / 2;
+    for (uint32_t b = 0; todo; b += GROUP_BLOCKS) {
+        uint32_t blocks = (todo + 255) / 256;
+        if (blocks > GROUP_BLOCKS) blocks = GROUP_BLOCKS;
+        uint32_t last = todo - (blocks - 1) * 256;
+        if (last > 256) last = 256;
+        if (!f.read((uint32_t(block) + b) * BLOCK, s_group, (blocks - 1) * BLOCK + 256u + last)) return false;
+        for (uint32_t k = 0; k < blocks; ++k) {
+            uint32_t n = todo > 256 ? 256 : todo;
+            const uint8_t* p = s_group + k * BLOCK;
+            for (uint32_t i = 0; i < n; ++i) each0(reverse8(p[i]));
+            for (uint32_t i = 0; i < n; ++i) each1(reverse8(p[256 + i]));
             todo -= n;
         }
     }
@@ -223,6 +262,22 @@ const char* Disk::open(File& file, bool writable) {
     return nullptr;
 }
 
+// A side's cells, as decoded into `out` (`len` of them, `index` where the
+// index came, or 0), made into the drive's track: the index first, and a
+// shorter track looped to the drive's length.
+static bool finishTrack(uint8_t* out, uint32_t decoded, uint32_t index, uint32_t cells) {
+    uint32_t len = decoded < cells ? decoded : cells;
+    if (!len) return false;
+    if (index && index < len) {
+        reverseBits(out, 0, index);
+        reverseBits(out, index, len);
+        reverseBits(out, 0, len);
+    }
+    // A shorter track carries on from its start: the disk loops.
+    for (uint32_t i = len; i < cells; ++i) setBit(out, i, bit(out, i - len));
+    return true;
+}
+
 bool Disk::readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) {
     if (!file_ || cylinder >= header_.cyls || head >= header_.heads) return false;
     const uint32_t cells = uint32_t(fmt_.track_bytes) * 16;
@@ -237,17 +292,34 @@ bool Disk::readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) {
         ok = sideBytes(*file_, track_block_[cylinder], track_len_[cylinder], head, [&](uint8_t b) { ex.byte(b); });
         index = ex.index;
     }
-    uint32_t len = bits.size() < cells ? bits.size() : cells;
-    if (!ok || !len) return false;
-    // The index first.
-    if (index && index < len) {
-        reverseBits(out, 0, index);
-        reverseBits(out, index, len);
-        reverseBits(out, 0, len);
+    bits.flush();
+    return ok && finishTrack(out, bits.size(), index, cells);
+}
+
+void Disk::readCylinder(uint8_t cylinder, uint8_t* out0, uint8_t* out1, bool ok[2]) {
+    if (!file_ || cylinder >= header_.cyls || header_.heads < 2) {
+        TrackSource::readCylinder(cylinder, out0, out1, ok);
+        return;
     }
-    // A shorter track carries on from its start: the disk loops.
-    for (uint32_t i = len; i < cells; ++i) setBit(out, i, bit(out, i - len));
-    return true;
+    const uint32_t cells = uint32_t(fmt_.track_bytes) * 16;
+    Bits bits0(out0, cells), bits1(out1, cells);
+    uint32_t index0 = 0, index1 = 0;
+    bool read;
+    if (header_.version == 1) {
+        read = bothSides(*file_, track_block_[cylinder], track_len_[cylinder], [&](uint8_t b) { bits0.put(b, 8); },
+                         [&](uint8_t b) { bits1.put(b, 8); });
+    } else {
+        const uint32_t nominal = V3_TICKS_HZ / (2000u * header_.bitrate);
+        Expander ex0(bits0, nominal), ex1(bits1, nominal);
+        read = bothSides(*file_, track_block_[cylinder], track_len_[cylinder], [&](uint8_t b) { ex0.byte(b); },
+                         [&](uint8_t b) { ex1.byte(b); });
+        index0 = ex0.index;
+        index1 = ex1.index;
+    }
+    bits0.flush();
+    bits1.flush();
+    ok[0] = read && finishTrack(out0, bits0.size(), index0, cells);
+    ok[1] = read && finishTrack(out1, bits1.size(), index1, cells);
 }
 
 bool Disk::writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) {

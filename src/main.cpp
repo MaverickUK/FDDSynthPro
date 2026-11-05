@@ -848,6 +848,7 @@ static void serviceLoaders() {
 // Console `z`: the loader's timings start again, so a test can measure one
 // phase on its own (the maxima since power-on include the first loads).
 static void zeroTimings() {
+    audio::zeroGap();
     g_read_us_max = g_encode_us_max = 0;
     g_read_us_sum = g_encode_us_sum = 0;
     g_reads = g_encodes = 0;
@@ -1171,8 +1172,8 @@ static void printStats() {
                   (unsigned long)(g_decode_us_sum ? g_decode_bytes * 1000 / g_decode_us_sum : 0),
                   (unsigned long long)g_decode_bytes, (unsigned long)g_finish_us_max,
                   (unsigned long)g_burst_gap_us_max);
-    Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_pack_ok ? packName() : "none",
-                  (unsigned long)audio::underruns(), (unsigned long)g_mixer.voicesStolen());
+    Serial.printf(" pack=%s audio_underruns=%lu audio_gap_us_max=%lu voices_stolen=%lu", g_pack_ok ? packName() : "none",
+                  (unsigned long)audio::underruns(), (unsigned long)audio::gapUsMax(), (unsigned long)g_mixer.voicesStolen());
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
                   (unsigned long)g_activity.seeks(), (unsigned long)g_activity.bumps(),
                   (unsigned long)(g_activity.dropped() + g_drive_events_dropped.load()));
