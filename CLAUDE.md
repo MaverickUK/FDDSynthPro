@@ -87,7 +87,7 @@ At power-on core 0 mounts the SD card and picks the disk (`sd_image::open()`, el
 - A head move mid-load restarts the load. Without that, a seek finishes one load later and misses the 15 ms settle time (`test_ready_within_settle_time` proves both).
 - **The image cache** holds up to 4.5 MB with one drive, 3 MB each with two (`IMAGE_CACHE_BYTES`, `_EACH`); a bigger image is read from the card.
 - **The SD card** is the BB48R's slot in SPI mode (only DAT0 and DAT3 are wired), at 25 MHz: 3.5 ms a track, too slow to read as the head moves. So the drive serves every disk from its `ImageCache` in PSRAM, filled **before the disk goes in** (at power-on, and in a swap's ejected pause), and the virtual PC's reads cost 1 ms. Writes go to the card first, then the cache.
-- **PSRAM is used through its uncached alias** (`XIP_NOCACHE_NOALLOC_BASE`): it shares the 16 KB XIP cache with the flash core 1 runs from, and copying tracks through that cache would evict core 1's loop. Without PSRAM (`pmalloc` fails), the cache holds nothing and reads go to the card.
+- **PSRAM is used through its uncached alias** (`XIP_NOCACHE_NOALLOC_BASE`): it shares the 16 KB XIP cache with the flash core 1 runs from, and copying tracks through that cache would evict core 1's loop. Never share an 8-byte cache line between cached and uncached use: `pmalloc`'s bookkeeping (written cached) next to the image (written uncached) put stale bytes back over the image's start. `chooseDisk` keeps a guard either side and cleans the cache (`xip_cache_clean_all`) before the copy. Without PSRAM (`pmalloc` fails), the cache holds nothing and reads go to the card.
 - **Hot loops run from RAM:** `RAM_FUNC` (`src/ram_func.h`) puts a function in RAM, and its lookup tables are non-const (so in `.data`, RAM) with constexpr constructors. Both cores share one 16 KB flash cache, so code and tables in flash stall. Check with `nm` that a RAM function's helpers are inlined (`ALWAYS_INLINE`): GCC kept them out of line in flash, and the RAM function called out to them for every byte. Console `t` measures the result.
 - **PIO blocks:** `rdata_pio` claims PIO 2 or 1 with the GPIO 0–31 window, leaving PIO 0 to libraries. Keep new programs off PIO 0.
 
@@ -179,4 +179,6 @@ Console:
 - `[` / `]`: swap to the previous or next image on the card (drive build);
 - `m`: print a `MARK` timestamp;
 - `x` then `Y`: the solder-bridge test, floppy cable unplugged (`short_test.*`; the board reboots afterwards);
+- `e` then `key=value` and Enter: one setting into `/FDDSYNTH.CFG`, written at once if the drive is idle (`settings::set`; prints the file as `CONFIG` lines). `DriveLog.set_setting` sends it;
+- `!`: restart, so the settings take effect (`DriveLog.restart` reopens the port and waits for READY);
 - `b`: reboot to the bootloader.

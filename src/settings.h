@@ -58,6 +58,10 @@ struct Settings {
 Settings parse(const char* text, size_t len);
 // The file's text; returns its length (less than `cap`).
 size_t format(const Settings& s, char* out, size_t cap);
+// One setting, as the console's `e` takes it: "key=value" ("key = value"
+// too). Returns false, leaving `s` as it was, for an unknown key or a value
+// it can't take. An old name (image, last...) sets the new one.
+bool set(Settings& s, const char* line, size_t len);
 
 // When to write a change to the card: once nothing has changed for
 // SETTLE_MS (a turn of the volume is many changes) and the drive is idle

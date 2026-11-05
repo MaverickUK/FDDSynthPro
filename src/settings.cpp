@@ -24,10 +24,62 @@ static bool is(const char* line, size_t key, const char* name) {
     return std::strlen(name) == key && std::strncmp(line, name, key) == 0;
 }
 
+// One `key=value` line into `s`: true if the key is known and its value
+// taken. The names before 0.20.0 (image, image2, last, last2) go into
+// `old_image` and `old_last`, so that parse() can let the new names win.
+static bool applyLine(Settings& s, const char* line, size_t n, char (*old_image)[NAME], char (*old_last)[NAME]) {
+    const char* eq = static_cast<const char*>(std::memchr(line, '=', n));
+    if (!eq) return false;
+    size_t key = size_t(eq - line);
+    const char* value = eq + 1;
+    size_t vlen = n - key - 1;
+    auto name = [&](char(&to)[NAME]) {
+        if (vlen >= NAME) return false;
+        setName(to, value, vlen);
+        return true;
+    };
+    if (is(line, key, "device0")) return name(s.image[0]);
+    if (is(line, key, "device1")) return name(s.image[1]);
+    if (is(line, key, "last0")) return name(s.last[0]);
+    if (is(line, key, "last1")) return name(s.last[1]);
+    if (is(line, key, "image")) return name(old_image[0]);
+    if (is(line, key, "image2")) return name(old_image[1]);
+    if (is(line, key, "last")) return name(old_last[0]);
+    if (is(line, key, "last2")) return name(old_last[1]);
+    if (is(line, key, "pack")) return name(s.pack);
+    // The bus: a word each, so a copy that ends at the line's end.
+    char word[12] = "";
+    if (vlen < sizeof word) {
+        std::memcpy(word, value, vlen);
+        word[vlen] = 0;
+    }
+    if (is(line, key, "interface")) return bus::parseInterface(word, s.bus.interface);
+    if (is(line, key, "cable")) return bus::parseCable(word, s.bus.cable);
+    if (is(line, key, "drive")) return bus::parseUnits(word, s.bus.units);
+    if (is(line, key, "pin02")) {
+        if (std::strcmp(word, "chg") == 0) s.bus.pin2_chng = true;
+        else if (std::strcmp(word, "nc") == 0) s.bus.pin2_chng = false;
+        else return false;
+        return true;
+    }
+    if (is(line, key, "volume")) {
+        if (vlen == 0 || vlen > 3) return false;
+        int v = 0;
+        for (size_t i = 0; i < vlen; ++i) {
+            if (value[i] < '0' || value[i] > '9') return false;
+            v = v * 10 + (value[i] - '0');
+        }
+        if (v > 100) return false;
+        s.volume = v;
+        return true;
+    }
+    return false;
+}
+
 Settings parse(const char* text, size_t len) {
     Settings s;
-    // The names before 0.20.0 (image, image2, last, last2): read when the
-    // new name isn't there, and written back under the new one.
+    // The names before 0.20.0: read when the new name isn't there, and
+    // written back under the new one.
     char old_image[bus::MAX_DRIVES][NAME] = {};
     char old_last[bus::MAX_DRIVES][NAME] = {};
     size_t at = 0;
@@ -36,45 +88,7 @@ Settings parse(const char* text, size_t len) {
         while (end < len && text[end] != '\n') ++end;
         size_t stop = end;
         while (stop > at && (text[stop - 1] == '\r' || text[stop - 1] == ' ')) --stop;  // CRLF, trailing spaces
-        const char* line = text + at;
-        size_t n = stop - at;
-        const char* eq = static_cast<const char*>(std::memchr(line, '=', n));
-        if (eq) {
-            size_t key = size_t(eq - line);
-            const char* value = eq + 1;
-            size_t vlen = n - key - 1;
-            if (is(line, key, "device0")) setName(s.image[0], value, vlen);
-            if (is(line, key, "device1")) setName(s.image[1], value, vlen);
-            if (is(line, key, "last0")) setName(s.last[0], value, vlen);
-            if (is(line, key, "last1")) setName(s.last[1], value, vlen);
-            if (is(line, key, "image")) setName(old_image[0], value, vlen);
-            if (is(line, key, "image2")) setName(old_image[1], value, vlen);
-            if (is(line, key, "last")) setName(old_last[0], value, vlen);
-            if (is(line, key, "last2")) setName(old_last[1], value, vlen);
-            if (is(line, key, "pack")) setName(s.pack, value, vlen);
-            // The bus: a word each, so a copy that ends at the line's end.
-            char word[12] = "";
-            if (vlen < sizeof word) {
-                std::memcpy(word, value, vlen);
-                word[vlen] = 0;
-            }
-            if (key == 9 && std::strncmp(line, "interface", 9) == 0) bus::parseInterface(word, s.bus.interface);
-            if (key == 5 && std::strncmp(line, "cable", 5) == 0) bus::parseCable(word, s.bus.cable);
-            if (key == 5 && std::strncmp(line, "drive", 5) == 0) bus::parseUnits(word, s.bus.units);
-            if (key == 5 && std::strncmp(line, "pin02", 5) == 0) {
-                if (std::strcmp(word, "chg") == 0) s.bus.pin2_chng = true;
-                if (std::strcmp(word, "nc") == 0) s.bus.pin2_chng = false;
-            }
-            if (key == 6 && std::strncmp(line, "volume", 6) == 0 && vlen > 0 && vlen <= 3) {
-                int v = 0;
-                bool digits = true;
-                for (size_t i = 0; i < vlen; ++i) {
-                    digits = digits && value[i] >= '0' && value[i] <= '9';
-                    v = v * 10 + (value[i] - '0');
-                }
-                if (digits && v <= 100) s.volume = v;
-            }
-        }
+        applyLine(s, text + at, stop - at, old_image, old_last);
         at = end + 1;
     }
     for (unsigned i = 0; i < bus::MAX_DRIVES; ++i) {
@@ -83,6 +97,28 @@ Settings parse(const char* text, size_t len) {
     }
     s.bus = bus::normalised(s.bus);
     return s;
+}
+
+bool set(Settings& s, const char* line, size_t len) {
+    // "key = value" too: the spaces round the key and the value go.
+    while (len && (line[len - 1] == ' ' || line[len - 1] == '\r' || line[len - 1] == '\n')) --len;
+    while (len && line[0] == ' ') ++line, --len;
+    const char* eq = static_cast<const char*>(std::memchr(line, '=', len));
+    if (!eq) return false;
+    size_t key = size_t(eq - line), v = key + 1;
+    while (key && line[key - 1] == ' ') --key;
+    while (v < len && line[v] == ' ') ++v;
+    char clean[NAME + 16];
+    if (key + 1 + (len - v) >= sizeof clean) return false;
+    std::memcpy(clean, line, key);
+    clean[key] = '=';
+    std::memcpy(clean + key + 1, line + v, len - v);
+    Settings next = s;
+    // An old name sets the new one directly.
+    if (!applyLine(next, clean, key + 1 + (len - v), next.image, next.last)) return false;
+    next.bus = bus::normalised(next.bus);
+    s = next;
+    return true;
 }
 
 size_t format(const Settings& s, char* out, size_t cap) {

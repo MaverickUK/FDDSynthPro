@@ -169,6 +169,49 @@ TEST(test_settings_garbage_never_crashes) {
     }
 }
 
+TEST(test_settings_set_one) {
+    // The console's `e`: one setting at a time, the rest kept.
+    settings::Settings s = parse("last0=GAMES.IMG\npack=Recorded\nvolume=40\n");
+    auto set = [&](const std::string& line) { return settings::set(s, line.data(), line.size()); };
+    CHECK(set("interface=shugart"));
+    CHECK(set("drive = ds1"));  // spaces round the = too
+    CHECK(set("  device0 =  RAND880.ADF \r\n"));
+    CHECK(s.bus.interface == bus::Interface::Shugart);
+    CHECK_EQ(s.bus.units, 0b10);
+    CHECK_STR(s.image[0], "RAND880.ADF");
+    CHECK_STR(s.last[0], "GAMES.IMG");
+    CHECK_STR(s.pack, "Recorded");
+    CHECK_EQ(s.volume, 40);
+    CHECK(set("volume=100"));
+    CHECK_EQ(s.volume, 100);
+    CHECK(set("pin02=chg"));
+    CHECK(s.bus.pin2_chng);
+    CHECK(set("device0="));  // cleared: back to the remembered disk
+    CHECK_STR(s.image[0], "");
+    CHECK(set("image2=OLD.IMG"));  // an old name sets the new one
+    CHECK_STR(s.image[1], "OLD.IMG");
+    // Unknown keys and bad values change nothing.
+    settings::Settings before = s;
+    CHECK(!set("colour=blue"));
+    CHECK(!set("interface=amstrad"));
+    CHECK(!set("drive=ds3"));
+    CHECK(!set("volume=101"));
+    CHECK(!set("volume=loud"));
+    CHECK(!set("pin02=yes"));
+    CHECK(!set("no equals sign"));
+    CHECK(!set(""));
+    CHECK(!set("device0=" + std::string(settings::NAME, 'A')));
+    CHECK(s == before);
+    // What it sets is what the file then says.
+    char text[settings::FILE_MAX];
+    CHECK(settings::parse(text, settings::format(s, text, sizeof text)) == s);
+    // A Shugart unit set while the interface is still a PC's: normalised, as
+    // parse() would.
+    s = parse("");
+    CHECK(set("drive=ds2"));
+    CHECK_EQ(s.bus.units, 0b01);
+}
+
 TEST(test_settings_save_timer) {
     settings::SaveTimer t;
     CHECK(!t.due(100000, true));  // nothing changed
@@ -217,6 +260,7 @@ void runSettingsTests() {
     RUN(test_settings_hand_edited);
     RUN(test_settings_bad_values_keep_the_defaults);
     RUN(test_settings_garbage_never_crashes);
+    RUN(test_settings_set_one);
     RUN(test_settings_save_timer);
     RUN(test_pack_list);
 }

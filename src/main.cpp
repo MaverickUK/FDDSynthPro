@@ -538,6 +538,11 @@ static void publishDisk(unsigned i, const ibm::Format& fmt, bool writable) {
     s.writable.store(writable);
 }
 
+// The SDK's: every dirty XIP cache line written out to PSRAM. Its header
+// (hardware/xip_cache.h) isn't on the Arduino core's include path, but the
+// function is in the core's SDK library.
+extern "C" void xip_cache_clean_all(void);
+
 // Drive `i`'s disk at power-on: the one the settings name (`device<i>`),
 // else the one that was in (`last<i>`), else the card's i-th (so two drives start
 // with different disks), else the welcome disk.
@@ -548,9 +553,23 @@ static void chooseDisk(unsigned i) {
     // flash core 1 runs from, and copying a 9 KB track through it would
     // evict core 1's loop, stalling it on misses long enough to miss a
     // short STEP pulse. Uncached, core 1's code stays put.
+    //
+    // But pmalloc keeps its bookkeeping next to the block, written through
+    // the cache. A cache line holding that and the image's first bytes was
+    // written back after the image was copied in, putting back what PSRAM
+    // held before: 4 wrong bytes at the start of an ADF, seen on the rig
+    // (2026-11-05). So the image keeps clear of the allocator's lines (it
+    // starts 64 to 127 bytes in, on a 64-byte boundary, with 64 to spare
+    // after), and the cache writes the bookkeeping out now, before the copy.
     const size_t bytes = g_drive_count > 1 ? cfg::IMAGE_CACHE_BYTES_EACH : cfg::IMAGE_CACHE_BYTES;
-    uint8_t* ram = static_cast<uint8_t*>(pmalloc(bytes));
-    if (ram) ram += XIP_NOCACHE_NOALLOC_BASE - XIP_BASE;
+    constexpr size_t GUARD = 64;
+    uint8_t* block = static_cast<uint8_t*>(pmalloc(bytes + 3 * GUARD));
+    uint8_t* ram = nullptr;
+    if (block) {
+        xip_cache_clean_all();
+        uintptr_t at = (uintptr_t(block) + 2 * GUARD - 1) & ~uintptr_t(GUARD - 1);
+        ram = reinterpret_cast<uint8_t*>(at) + (XIP_NOCACHE_NOALLOC_BASE - XIP_BASE);
+    }
     s.cache = new ImageCache(ram, ram ? bytes : 0);
     const ImageList& images = sd_image::images();
     size_t index = images.count();
@@ -1153,7 +1172,8 @@ static void printStats() {
 // afterwards so the normal pin setup comes back.
 
 constexpr uint32_t SHORT_TEST_CONFIRM_MS = 10000;
-static uint32_t g_short_test_armed_ms = 0;  // 0 = not armed
+static bool g_short_test_armed = false;
+static uint32_t g_short_test_armed_ms = 0;  // when `x` armed it
 
 static void emitLine(const char* line, void*) { Serial.println(line); }
 
@@ -1191,10 +1211,73 @@ static void runShortTest() {
     rp2040.reboot();
 }
 
+#if FIRMWARE_SLICE != 0
+// Console `e`: one setting into /FDDSYNTH.CFG, without taking the card out.
+// Type e, then the setting (`interface=shugart`), then Enter. Written at
+// once if the drive is idle, so the card is never written under the host;
+// `!` then restarts with it. Prints the file as it now is.
+static constexpr uint32_t SETTING_LINE_MS = 30000;
+static char g_setting_line[settings::NAME + 32];
+static size_t g_setting_len = 0;
+static bool g_taking_setting = false;
+static uint32_t g_setting_ms = 0;  // when `e` was typed
+
+static void applySettingLine() {
+    if (!g_card) {
+        Serial.println("# no card: nothing to save the setting to");
+        return;
+    }
+    if (!driveIdle()) {
+        Serial.println("# the drive is in use: try again when the host has let it go");
+        return;
+    }
+    settings::Settings next = g_latest;
+    if (!settings::set(next, g_setting_line, g_setting_len)) {
+        Serial.printf("# not a setting, or a value it can't take: %.*s\n", int(g_setting_len), g_setting_line);
+        return;
+    }
+    static char text[settings::FILE_MAX];  // off core 0's stack
+    size_t n = settings::format(next, text, sizeof text);
+    if (!sd_image::writeSettings(text, n)) {
+        Serial.println("# couldn't save the settings to the card");
+        return;
+    }
+    g_settings = g_latest = next;
+    for (size_t at = 0; at < n;) {
+        size_t end = at;
+        while (end < n && text[end] != '\n') ++end;
+        Serial.printf("CONFIG %.*s\n", int(end - at), text + at);
+        at = end + 1;
+    }
+    Serial.println("# saved: ! restarts the drive with it");
+}
+
+// While a setting is being typed: true if `c` was taken for it.
+static bool takeSettingChar(int c) {
+    if (!g_taking_setting) return false;
+    if (millis() - g_setting_ms > SETTING_LINE_MS) {
+        g_taking_setting = false;
+        Serial.println("# setting not entered in time");
+        return false;
+    }
+    if (c == '\r' || c == '\n') {
+        if (!g_setting_len) return true;  // the Enter after `e` itself
+        g_taking_setting = false;
+        applySettingLine();
+        return true;
+    }
+    if (g_setting_len < sizeof g_setting_line) g_setting_line[g_setting_len++] = char(c);
+    return true;
+}
+#endif
+
 static void handleConsole() {
     while (Serial.available()) {
         int c = Serial.read();
-        if (c != 'x' && c != 'Y' && c != '\r' && c != '\n') g_short_test_armed_ms = 0;
+#if FIRMWARE_SLICE != 0
+        if (takeSettingChar(c)) continue;
+#endif
+        if (c != 'x' && c != 'Y' && c != '\r' && c != '\n') g_short_test_armed = false;
         switch (c) {
             case 'h':
                 printReady();
@@ -1204,7 +1287,7 @@ static void handleConsole() {
 #else
                 Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, "
                                "g generated disk on/off, 1 2 which drive i [ ] d g t act on, k next sample pack, "
-                               "t time a loader step, z zero timings, m mark, "
+                               "t time a loader step, z zero timings, e set a setting, ! restart, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
@@ -1216,10 +1299,11 @@ static void handleConsole() {
             case 'x':
                 Serial.println("# SHORT TEST drives the interface pins. UNPLUG THE FLOPPY CABLE from the BB48 first,");
                 Serial.println("# then type Y (capital) within 10 s to run it. Anything else cancels.");
-                g_short_test_armed_ms = millis() | 1;
+                g_short_test_armed_ms = millis();
+                g_short_test_armed = true;
                 break;
             case 'Y':
-                if (g_short_test_armed_ms && millis() - g_short_test_armed_ms < SHORT_TEST_CONFIRM_MS) {
+                if (g_short_test_armed && millis() - g_short_test_armed_ms < SHORT_TEST_CONFIRM_MS) {
                     runShortTest();  // reboots
                 }
                 Serial.println("# short test not armed: type x first");
@@ -1240,6 +1324,18 @@ static void handleConsole() {
             case 'g': toggleGenerated(); break;
             case 't': benchLoader(g_console_drive); break;
             case 'z': zeroTimings(); break;
+            case 'e':
+                g_setting_len = 0;
+                g_setting_ms = millis();
+                g_taking_setting = true;
+                Serial.println("# type a setting (interface=shugart), then Enter");
+                break;
+            case '!':
+                Serial.println("# restarting");
+                Serial.flush();
+                delay(50);
+                rp2040.reboot();
+                break;
 #endif
             case 'b':
                 Serial.println("# rebooting to bootloader");

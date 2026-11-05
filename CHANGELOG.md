@@ -4,6 +4,18 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-05
+
+### Added
+- **Settings without taking the card out:** console `e`, then `key=value` and Enter, writes one setting to `/FDDSYNTH.CFG` (when the drive is idle) and prints the file; `!` restarts the drive with it, as HDDSynthPro's `E` and `!`. Unknown keys and bad values are refused (`settings::set`, sharing `parse`'s line handling). The rig's `DriveLog` has `set_setting` and `restart`, and the Amiga rig test sets the drive up and back by itself.
+
+### Changed
+- The Amiga rig test (`-m amiga`) reaches the ADF in Shugart mode (`interface=shugart`, `drive=ds1`), not as DF1: an Amiga drive latches its motor line as it's selected, and the Feather selects first and starts the motor 6 ms later, so as DF1 the motor never ran (as it wouldn't on a real Amiga drive). An ADF is served as AmigaDOS tracks whatever the interface; the virtual Amiga covers the latch.
+
+### Fixed
+- **An image could start with 4 wrong bytes after a restart:** `pmalloc` writes its bookkeeping next to the image cache through the XIP cache, and a cache line holding that and the image's first bytes was written back after the image went in, putting back what PSRAM held before. Seen on the rig as an ADF's first long reading `00000011` after the drive had served a DOS disk; reproduced, and gone with the fix. The image now starts clear of the allocator's cache lines, with room after it, and the cache is cleaned (`xip_cache_clean_all`) before the image is copied in.
+- The solder-bridge test's arming could miss a `Y` sent in the same millisecond as the `x` (its time was stored as `millis() | 1`, a millisecond ahead).
+
 ## [0.21.0] - 2026-11-05
 
 First run on a BB48R (PSRAM and microSD) on the carrier, against the Feather host: the solder-bridge test and slices 0 to 5 pass, image swaps go round all six test images, and an HFE image reads back byte for byte.

@@ -28,6 +28,8 @@ drive=a
 
 The drive reads `interface`, `cable` and `drive` at power-on. The console's `s` shows the ones in use.
 
+**Changing a setting without taking the card out:** on the USB console, type `e`, then the setting (`interface=shugart`, or `device0 = GAMES.IMG`), then Enter. The drive writes it to the card at once, if the host isn't using the drive, and prints the file as it now is (`CONFIG` lines); a key it doesn't know, or a value it can't take, is refused and changes nothing. Then `!` restarts the drive with it. The drive's own `last0`, `pack` and `volume` follow the drive, as always.
+
 **Drives count from 0**, as on HDDSynthPro (`device0`, `device1`) and on Shugart and Amiga cables (DS0, DF0): device 0 is the first drive `drive` names, device 1 the second. With `drive=a,b` they're A: and B:; with `drive=b` alone, device 0 is B:.
 
 **Before 0.20.0** these were `image`, `image2`, `last` and `last2`. A file with the old names still works, and the drive writes them under the new names when it next saves. If a file has both, the new name counts.

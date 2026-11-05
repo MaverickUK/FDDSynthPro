@@ -1,11 +1,18 @@
 """The Amiga mode on the rig, with the Feather standing in for an Amiga.
 
-The Feather drives pins 12 and 16: DF1's select and the Amiga's motor line.
-So with `interface=amiga` and `drive=df1` in /FDDSYNTH.CFG the drive answers
-it as an Amiga's DF1, and `gw` reads and writes AmigaDOS tracks with
-Greaseweazle's own codec (amiga.amigados). That proves the track format,
-the motor latched at select and the write decoder on hardware, before a
-real Amiga. Needs an ADF on the card served by the drive (`device0=...`),
+The Feather drives pins 12 and 16. An ADF is served as AmigaDOS tracks
+whatever the interface, so `gw` can read and write them with Greaseweazle's
+own codec (amiga.amigados): the track format and the write decoder, proved
+on hardware before a real Amiga.
+
+The tests set the drive up themselves with the console's `e` and `!`:
+`interface=shugart`, `drive=ds1` (select on 12, motor on 16) and
+`device0=RAND880.ADF` (from `make_images`' ADFs, on the card and in
+FDDPRO_IMAGES), then put the settings back as they found them. `interface=amiga` with `drive=df1` selects on 12 too, but
+an Amiga drive latches its motor line as it's selected, and the Feather
+selects first and starts the motor 6 ms later (seen on the rig,
+2026-11-05): the motor never runs, as it wouldn't on a real Amiga drive.
+The virtual Amiga (test_amiga.cpp) covers the latch. Needs an ADF on the card served by the drive (`device0=...`),
 its copy in FDDPRO_IMAGES, and the FeatherWing's write switch on WR for the
 writes. The writes put back every track they change.
 
@@ -40,12 +47,37 @@ def stats(drive) -> dict[str, str]:
     return dict(item.split("=", 1) for item in line.split()[1:])
 
 
-@pytest.fixture
-def adf(drive, gw):
-    """(name, original bytes, writable) of the ADF the drive serves as DF1."""
+AMIGA_SETUP = {"interface": "shugart", "drive": "ds1", "device0": "RAND880.ADF"}
+
+
+@pytest.fixture(scope="module")
+def amiga_setup(drive):
+    """The drive as the Feather can reach an Amiga disk, and back after."""
     s = stats(drive)
-    if s.get("interface") != "amiga" or s.get("drive") != "df1":
-        pytest.skip("needs interface=amiga and drive=df1 in /FDDSYNTH.CFG (the Feather drives DF1's lines)")
+    if "volume" not in s:
+        pytest.skip("needs the drive build")
+    # Setting the volume to itself returns the file as it is.
+    before = drive.set_setting(f"volume={s['volume']}")
+    changed = {k: v for k, v in AMIGA_SETUP.items() if before.get(k, "") != v}
+    for k, v in changed.items():
+        drive.set_setting(f"{k}={v}")
+    if changed:
+        drive.restart()
+    yield
+    if changed:
+        # The drive always writes interface and drive; an empty device0
+        # clears it, back to the remembered disk.
+        for k in changed:
+            drive.set_setting(f"{k}={before.get(k, '')}")
+        drive.restart()
+
+
+@pytest.fixture
+def adf(drive, gw, amiga_setup):
+    """(name, original bytes, writable) of the ADF the drive serves."""
+    s = stats(drive)
+    if (s.get("interface"), s.get("drive")) != ("shugart", "ds1"):
+        pytest.skip("needs interface=shugart and drive=ds1 in /FDDSYNTH.CFG (the Feather's lines, no motor latch)")
     parts = drive.command("i", "IMAGE").split()
     if not parts[1].upper().endswith(".ADF"):
         pytest.skip(f"the drive serves {parts[1]}, not an ADF")

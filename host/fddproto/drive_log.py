@@ -83,6 +83,42 @@ class DriveLog:
     def send(self, command: str):
         self._ser.write(command.encode())
 
+    def set_setting(self, line: str, timeout: float = 5.0) -> dict[str, str]:
+        """Console `e`: one setting into /FDDSYNTH.CFG ("interface=shugart").
+        Returns the file's settings as they now are. Raises if the drive
+        refused it (unknown, a bad value, the drive in use, no card)."""
+        mark = self.mark()
+        self.send("e" + line + "\n")
+        ends = ("# saved", "# not a setting", "# the drive is in use", "# no card", "# couldn't")
+        reply = self.wait_for(lambda l: l.startswith(ends), mark, timeout)
+        if not reply.startswith("# saved"):
+            raise RuntimeError(f"{line}: {reply}")
+        lines = [l[len("CONFIG "):] for l in self.lines_since(mark) if l.startswith("CONFIG ")]
+        return dict(l.split("=", 1) for l in lines if "=" in l)
+
+    def restart(self, timeout: float = 30.0) -> str:
+        """Console `!`: the drive restarts, its USB port going and coming
+        back, and reads its settings again. Returns its READY line."""
+        self.send("!")
+        if self._thread:
+            self._thread.join(timeout=5)  # the reader stops as the port goes
+        try:
+            self._ser.close()
+        except serial.SerialException:
+            pass
+        time.sleep(0.5)
+        deadline = time.monotonic() + timeout
+        self.open(timeout)
+        # Its own READY can come before the port is open again, and a big
+        # image takes seconds to load first: ask until it answers.
+        while True:
+            try:
+                self.ready = self.command("h", "READY", timeout=2)
+                return self.ready
+            except TimeoutError:
+                if time.monotonic() > deadline:
+                    raise
+
     def mark(self) -> int:
         """A position in the log; pass to lines_since() / wait_for()."""
         with self._lock:
