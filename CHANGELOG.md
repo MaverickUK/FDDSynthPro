@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.4] - 2026-11-05
+
+### Fixed
+- A swap to an HFE image still dropped the sound out (a 55 ms gap): the swap's last step loads the cylinder under the head, both heads in one go, about 27 ms each for HFE, with no turn for the audio. It now services the audio between the loader's steps.
+
 ## [0.23.3] - 2026-11-05
 
 ### Fixed

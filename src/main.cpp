@@ -612,7 +612,7 @@ static void chooseDisk(unsigned i) {
     s.loader = new CylinderLoader(*s.slot, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
     s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
     s.writer->between_writes = audio::service;  // a track's card writes outlast the audio queue
-    while (s.loader->service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
+    while (s.loader->service() != CylinderLoader::Step::Idle) audio::service();  // cylinder 0, before the host can ask
     g_loaders[i] = s.loader;
     publishDisk(i, s.slot->format(), s.slot->writable());
 }
@@ -733,7 +733,9 @@ static void insertCached(unsigned drive) {
     s.slot->insert(*s.cache);
     s.loader->reset();
     s.loader->request(sh.cylinder.load(std::memory_order_relaxed));
-    while (s.loader->service() != CylinderLoader::Step::Idle) {}
+    // The audio between the steps: an HFE head takes about 27 ms, so a
+    // cylinder's two outlast the 46 ms queue.
+    while (s.loader->service() != CylinderLoader::Step::Idle) audio::service();
     publishDisk(drive, s.cache->format(), s.cache->writable());
     sh.swap.store(SWAP_INSERT, std::memory_order_release);
 }
