@@ -20,6 +20,7 @@ The owner is an experienced software architect (C#/.NET, TypeScript, Python) who
   - **The one exception is the `direct` builds** (`bb48_direct`, `bb48_drive_direct`; `cfg::OUTPUTS_OPEN_DRAIN`), for bring-up with the FeatherWing before the SN7407 is fitted. Their outputs are open drain: the level is always low and only the output enable changes (SIO direction; for RDATA, side-set to pindirs, the OE inverted and the level forced low). The host's pull-ups take the lines to 5 V. Never with a real PC. New output code must handle both modes.
 - **Slice 0 never drives a pin:** every pin stays an SIO input, so the SN7407 stays released. The outputs have internal pull-ups, except in the direct build, where the host pulls them to 5 V.
 - **Core split:** core 1 runs the drive and never touches USB, SD or anything slow. Core 0 does the slow work (SD, USB serial) and must never make core 1 wait.
+  - **Stacks:** core 1 has its own 8 KB stack (`core1_separate_stack` in `main.cpp`); core 0 has both scratch banks (8 KB). With the SDK's default layout, core 0 overran its 4 KB into core 1's stack at power-on and core 1 never started. Keep big buffers off core 0's stack (static, as `img_cfg::find`'s parse state), and watch `core0_stack` in `s`.
 
 ## Toolchain
 
@@ -168,7 +169,7 @@ The Python parser is `host/fddproto/trace.py`; change both together.
 Console:
 - `h`: help, and the READY line with version and build;
 - `p`: input pin levels (wiring check);
-- `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts, the write path's (`decode_kbps`, `finish_us_max`, `burst_gap_us_max`) and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
+- `s`: stats; on the drive build also `core1` (5: running), `core0_stack`, `cyl`, `side`, `selected`, `disk`, the knock counts, the write path's (`decode_kbps`, `finish_us_max`, `burst_gap_us_max`) and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
 - `d`: eject or insert the disk (drive build);
 - `g`: swap in the generated test disk, or back (drive build);
 - `t`: time a loader step in its parts (`BENCH`: read, build, interleave; drive build);

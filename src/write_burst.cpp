@@ -135,20 +135,24 @@ BurstResult BurstWriter::finish() {
     // disk refused keeps the old data in the live track: what the disk has.
     bool stored[64] = {};
     for (unsigned i = 0; i < r.decoded.updates; ++i) {
+        if (between_writes) between_writes();
         stored[i] = source_.writeSector(uint8_t(cylinder), burst_.head, updates[i].sector, store_ + updates[i].data_offset);
         if (stored[i])
             ++r.persisted;
         else
             ++r.failed;
     }
+    if (between_writes) between_writes();
     if (r.persisted && !source_.flush()) {
         r.failed += r.persisted;  // none of them is safely on the disk
         r.persisted = 0;
         return r;
     }
+    // Into the track data, then one encode of the head for them all.
     for (unsigned i = 0; i < r.decoded.updates; ++i)
         if (stored[i])
-            r.patched += loader_.writeSector(burst_.cylinder, burst_.head, updates[i].sector,
+            r.patched += loader_.storeSector(burst_.cylinder, burst_.head, updates[i].sector,
                                              store_ + updates[i].data_offset);
+    if (r.patched && !loader_.encodeHead(burst_.cylinder, burst_.head)) r.patched = 0;
     return r;
 }

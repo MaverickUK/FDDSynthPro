@@ -90,6 +90,11 @@ public:
     void feed(const uint8_t* intervals, size_t count);
     BurstResult finish();
 
+    // Called between the sectors finish() writes to the disk, when set: a
+    // track's worth takes the card 60 ms or more, longer than the audio
+    // queue lasts, so the firmware services the audio here.
+    void (*between_writes)() = nullptr;
+
 private:
     // An Amiga's track write: each sector names its track and number.
     track_write::Result interpretAmiga(const ibm::Format& fmt, int cylinder, uint8_t head, track_write::Update* out,

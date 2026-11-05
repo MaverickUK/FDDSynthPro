@@ -275,8 +275,13 @@ Match find(const char* text, size_t len, const char* name, uint32_t size, ibm::F
             return !tag_known;
         });
 
-    // The first section that matches.
-    Parse p;
+    // The first section that matches. Static, not on the stack: with its
+    // overrides it's over a kilobyte, and find() runs at power-on, deep in
+    // core 0's start-up, whose 4 KB stack ran into core 1's (0.22.1). Only
+    // core 0 calls it, never reentrantly.
+    static Parse parse;
+    parse = Parse{};
+    Parse& p = parse;
     bool in_section = false;
     unsigned section_line = 0;
     ibm::TrackSpec* spec = &p.base;

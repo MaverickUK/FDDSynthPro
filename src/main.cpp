@@ -190,6 +190,9 @@ static bus::Interface g_interface = bus::Interface::IbmPc;
 static bool g_pin2_chng = false;  // floppy pin 2 driven as DISK CHANGE (bus.h)
 static CylinderLoader* g_loaders[bus::MAX_DRIVES];
 static std::atomic<bool> g_started{false};
+// How far core 1 has got: 1 set up, 2 released, 3 streamer, 4 capture, 5 running.
+static std::atomic<int> g_core1_stage{0};
+static uint32_t core0StackUsed();
 
 // Writes stream from core 1's capture to core 0's decoder through a ring
 // (CaptureStream, write_burst.h): the DMA fills it, core 1 marks where each
@@ -233,13 +236,17 @@ static void putOutputs(uint32_t levels) {
 void setup1() {
     setUpInputs();
     setUpOutputs();
+    g_core1_stage.store(1);
     // RDATA then moves to the PIO, held released until the drive is ready.
     // The data rate depends on the disk, which core 0 chooses after mounting
     // the SD card. The streamer starts on drive 0's.
     while (!g_started.load(std::memory_order_acquire)) tight_loop_contents();
+    g_core1_stage.store(2);
     DiskTiming disk = timingOf(g_shared[0]);
     rdata_pio::begin(g_cylinder_slots[0], disk.words, disk.rate);
+    g_core1_stage.store(3);
     wdata_pio::begin(g_capture_ring, cfg::CAPTURE_RING_BYTES, disk.rate);
+    g_core1_stage.store(4);
 }
 
 // Where drive `d`'s disk is under its head, in streamer words (one per
@@ -274,6 +281,7 @@ void loop1() {
     bool streaming = false;
     WriteGate write_gate;
     WriteBurst burst{};
+    g_core1_stage.store(5);
     for (;;) {
         uint32_t now = time_us_32();
         uint32_t pins = pinsAsSample();
@@ -481,6 +489,8 @@ static uint32_t g_write_us_max = 0;  // the longest chunk of decoding
 static uint64_t g_decode_us_sum = 0;
 static uint64_t g_decode_bytes = 0;
 static uint32_t g_finish_us_max = 0;
+static uint64_t g_finish_us_sum = 0;
+static uint32_t g_finishes = 0;
 static uint32_t g_burst_gap_us_max = 0;
 static uint32_t g_write_faults = 0;
 
@@ -601,6 +611,7 @@ static void chooseDisk(unsigned i) {
     s.slot = new DiskSlot(*s.cache);
     s.loader = new CylinderLoader(*s.slot, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
     s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
+    s.writer->between_writes = audio::service;  // a track's card writes outlast the audio queue
     while (s.loader->service() != CylinderLoader::Step::Idle) {}  // cylinder 0, before the host can ask
     g_loaders[i] = s.loader;
     publishDisk(i, s.slot->format(), s.slot->writable());
@@ -791,7 +802,12 @@ static void serviceWrites() {
         g_decode_us_sum += time_us_32() - started;
         g_decode_bytes += g_capture->consumed() - before;
     }
-    if (finished && !r.overrun && time_us_32() - started > g_finish_us_max) g_finish_us_max = time_us_32() - started;
+    if (finished && !r.overrun && r.persisted) {
+        uint32_t took = time_us_32() - started;
+        if (took > g_finish_us_max) g_finish_us_max = took;
+        g_finish_us_sum += took;
+        ++g_finishes;
+    }
     if (finished) {
         g_sectors_written += r.persisted;
         g_write_bad_crc += r.decoded.bad_crc;
@@ -837,6 +853,7 @@ static void zeroTimings() {
     g_reads = g_encodes = 0;
     g_decode_us_sum = g_decode_bytes = 0;
     g_finish_us_max = g_burst_gap_us_max = 0;
+    g_finish_us_sum = g_finishes = 0;
     g_write_us_max = 0;
     Serial.println("# timings zeroed");
 }
@@ -1122,6 +1139,7 @@ static void printStats() {
                   (unsigned long)g_dropped.load(), (unsigned long)g_steps.load(), (unsigned)g_trace.size());
 #if FIRMWARE_SLICE != 0
     char units[12];
+    Serial.printf(" core1=%d core0_stack=%lu", g_core1_stage.load(), (unsigned long)core0StackUsed());
     Serial.printf(" interface=%s cable=%s drive=%s", bus::interfaceName(g_settings.bus.interface),
                   bus::cableName(g_settings.bus.cable), bus::unitsName(g_settings.bus, units));
     // Each drive's: unsuffixed for the first, "2" after the second's names.
@@ -1148,6 +1166,7 @@ static void printStats() {
                   (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
                   (unsigned long)g_capture->overruns(), (unsigned long)g_write_faults, (unsigned long)g_write_us_max);
+    Serial.printf(" finish_us_mean=%lu", (unsigned long)(g_finishes ? g_finish_us_sum / g_finishes : 0));
     Serial.printf(" decode_kbps=%lu decode_bytes=%llu finish_us_max=%lu burst_gap_us_max=%lu",
                   (unsigned long)(g_decode_us_sum ? g_decode_bytes * 1000 / g_decode_us_sum : 0),
                   (unsigned long long)g_decode_bytes, (unsigned long)g_finish_us_max,
@@ -1348,7 +1367,30 @@ static void handleConsole() {
     }
 }
 
+// Core 1 gets its own 8 KB stack from the heap (Arduino-Pico allocates it
+// before setup()). By default it runs on 2 KB just below core 0's 4 KB, and
+// core 0's start-up (mounting the card, parsing IMG.CFG) went 208 bytes past
+// its 4 KB, overwriting where setup1() would return to: core 1 never reached
+// loop1(), and the drive was dead (0.22.1). Now core 0 has both scratch
+// banks, 8 KB, to itself.
+bool core1_separate_stack = true;
+
+// How much of that core 0 uses, for `s` (core0_stack): the space below its
+// frame is painted at power-on, and the first byte changed marks the deepest
+// it has been.
+extern "C" uint8_t __StackOneBottom[], __StackTop[];
+static void paintStack() {
+    uint8_t* here = static_cast<uint8_t*>(__builtin_frame_address(0)) - 256;
+    for (uint8_t* p = __StackOneBottom; p < here; ++p) *p = 0xA5;
+}
+static uint32_t core0StackUsed() {
+    uint8_t* p = __StackOneBottom;
+    while (p < __StackTop && *p == 0xA5) ++p;
+    return uint32_t(__StackTop - p);
+}
+
 void setup() {
+    paintStack();
     Serial.begin(115200);
 #if FIRMWARE_SLICE != 0
     panel::begin();  // first: looking for the display can block briefly, before anything runs

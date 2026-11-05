@@ -255,16 +255,28 @@ bool Disk::writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const ui
     uint32_t side_len = track_len_[cylinder] / 2;
     if (!side_len) return false;
     // Byte k of the track is byte k of the side's data (v1: no opcodes), round
-    // the track's own length where the drive's is longer.
+    // the track's own length where the drive's is longer. Up to GROUP_BLOCKS
+    // blocks at a time: read (both halves), this side's bytes patched in,
+    // written back. A write of each half-block on its own made every one a
+    // read-modify-write of a card sector: 816 ms a track on the drive, long
+    // enough for a host's verify to read the old track. Each read and write
+    // ends at the last byte written, as before.
     while (n) {
         uint32_t k = at % side_len;
-        uint32_t run = 256 - k % 256;  // to the end of this block's half
+        uint32_t first = k / 256;  // this side's block, from the track's first
+        uint32_t end = (first + GROUP_BLOCKS) * 256;  // this side's bytes the group holds
+        if (end > side_len) end = side_len;
+        uint32_t run = end - k;
         if (run > n) run = n;
-        if (run > side_len - k) run = side_len - k;
-        uint8_t chunk[256];
-        for (uint32_t i = 0; i < run; ++i) chunk[i] = reverse8(data[i]);
-        uint32_t offset = (uint32_t(track_block_[cylinder]) + k / 256) * BLOCK + head * 256u + k % 256;
-        if (!file_->write(offset, chunk, run)) return false;
+        uint32_t last = k + run - 1;
+        uint32_t bytes = (last / 256 - first) * BLOCK + head * 256u + last % 256 + 1;
+        uint32_t offset = (uint32_t(track_block_[cylinder]) + first) * BLOCK;
+        if (!file_->read(offset, s_group, bytes)) return false;
+        for (uint32_t i = 0; i < run; ++i) {
+            uint32_t kk = k + i;
+            s_group[(kk / 256 - first) * BLOCK + head * 256u + kk % 256] = reverse8(data[i]);
+        }
+        if (!file_->write(offset, s_group, bytes)) return false;
         at += run;
         data += run;
         n -= run;

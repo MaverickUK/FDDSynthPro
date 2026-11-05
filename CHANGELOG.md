@@ -4,6 +4,25 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-05
+
+The panel and amplifier on the rig, an HFE write fix, and other formats proved against the Feather.
+
+### Fixed
+- **The drive could be dead from power-on, with an IMG.CFG on the card:** core 0's start-up (mounting the card, `img_cfg::find` parsing a section for each image) used 4.3 KB of its 4 KB stack, and in the Pico SDK's layout core 1's 2 KB stack sits just below. The overrun overwrote where `setup1()` returns to, so core 1 never reached `loop1()`: no disk, no steps, no sound, though the console answered. Core 1 now has its own 8 KB stack (`core1_separate_stack`), leaving core 0 both scratch banks, and `find` keeps its kilobyte-plus parse state off the stack (3.3 KB at start-up now).
+- **The sound dropped out on every track write:** finishing a burst held core 0 for 65 ms, longer than the 46 ms audio queue, because each sector re-encoded the whole head into the live track (18 encodes a track). The sectors now go into the track data first and the head is encoded once (`CylinderLoader::storeSector`, `encodeHead`): 12 ms a track. `BurstWriter::between_writes` lets the firmware service the audio between the card writes too.
+- **HFE writes failed the host's verify:** each track write rewrote the file a byte at a time and held core 0 for 816 ms. `hfe::Disk::writeTrackBytes` now reads, patches and writes 16 blocks at a time: 84 ms. A test holds it to a byte-by-byte model.
+
+### Added
+- Console `s`: `core1` (how far core 1 has got: 5 is running), `core0_stack` (core 0's deepest stack use, from a pattern painted at power-on) and `finish_us_mean` (a burst's mean end, card included; `z` zeroes it).
+- Rig tests:
+  - `-m formats` (`test_formats.py`): 160 KB, 360 KB, 800 KB, 1.2 MB, DMF 1.68 MB and an FM Acorn DFS disk from an IMG.CFG section, each read back whole with Greaseweazle's own definition.
+  - `-m soak` (`test_soak.py`, `FDDPRO_SOAK_HOURS`): random reads, writes (each undone and checked), whole-disk reads, swaps and restarts until the time runs out, stopping at the first mismatch or fault.
+  - slice 5's writes also run on an HFE image.
+
+### Measured and left out
+- Writing a burst's sectors to the card as one multi-sector write was slower on the test card (92 ms a track against 82), so sectors are still written one by one with a single sync.
+
 ## [0.22.0] - 2026-11-05
 
 ### Added

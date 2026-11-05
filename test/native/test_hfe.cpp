@@ -207,9 +207,45 @@ TEST(test_hfe_write_splices_cells) {
     CHECK(!v3.disk.writeTrackBytes(0, 0, 0, bytes.data(), 4));
 }
 
+TEST(test_hfe_write_groups_match_byte_writes) {
+    // Writes long enough to span several 16-block groups, on both heads,
+    // some round the end of the track, some ending mid-block: the file must
+    // come out as writing each byte into its place in its block's half would.
+    // The sides are 9,000 bytes, so a track is 36 blocks, with a short last one.
+    std::vector<uint8_t> a(9000), b(9000);
+    for (size_t i = 0; i < a.size(); ++i) a[i] = uint8_t(i * 7), b[i] = uint8_t(i * 13 + 5);
+    std::vector<uint8_t> f = makeHfe(1, 2, 500, {a, b, b, a});
+    std::vector<uint8_t> want = f;
+    hfe::MemoryFile file(f.data(), uint32_t(f.size()));
+    hfe::Disk d;
+    CHECK(d.open(file, true) == nullptr);
+    // Where each cylinder's track starts, from the track table (block 1).
+    auto track_block = [&](unsigned c) { return unsigned(f[512 + 4 * c] | f[512 + 4 * c + 1] << 8); };
+    auto reverse = [](uint8_t x) {
+        uint8_t r = 0;
+        for (int i = 0; i < 8; ++i) r = uint8_t(r << 1 | ((x >> i) & 1));
+        return r;
+    };
+    uint32_t seed = 3;
+    auto rnd = [&]() { return seed = seed * 1103515245u + 12345u, seed >> 8; };
+    for (int round = 0; round < 40; ++round) {
+        uint8_t c = uint8_t(rnd() % 2), h = uint8_t(rnd() % 2);
+        uint32_t at = rnd() % 20000, n = 1 + rnd() % 12000;  // past the end: round again
+        std::vector<uint8_t> data(n);
+        for (uint8_t& x : data) x = uint8_t(rnd());
+        CHECK(d.writeTrackBytes(c, h, at, data.data(), n));
+        for (uint32_t i = 0; i < n; ++i) {
+            uint32_t k = (at + i) % 9000;
+            want[(track_block(c) + k / 256) * 512 + h * 256 + k % 256] = reverse(data[i]);
+        }
+    }
+    CHECK(f == want);
+}
+
 }  // namespace
 
 void runHfeTests() {
+    RUN(test_hfe_write_groups_match_byte_writes);
     RUN(test_hfe_header);
     RUN(test_hfe_v1_cells_and_length);
     RUN(test_hfe_v3_opcodes);

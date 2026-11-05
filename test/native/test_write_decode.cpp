@@ -436,10 +436,14 @@ TEST(test_burst_track_write) {
     std::vector<uint16_t> cells(12500);
     ibm::buildTrack(ibm::HD_1440, 30, 0, data.data(), cells.data());
     auto bytes = captured(toFlux(cells, Timing{0.99, 0.1, 0.0}, 13), 2);
+    static unsigned betweens;  // the firmware services the audio there
+    betweens = 0;
+    r.writer.between_writes = [] { ++betweens; };
     BurstResult res = r.writer.apply(WriteBurst{30, 0, 0, bytes.data(), bytes.size()}, 16, 2);
     CHECK_EQ(res.persisted, 18u);
     CHECK_EQ(r.source.writes, 18u);
     CHECK_EQ(r.source.flushes, 1u);  // one sync for the burst, not one a sector
+    CHECK_EQ(betweens, 19u);         // before each sector, and before the sync
     bool all = true;
     for (uint8_t s = 0; s < 18; ++s) all = all && r.liveSector(0, s) == std::vector<uint8_t>(&data[s * 512], &data[s * 512] + 512);
     CHECK(all);

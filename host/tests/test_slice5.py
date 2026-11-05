@@ -48,6 +48,12 @@ def image(drive, gw):
         pytest.skip(f"{parts[1]} is read-only on the card")
     folder = os.environ.get("FDDPRO_IMAGES")
     local = Path(folder).expanduser() / parts[1] if folder else None
+    if local and local.suffix.upper() == ".HFE":
+        # A flux image: written as the disk it holds, and compared with the
+        # sector image it was made from (GEN1440.HFE from GEN1440.IMG). The
+        # drive splices the written cells in; the file then differs from
+        # its copy, but every sector decodes the same.
+        local = local.with_suffix(".IMG")
     if not local or not local.exists():
         pytest.skip("set FDDPRO_IMAGES to the folder holding a copy of the card's image")
     data = local.read_bytes()
@@ -85,7 +91,9 @@ def test_write_tracks_and_read_back(drive, gw, image, tmp_path):
             track = rng.randbytes(sectors * 512)
             assert write_and_read(gw, tmp_path, data, fmt, sectors, cyl, head, track) == track, f"{cyl}.{head}"
         s = stats(drive)
-        assert int(s["written"]) - before >= CYCLES * sectors
+        # A flux image counts each spliced track write once; a sector image, each sector.
+        per_track = 1 if name.upper().endswith(".HFE") else sectors
+        assert int(s["written"]) - before >= CYCLES * per_track
         assert s["write_bad_crc"] == "0" and s["bursts_dropped"] == "0", s
     finally:
         for cyl, head in changed:  # put the originals back

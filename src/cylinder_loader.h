@@ -63,6 +63,14 @@ public:
     // nothing) unless the buffer holds `cylinder`.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data);
 
+    // writeSector() in two halves, for a burst of many sectors: store each
+    // into the track data, then encode the head once (an encode is about
+    // 3 ms on the board, and a whole track took 18 of them). Until
+    // encodeHead(), the host still reads the old cells. Same conditions and
+    // results as writeSector().
+    bool storeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data);
+    bool encodeHead(uint8_t cylinder, uint8_t head);
+
     // A flux image's write: `n` words of cells from word `first` of the
     // head's track (round its end), into the live buffer. Weak bits it
     // covers aren't weak any more. False unless the buffer holds `cylinder`.

@@ -5,12 +5,23 @@
 #include "rdata_stream.h"
 
 bool CylinderLoader::writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) {
+    return storeSector(cylinder, head, sector, data) && encodeHead(cylinder, head);
+}
+
+bool CylinderLoader::storeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) {
     const ibm::Format& fmt = source_.format();
     int image_cylinder = fmt.imageCylinder(cylinder);
     if (ready() != cylinder || loading_ >= 0 || head > 1 || image_cylinder < 0 || !present_[head]) return false;
     const ibm::Track& t = fmt.track(uint8_t(image_cylinder), head);
     if (sector >= t.sectors) return false;
     std::memcpy(data_[head] + sector * t.sectorBytes(), data, t.sectorBytes());
+    return true;
+}
+
+bool CylinderLoader::encodeHead(uint8_t cylinder, uint8_t head) {
+    const ibm::Format& fmt = source_.format();
+    int image_cylinder = fmt.imageCylinder(cylinder);
+    if (ready() != cylinder || loading_ >= 0 || head > 1 || image_cylinder < 0 || !present_[head]) return false;
     if (!ibm::buildTrack(fmt, uint8_t(image_cylinder), head, data_[head], scratch_)) return false;
     rdata::setHead(head, scratch_, fmt.track_bytes, slots_);
     return true;
