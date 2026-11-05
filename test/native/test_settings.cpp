@@ -13,7 +13,7 @@ namespace {  // this file's own helpers and tests
 settings::Settings parse(const std::string& text) { return settings::parse(text.data(), text.size()); }
 
 TEST(test_settings_round_trip) {
-    // As the firmware writes it: the disk that was in, under `last`.
+    // As the firmware writes it: the disk that was in, under `last0`.
     settings::Settings s;
     std::strcpy(s.last[0], "MONKEY1.IMG");
     std::strcpy(s.pack, "Recorded");
@@ -21,7 +21,7 @@ TEST(test_settings_round_trip) {
     char text[settings::FILE_MAX];
     size_t n = settings::format(s, text, sizeof text);
     CHECK_STR(std::string(text, n),
-              "last=MONKEY1.IMG\npack=Recorded\nvolume=40\ninterface=ibmpc\ncable=twisted\ndrive=a\n");
+              "last0=MONKEY1.IMG\npack=Recorded\nvolume=40\ninterface=ibmpc\ncable=twisted\ndrive=a\n");
     CHECK(settings::parse(text, n) == s);
     s.bus = {bus::Interface::Shugart, bus::Cable::Straight, 0b100};
     n = settings::format(s, text, sizeof text);
@@ -31,15 +31,15 @@ TEST(test_settings_round_trip) {
     s.bus = {bus::Interface::IbmPc, bus::Cable::Twisted, 0b11};
     std::strcpy(s.last[1], "WORK.IMG");
     n = settings::format(s, text, sizeof text);
-    CHECK_STR(std::string(text, n), "last=MONKEY1.IMG\nlast2=WORK.IMG\npack=Recorded\nvolume=40\n"
+    CHECK_STR(std::string(text, n), "last0=MONKEY1.IMG\nlast1=WORK.IMG\npack=Recorded\nvolume=40\n"
                                     "interface=ibmpc\ncable=twisted\ndrive=a,b\n");
     CHECK(settings::parse(text, n) == s);
 }
 
 TEST(test_settings_fixed_image) {
-    // `image`, set by hand, is the disk at every power-on; the firmware
-    // writes it back as it found it, beside the remembered `last`.
-    settings::Settings s = parse("image=DOS622.IMG\nlast=GAMES.IMG\nimage2=WORK.IMG\ndrive=a,b\n");
+    // `device0`, set by hand, is the disk at every power-on; the firmware
+    // writes it back as it found it, beside the remembered `last0`.
+    settings::Settings s = parse("device0=DOS622.IMG\nlast0=GAMES.IMG\ndevice1=WORK.IMG\ndrive=a,b\n");
     CHECK_STR(s.image[0], "DOS622.IMG");
     CHECK_STR(s.image[1], "WORK.IMG");
     CHECK_STR(s.last[0], "GAMES.IMG");
@@ -47,11 +47,35 @@ TEST(test_settings_fixed_image) {
     char text[settings::FILE_MAX];
     size_t n = settings::format(s, text, sizeof text);
     std::string written(text, n);
-    CHECK(written.find("image=DOS622.IMG\nimage2=WORK.IMG\nlast=MONKEY1.IMG\nlast2=\n") == 0);
+    CHECK(written.find("device0=DOS622.IMG\ndevice1=WORK.IMG\nlast0=MONKEY1.IMG\nlast1=\n") == 0);
     CHECK(settings::parse(text, n) == s);
     // Unset, it isn't written at all.
-    CHECK(std::string(text, settings::format(settings::Settings{}, text, sizeof text)).find("image") ==
+    CHECK(std::string(text, settings::format(settings::Settings{}, text, sizeof text)).find("device") ==
           std::string::npos);
+    // The longest name fits its line.
+    std::string longest(settings::NAME - 1, 'A');
+    std::strcpy(s.image[1], longest.c_str());
+    n = settings::format(s, text, sizeof text);
+    CHECK(std::string(text, n).find("device1=" + longest + "\n") != std::string::npos);
+}
+
+TEST(test_settings_old_names) {
+    // A file from before 0.20.0: image, image2, last and last2 still count,
+    // and are written back under the new names.
+    settings::Settings s = parse("image=DOS622.IMG\nimage2=WORK.IMG\nlast=GAMES.IMG\nlast2=DATA.IMG\ndrive=a,b\n");
+    CHECK_STR(s.image[0], "DOS622.IMG");
+    CHECK_STR(s.image[1], "WORK.IMG");
+    CHECK_STR(s.last[0], "GAMES.IMG");
+    CHECK_STR(s.last[1], "DATA.IMG");
+    char text[settings::FILE_MAX];
+    std::string written(text, settings::format(s, text, sizeof text));
+    CHECK(written.find("device0=DOS622.IMG\ndevice1=WORK.IMG\nlast0=GAMES.IMG\nlast1=DATA.IMG\n") == 0);
+    CHECK(written.find("image") == std::string::npos);
+    CHECK(written.find("last=") == std::string::npos);
+    // Both names: the new one counts, wherever it is in the file.
+    s = parse("device0=NEW.IMG\nimage=OLD.IMG\nlast=OLD.IMG\nlast0=NEW.IMG\n");
+    CHECK_STR(s.image[0], "NEW.IMG");
+    CHECK_STR(s.last[0], "NEW.IMG");
 }
 
 TEST(test_settings_with_notes) {
@@ -59,7 +83,7 @@ TEST(test_settings_with_notes) {
     // bytes still count.
     std::string text;
     for (int i = 0; i < 30; ++i) text += "# a note about the settings, as the sample file has them\n";
-    text += "#image=NOT.IMG\ninterface=shugart\ndrive=ds1\nvolume=30\n";
+    text += "#device0=NOT.IMG\ninterface=shugart\ndrive=ds1\nvolume=30\n";
     CHECK(text.size() > 1500 && text.size() < settings::FILE_MAX);
     settings::Settings s = parse(text);
     CHECK_STR(s.image[0], "");  // commented out
@@ -81,7 +105,7 @@ TEST(test_settings_bus) {
     CHECK(s.bus.interface == bus::Interface::Shugart);
     CHECK_EQ(s.bus.units, 0b10);
     // Two drives, either order; the first is the lower unit.
-    s = parse("drive=b,a\nimage2=WORK.IMG\n");
+    s = parse("drive=b,a\ndevice1=WORK.IMG\n");
     CHECK_EQ(s.bus.units, 0b11);
     CHECK_EQ(s.bus.drives(), 2u);
     CHECK_STR(s.image[1], "WORK.IMG");
@@ -109,7 +133,7 @@ TEST(test_settings_defaults) {
 TEST(test_settings_hand_edited) {
     // Windows line ends, trailing spaces, a comment-ish line, keys in any
     // order, a missing last newline, names with spaces.
-    settings::Settings s = parse("# my drive\r\nvolume=90 \r\npack=My Drive\r\nimage=DOS 6.22.IMG");
+    settings::Settings s = parse("# my drive\r\nvolume=90 \r\npack=My Drive\r\ndevice0=DOS 6.22.IMG");
     CHECK_STR(s.image[0], "DOS 6.22.IMG");
     CHECK_STR(s.pack, "My Drive");
     CHECK_EQ(s.volume, 90);
@@ -124,8 +148,9 @@ TEST(test_settings_bad_values_keep_the_defaults) {
     // A name too long for the drive's lists is refused, never cut short
     // (which would name another file).
     std::string longName(settings::NAME, 'A');
-    CHECK_STR(parse("image=" + longName + "\n").image[0], "");
-    CHECK_STR(parse("imagery=GAMES.IMG\nimage\n").image[0], "");  // not the key, or no value
+    CHECK_STR(parse("device0=" + longName + "\n").image[0], "");
+    CHECK_STR(parse("device01=GAMES.IMG\ndevice\ndevice2=GAMES.IMG\n").image[0], "");  // not a key
+    CHECK_STR(parse("imagery=GAMES.IMG\nimage\n").image[0], "");
 }
 
 TEST(test_settings_garbage_never_crashes) {
@@ -135,7 +160,7 @@ TEST(test_settings_garbage_never_crashes) {
         std::string text;
         for (int i = 0; i < 120; ++i) {
             seed = seed * 1103515245 + 12345;
-            const char pick[] = "image=pack=volume=\n\r 0123456789AZaz.";
+            const char pick[] = "device0=image=pack=volume=\n\r 0123456789AZaz.";
             text += (seed >> 16) % 3 ? pick[(seed >> 8) % (sizeof pick - 1)] : char(seed >> 24);
         }
         settings::Settings s = parse(text);
@@ -185,6 +210,7 @@ TEST(test_pack_list) {
 void runSettingsTests() {
     RUN(test_settings_round_trip);
     RUN(test_settings_fixed_image);
+    RUN(test_settings_old_names);
     RUN(test_settings_with_notes);
     RUN(test_settings_bus);
     RUN(test_settings_defaults);

@@ -19,8 +19,17 @@ static void setName(char (&to)[NAME], const char* value, size_t len) {
     to[len] = 0;
 }
 
+// A key, matched whole.
+static bool is(const char* line, size_t key, const char* name) {
+    return std::strlen(name) == key && std::strncmp(line, name, key) == 0;
+}
+
 Settings parse(const char* text, size_t len) {
     Settings s;
+    // The names before 0.20.0 (image, image2, last, last2): read when the
+    // new name isn't there, and written back under the new one.
+    char old_image[bus::MAX_DRIVES][NAME] = {};
+    char old_last[bus::MAX_DRIVES][NAME] = {};
     size_t at = 0;
     while (at < len) {
         size_t end = at;
@@ -34,11 +43,15 @@ Settings parse(const char* text, size_t len) {
             size_t key = size_t(eq - line);
             const char* value = eq + 1;
             size_t vlen = n - key - 1;
-            if (key == 5 && std::strncmp(line, "image", 5) == 0) setName(s.image[0], value, vlen);
-            if (key == 6 && std::strncmp(line, "image2", 6) == 0) setName(s.image[1], value, vlen);
-            if (key == 4 && std::strncmp(line, "last", 4) == 0) setName(s.last[0], value, vlen);
-            if (key == 5 && std::strncmp(line, "last2", 5) == 0) setName(s.last[1], value, vlen);
-            if (key == 4 && std::strncmp(line, "pack", 4) == 0) setName(s.pack, value, vlen);
+            if (is(line, key, "device0")) setName(s.image[0], value, vlen);
+            if (is(line, key, "device1")) setName(s.image[1], value, vlen);
+            if (is(line, key, "last0")) setName(s.last[0], value, vlen);
+            if (is(line, key, "last1")) setName(s.last[1], value, vlen);
+            if (is(line, key, "image")) setName(old_image[0], value, vlen);
+            if (is(line, key, "image2")) setName(old_image[1], value, vlen);
+            if (is(line, key, "last")) setName(old_last[0], value, vlen);
+            if (is(line, key, "last2")) setName(old_last[1], value, vlen);
+            if (is(line, key, "pack")) setName(s.pack, value, vlen);
             // The bus: a word each, so a copy that ends at the line's end.
             char word[12] = "";
             if (vlen < sizeof word) {
@@ -64,20 +77,24 @@ Settings parse(const char* text, size_t len) {
         }
         at = end + 1;
     }
+    for (unsigned i = 0; i < bus::MAX_DRIVES; ++i) {
+        if (!s.image[i][0]) std::memcpy(s.image[i], old_image[i], NAME);
+        if (!s.last[i][0]) std::memcpy(s.last[i], old_last[i], NAME);
+    }
     s.bus = bus::normalised(s.bus);
     return s;
 }
 
 size_t format(const Settings& s, char* out, size_t cap) {
-    // `image` lines only where they're set (by hand); last2 only for a
+    // `device` lines only where they're set (by hand); last1 only for a
     // second drive; pin02 only when it's set. A simple file stays simple.
-    char fixed[bus::MAX_DRIVES][NAME + 8] = {};
+    char fixed[bus::MAX_DRIVES][NAME + 12] = {};
     for (unsigned i = 0; i < bus::MAX_DRIVES; ++i)
-        if (s.image[i][0]) std::snprintf(fixed[i], sizeof fixed[i], "image%s=%s\n", i ? "2" : "", s.image[i]);
+        if (s.image[i][0]) std::snprintf(fixed[i], sizeof fixed[i], "device%u=%s\n", i, s.image[i]);
     char second[NAME + 8] = "";
-    if (s.bus.drives() > 1) std::snprintf(second, sizeof second, "last2=%s\n", s.last[1]);
+    if (s.bus.drives() > 1) std::snprintf(second, sizeof second, "last1=%s\n", s.last[1]);
     char units[12];
-    int n = std::snprintf(out, cap, "%s%slast=%s\n%spack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n%s",
+    int n = std::snprintf(out, cap, "%s%slast0=%s\n%spack=%s\nvolume=%d\ninterface=%s\ncable=%s\ndrive=%s\n%s",
                           fixed[0], fixed[1], s.last[0], second, s.pack, s.volume,
                           bus::interfaceName(s.bus.interface), bus::cableName(s.bus.cable),
                           bus::unitsName(s.bus, units), s.bus.pin2_chng ? "pin02=chg\n" : "");

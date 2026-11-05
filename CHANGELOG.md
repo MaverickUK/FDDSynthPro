@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-05
+
+### Changed
+- **Settings name each drive's disk as HDDSynthPro does:** `device0` and `device1` in `/FDDSYNTH.CFG` are the disks to start with (were `image` and `image2`), and `last0` and `last1` the disks that were in (were `last` and `last2`). Drives count from 0, as HDDSynthPro's devices and Shugart's DS0 do: device 0 is the first drive `drive` names. The old names still work, and the drive writes them under the new names when it next saves; if a file has both, the new name counts. The welcome disk's sample `FDDSYNTH.CFG` and README use the new names.
+
 ## [0.19.0] - 2026-11-04
 
 First run on the carrier board (with a plain BB48: no PSRAM or card), against the Feather host: slices 0 and 1 pass, and slice 2 reads the generated disk byte for byte.

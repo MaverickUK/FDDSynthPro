@@ -7,9 +7,14 @@
 // The file is /FDDSYNTH.CFG on the card, plain text, one setting a line
 // (docs/config.md):
 //
-//   image=GAMES.IMG      (if set: the disk at every power-on; else last's)
-//   last=MONKEY1.IMG     the disk that was in (the firmware keeps this one)
-//   last2=WORK.IMG       (the second drive's, with drive=a,b; image2 likewise)
+//   device0=GAMES.IMG    (if set: the disk at every power-on; else last0's)
+//   last0=MONKEY1.IMG    the disk that was in (the firmware keeps this one)
+//   last1=WORK.IMG       (the second drive's, with drive=a,b; device1 likewise)
+//
+// Drives count from 0, as HDDSynthPro's device0/device1 and Shugart's DS0:
+// device0 is the first drive `drive` names. Before 0.20.0 the keys were
+// image, image2, last and last2; they're still read, and written back under
+// the new names.
 //   pack=Recorded
 //   volume=75
 //   interface=ibmpc
@@ -36,8 +41,9 @@ constexpr size_t NAME = 64;  // as ImageList::NAME
 constexpr size_t FILE_MAX = 4096;
 
 struct Settings {
-    // Each drive's disk at power-on, if set: by hand only, never by the
-    // firmware. "": the last one (`last`), else the card's first.
+    // Each drive's disk at power-on (`device0`, `device1`), if set: by hand
+    // only, never by the firmware. "": the last one (`last0`, `last1`),
+    // else the card's first.
     char image[bus::MAX_DRIVES][NAME] = {};
     char last[bus::MAX_DRIVES][NAME] = {};  // each drive's disk when it was last in use
     char pack[NAME] = "";   // "": the first folder under /samples

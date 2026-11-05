@@ -103,7 +103,7 @@ TEST(test_welcome_disk_through_dos) {
 
 TEST(test_welcome_sample_settings) {
     // The sample FDDSYNTH.CFG reads as the defaults it describes, and its
-    // commented-out lines (#image=...) are only notes.
+    // commented-out lines (#device0=...) are only notes.
     const welcome_disk::File* cfg = nullptr;
     for (const auto& f : FILES)
         if (std::string(f.name) == "FDDSYNTH.CFG") cfg = &f;

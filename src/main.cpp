@@ -530,8 +530,8 @@ static void publishDisk(unsigned i, const ibm::Format& fmt, bool writable) {
     s.writable.store(writable);
 }
 
-// Drive `i`'s disk at power-on: the one the settings name (`image`), else
-// the one that was in (`last`), else the card's i-th (so two drives start
+// Drive `i`'s disk at power-on: the one the settings name (`device<i>`),
+// else the one that was in (`last<i>`), else the card's i-th (so two drives start
 // with different disks), else the welcome disk.
 static void chooseDisk(unsigned i) {
     DriveState& s = g_drv[i];
@@ -549,7 +549,7 @@ static void chooseDisk(unsigned i) {
     if (g_settings.image[i][0]) {
         index = images.find(g_settings.image[i]);
         if (index >= images.count())
-            Serial.printf("# %s, the settings' image%s, isn't on the card\n", g_settings.image[i], i ? "2" : "");
+            Serial.printf("# %s, the settings' device%u, isn't on the card\n", g_settings.image[i], i);
     }
     if (index >= images.count()) index = images.find(g_settings.last[i]);
     if (g_card && index >= images.count()) index = images.count() ? i % images.count() : 0;
@@ -1022,7 +1022,7 @@ static void serviceSettings() {
     settings::Settings now;
     for (unsigned i = 0; i < g_drive_count; ++i) {
         // A built-in disk isn't remembered: the card's image comes back.
-        // `image` is the user's: kept as it is.
+        // `device<i>` is the user's: kept as it is.
         std::strncpy(now.image[i], g_settings.image[i], settings::NAME - 1);
         if (g_drv[i].from_card && !g_drv[i].no_disk)
             std::strncpy(now.last[i], sd_image::name(i), settings::NAME - 1);
