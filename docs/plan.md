@@ -1,10 +1,26 @@
 # Pico Floppy Drive Emulator: Prototype Plan
 
-22 Oct 2026, Peter Bridger. Status updated 29 Oct 2026 (firmware 0.17.0).
+22 Oct 2026, Peter Bridger. Status updated 5 Nov 2026 (firmware 0.19.0).
 
 ## Where it stands
 
-Every slice below is built and passes its tests on the Mac, against virtual hosts (a Greaseweazle, the Feather, a PC's BIOS and controller, an Amiga) and Greaseweazle's own encoder and decoder. **None of it has run on hardware yet:** each slice's exit test waits for the rev B carrier board ([hardware/README.md](../hardware/README.md)), ordered from JLCPCB, and slice 6 for a real PC. The bring-up steps are in [bringup.md](bringup.md).
+Every slice below is built and passes its tests on the Mac, against virtual hosts (a Greaseweazle, the Feather, a PC's BIOS and controller, an Amiga) and Greaseweazle's own encoder and decoder.
+
+**On hardware (4 Nov 2026):** the rev B carrier ([hardware/README.md](../hardware/README.md)) is on the rig with the Feather host, but with a plain BB48 fitted, not a BB48R: no PSRAM and no microSD. On it, slices 0, 1, 2 and 4 pass their exit tests. Slice 2 needed the track encoder made faster (0.19): a cylinder now loads in 11.6 ms at worst, inside the host's 15 ms settle time. The bring-up steps are in [bringup.md](bringup.md).
+
+| Slice | Mac | Rig |
+|---|---|---|
+| 0 Listen only | ✅ | ✅ |
+| 1 Head, index, status | ✅ | ✅ (pins 28 and 34 skipped: the Feather reads only pin 26) |
+| 2 Generated disk | ✅ | ✅ |
+| 3 Images on SD | ✅ | waits for a BB48R |
+| 4 Sound events | ✅ | ✅ |
+| 5 Write | ✅ | waits for a BB48R |
+| 6 Real PC | ✅ (virtual PC) | waits for a PC |
+
+**Next:**
+1. A second carrier with a BB48R: the solder-bridge test, slices 0 and 1 again, then slices 3 and 5. Then what only hardware can show: image swaps, two drives (the RDATA switch), an HFE image, audio through the I2S amp with packs from the card, and the front panel (`draw_us_max` under 6.75 ms).
+2. Meanwhile, on the plain BB48: a real PC reading the welcome disk (J7 closed for 1 kΩ, a cable with the twist; DOS `DIR` and `TYPE`; read-only without PSRAM). A real drive and a logic analyser on the Feather to answer the open timing questions, and a look at RDATA's edges.
 
 The prototype has also gone well past its first scope:
 
@@ -141,28 +157,28 @@ Arduino-Pico (earlephilhower core, on the Pico SDK) under PlatformIO, as in HDDS
 
 Each slice ends in a passing automated test before the next starts. Each one also lists what can be built and tested on the Mac **before** the hardware is wired, which is most of the work.
 
-- **Slice 0: listen only.**
+- **Slice 0: listen only.** *Done; passes on the rig (Nov 2026).*
   - Every pin is an input; the SN7407's outputs stay released. Core 1 polls the inputs and records select, motor, side, density and write gate changes, and every step.
   - *Before hardware:* the pin watcher, trace format and coalescer (done, in `test/native`); the trace parser (done, `-m sim`).
   - **Exit:** clean, repeatable traces of `gw seek` and `gw rpm`, saved with `--save-reference`, and the pins each drive letter uses.
-- **Slice 1: head, index and status lines.** *Logic and firmware done (0.2.0), tested against a virtual Greaseweazle; waiting for hardware.*
+- **Slice 1: head, index and status lines.** *Done (0.2.0); passes on the rig with the Feather (Nov 2026).*
   - Answer on one select/motor pair. Track the cylinder (0–83), assert TRK00 on cylinder 0, ignore steps outwards past 0 (but record them: that's the head hitting its stop). Index pulses every 200 ms while selected with the motor on. WPT asserted (read-only for now). DSKCHG as a PC expects: asserted at power-on, cleared by a step with a disk present.
   - *Before hardware:* `head` and `rotation` host tests, including a virtual host that recalibrates the way the slice 0 trace shows.
   - **Exit:** `gw seek` to every cylinder and back, 20 times, with the trace agreeing on the position; `gw rpm` reports 300 RPM.
-- **Slice 2: read a generated disk.** *Done in firmware (0.3.0) and in the simulator; waiting for hardware.*
+- **Slice 2: read a generated disk.** *Done (0.3.0); passes on the rig since 0.19.0's faster encoder.*
   - Build each track's MFM stream from a generated 1.44 MB disk and stream it with PIO on RDATA, aligned to the index pulse.
   - Both heads are interleaved in one stream and chosen per cell by the PIO program, so a head switch needs nothing from the CPU. Rebuild the cylinder on a step.
   - *Before hardware:* the track encoder checked byte for byte against `gw convert` output and decoded by `gw convert`; the PIO program in `pio_sim.py`, decoded by a Python model of a floppy controller's data separator.
   - **Exit:** `gw read --format ibm.1440` gives the generated image byte for byte, ten times; random single-track reads too.
-- **Slice 3: images on SD.** *Done in firmware (0.4.0) and in host tests; waiting for hardware.*
+- **Slice 3: images on SD.** *Done in firmware (0.4.0) and in host tests; waiting for a BB48R.*
   - IMG/IMA files, geometry from size (720 KB and 1.44 MB to start), one cylinder cached, loaded on each step within the settle time. 720 KB brings the 250 kbit/s rate.
   - *Before hardware:* geometry and cache tests with a fake SD, including how long a load may take.
   - **Exit:** real images (a DOS boot disk, a full data disk) read byte for byte; seek-heavy reads at the host's fastest step rate.
-- **Slice 4: activity events for the sounds.** *Done in firmware (0.5.0) and host tests; waiting for hardware. See [activity.md](activity.md).*
+- **Slice 4: activity events for the sounds.** *Done (0.5.0); passes on the rig (Nov 2026). See [activity.md](activity.md).*
   - Motor spin-up and spin-down, single steps, seeks (with distance), recalibration and the track 0 stop, reading versus idle, disk insert and eject. Printed as `ACT` lines, like HDDSynthPro.
   - *Before hardware:* the classifier, on recorded slice 0–3 traces.
   - **Exit:** scripted `gw` sessions produce the expected event sequence every time.
-- **Slice 5: write.** *Done in firmware (0.6.0) and host tests; waiting for hardware.*
+- **Slice 5: write.** *Done in firmware (0.6.0) and host tests; waiting for a BB48R.*
   - WGATE and WDATA captured by PIO, decoded from MFM, written back to the image on SD when the head moves or the motor stops. WPT follows a per-image setting.
   - *Before hardware:* the decoder against flux from `gw convert`; the capture program in `pio_sim.py`.
   - **Exit:** `gw write` then `gw read`, 100 images, zero mismatches; the image survives a power cycle.
@@ -207,10 +223,10 @@ Each slice ends in a passing automated test before the next starts. Each one als
 - A step holds STEP asserted for 13 ms, then waits 13 ms; a seek of 80 cylinders takes about 2 s.
 - Every seek to cylinder 0, and the first seek of all, looks for track 0: up to 100 steps out, checking TRK00 first, then up to 20 in. Seeks stop at 79.
 - Motor on waits 1 s, then up to 1 s for an index pulse.
-- `gw pin get` reads pins 26 and 28, not 34. Flux reads and writes are both supported on the Feather RP2040.
+- `gw pin get` reads pins 26 and 28, not 34, by the source. On the rig only pin 26 answers; any other gets "bad pin". Flux reads and writes are both supported on the Feather RP2040.
 
 **Open questions:**
 - How long is a real drive's index pulse, and how soon after a step does it update TRK00? The reference drive and the logic analyser answer these before slice 1.
 - Does any of our hosts look at DSKCHG (pin 34)? The Feather can't read it, so DSKCHG waits for a Greaseweazle or the real-PC tests in slice 6.
-- Does `gw rpm` work with the Feather's firmware?
+- ~~Does `gw rpm` work with the Feather's firmware?~~ Yes, though it reads 298.3-298.7 RPM: the Feather's clock runs 0.4-0.6% fast against the 24 MHz it reports (the BB48's is within 29 ppm of the Mac's).
 - Does the BB48 in the rig have the A2 or A4 stepping?
