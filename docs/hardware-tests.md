@@ -24,6 +24,7 @@ Copies of all of them are in `~/fdd-images`, to check against afterwards and to 
    ```
 3. **Power order:** the BB48R on USB first, then the computer. Off: the computer first, then unplug the BB48R. Its inputs are only 5 V tolerant while it's powered.
 4. **At the end of each session**, type `s` and keep the line. `write_faults`, `capture_overruns`, `write_bad_crc` and `audio_underruns` should all be 0; `decode_kbps` well above 370.
+5. **Then check the log:** `scripts/check_log.py host/runs/realhw-....log` lists anything that needs a look (the board restarting on its own, lost writes, steps past either end of the disk, non-zero fault counters) and summarises the session: the lines the computer selected with, its step rate, its writes and disk changes.
 
 ## A PC
 
