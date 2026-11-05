@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.5] - 2026-11-05
+
+### Changed
+- **The audio queue is twice as long: 16 blocks, 93 ms** (`cfg::AUDIO_BUFFERS`). In the soak the card now and then held a single write or sync for 50-60 ms, which can't be split, and the 46 ms queue ran dry. It costs 4 KB of RAM, and a sound may come up to 93 ms after its event.
+
 ## [0.23.4] - 2026-11-05
 
 ### Fixed

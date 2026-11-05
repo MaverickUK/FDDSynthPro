@@ -391,7 +391,7 @@ TEST(test_pc_panel_keeps_up) {
     CHECK(m.frames > 0);
     CHECK(m.slowest_ready_us > 0);
     CHECK(m.slowest_ready_us <= VirtualPc::SETTLE_US);
-    CHECK(m.longest_step_us < AUDIO_QUEUE_US / 4);  // 46 ms of audio queued
+    CHECK(m.longest_step_us < AUDIO_QUEUE_US / 8);  // 93 ms of audio queued
     std::printf("    slowest cylinder ready %.1f ms after the last step (settle %.0f ms)\n", m.slowest_ready_us / 1000.0,
                 VirtualPc::SETTLE_US / 1000.0);
 }

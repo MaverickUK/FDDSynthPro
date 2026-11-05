@@ -734,7 +734,7 @@ static void insertCached(unsigned drive) {
     s.loader->reset();
     s.loader->request(sh.cylinder.load(std::memory_order_relaxed));
     // The audio between the steps: an HFE head takes about 27 ms, so a
-    // cylinder's two outlast the 46 ms queue.
+    // cylinder's two would outlast a 46 ms queue.
     while (s.loader->service() != CylinderLoader::Step::Idle) audio::service();
     publishDisk(drive, s.cache->format(), s.cache->writable());
     sh.swap.store(SWAP_INSERT, std::memory_order_release);

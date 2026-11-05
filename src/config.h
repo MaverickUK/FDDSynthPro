@@ -124,11 +124,13 @@ constexpr size_t SAMPLE_POOL_MAX_BYTES = 160 * 1024;
 constexpr size_t CAPTURE_RING_BYTES = 16 * 1024;
 constexpr size_t WAV_HEADER_BYTES = 4096;  // a WAV's data must start within this (HDDSynth_Native's rule)
 
-// Mixing on core 0: blocks of 128 frames (5.8 ms at 22.05 kHz), 8 of them
-// queued (46 ms). That covers core 0's longest stall between top-ups: an SD
-// track read or a track encode, a few milliseconds each.
+// Mixing on core 0: blocks of 128 frames (5.8 ms at 22.05 kHz), 16 of them
+// queued (93 ms). That covers core 0's longest stall between top-ups: an HFE
+// head's load (27 ms), and the card, which now and then holds a single write
+// or sync for 50-60 ms (seen in the soak; 8 blocks, 46 ms, ran dry). The cost
+// is 4 KB of RAM and up to 93 ms between an event and its sound.
 constexpr size_t AUDIO_BLOCK_FRAMES = 128;
-constexpr size_t AUDIO_BUFFERS = 8;
+constexpr size_t AUDIO_BUFFERS = 16;
 
 constexpr unsigned FIRST_INPUT_PIN = PIN_DENSEL;
 constexpr unsigned LAST_INPUT_PIN = PIN_SIDE1;
