@@ -47,6 +47,10 @@ public:
         ++writes;
         return true;
     }
+    bool flush() override {
+        ++flushes;
+        return !flush_fails;
+    }
     bool writable() const override { return writable_; }
     const uint8_t* sector(uint8_t c, uint8_t h, uint8_t s) const {
         return &image_[fmt_.trackOffset(c, h) + s * fmt_.track(c, h).sectorBytes()];
@@ -55,6 +59,8 @@ public:
     unsigned writes = 0;
     bool writable_ = true;
     bool failing = false;  // the card refuses every write (an error, or pulled out)
+    bool flush_fails = false;  // it takes the writes, then fails to keep them
+    unsigned flushes = 0;
 
 private:
     ibm::Format fmt_;

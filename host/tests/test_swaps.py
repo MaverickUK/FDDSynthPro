@@ -17,8 +17,8 @@ from fddproto import trace
 
 pytestmark = pytest.mark.slice6
 
-FORMATS = {1474560: "ibm.1440", 737280: "ibm.720"}
-SWAP_S = 2.0  # half a second out, then a load
+FORMATS = {1474560: "ibm.1440", 737280: "ibm.720", 901120: "amiga.amigados"}
+SWAP_TIMEOUT_S = 10.0  # half a second out, then a load: up to 2 s for a 4 MB HFE
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +48,9 @@ def folder(drive) -> Path:
 def swap(drive, key: str) -> dict[str, str]:
     mark = drive.mark()
     drive.send(key)
-    time.sleep(SWAP_S)
+    # The time a swap takes depends on the image: it's copied into PSRAM first.
+    drive.wait_for(lambda line: " INSERT" in line, since=mark, timeout=SWAP_TIMEOUT_S)
+    time.sleep(0.2)
     t = trace.parse(drive.lines_since(mark))
     assert t.sounds()[-2:] == ["EJECT", "INSERT"], t.sounds()
     return image_line(drive)
@@ -63,8 +65,14 @@ def test_every_image_in_turn(drive, gw, folder, tmp_path):
     for _ in range(count):
         info = swap(drive, "]")
         seen.append(info["name"])
-        data = (folder / info["name"]).read_bytes()
-        out = tmp_path / f"{info['name']}.read"
+        local = folder / info["name"]
+        if local.suffix.upper() == ".HFE":
+            # A flux image: compare with the sector image it was made from.
+            local = local.with_suffix(".IMG")
+            if not local.exists():
+                continue
+        data = local.read_bytes()
+        out = tmp_path / f"read_{local.stem}.img"  # gw goes by the suffix
         r = gw.read(out, fmt=FORMATS[len(data)], tracks="c=0-2:h=0-1")
         assert r.ok, r.output
         n = 3 * 2 * (len(data) // (80 * 2))

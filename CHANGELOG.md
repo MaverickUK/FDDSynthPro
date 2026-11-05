@@ -4,6 +4,20 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-05
+
+First run on a BB48R (PSRAM and microSD) on the carrier, against the Feather host: the solder-bridge test and slices 0 to 5 pass, image swaps go round all six test images, and an HFE image reads back byte for byte.
+
+### Fixed
+- **Writes kept up with the capture only on the Mac:** on the board the decoder managed 200 KB/s against an HD write's 370, so every HD write overran and was abandoned (a write fault). It now runs at 1,700 KB/s: `BurstWriter::feed` is in RAM with the data separator and field scanner inlined, the scanner takes a whole flux interval at a time (`FieldScanner::addInterval`; an MFM sync ends in a 1, so one check an interval finds every one), and a word decodes without a loop. Amiga writes take whole intervals too (`amiga::SectorScanner::addInterval`), as do HFE writes; FM still goes cell by cell (its marks can end in a 0).
+- **A whole-track write held core 0 for 74 ms:** each sector was synced to the card on its own. Sectors are now synced once a burst (`TrackSource::flush`), still before the live track shows them; a failed sync is a lost write.
+- **An HD HFE image took 24 s to load** (and the drive seemed hung while it did): each cell was stored with a read-modify-write of uncached PSRAM, and the file was read a half-block at a time. Whole bytes are stored at once and 16 blocks read at a time: 5.8 s.
+- During a write, core 0 prints at most 4 trace lines a pass, so a flood of them (noise on undriven select lines while WDATA toggles, seen on the Feather rig) can't take the time the decoder needs.
+
+### Added
+- `host/tests/test_amiga_rig.py` (`-m amiga`): the Amiga mode on the rig, with the Feather as DF1's host (`interface=amiga`, `drive=df1`): the index, a whole ADF read back, and whole-track writes.
+- Console `s`: `decode_kbps`, `decode_bytes`, `finish_us_max` (the slowest end of a burst, writing to the card included) and `burst_gap_us_max` (the longest gap between core 0's passes during a write); `z` zeroes them.
+
 ## [0.20.0] - 2026-11-05
 
 ### Changed

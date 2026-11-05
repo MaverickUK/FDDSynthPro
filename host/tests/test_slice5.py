@@ -34,8 +34,12 @@ def stats(drive) -> dict[str, str]:
 
 
 @pytest.fixture
-def image(drive):
+def image(drive, gw):
     """(name, original bytes, format, sectors per track) of a writable image."""
+    # The Feather keeps its idea of the head's cylinder across commands, but
+    # a flash puts the drive's head back at 0; its seek to 0 finds track 0
+    # again. Otherwise the first write lands on the wrong cylinder.
+    assert gw.seek(0).ok
     line = drive.command("i", "IMAGE")
     parts = line.split()
     if parts[1] in ("welcome", "generated"):

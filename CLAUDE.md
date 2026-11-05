@@ -104,9 +104,10 @@ The capture streams through a 16 KB ring (`cfg::CAPTURE_RING_BYTES`). An endless
 
 `BurstWriter` (`begin`/`feed`/`finish`, or `apply` for a whole burst) runs the intervals through `mfm::DataSeparator`, `mfm::FieldScanner` and `track_write::interpret`. It then patches each sector into the loader's track (`CylinderLoader::writeSector` re-encodes that head in place; unchanged cells are rewritten with the same values, so RDATA stays valid) and writes it through to the `TrackSource`.
 - `fdd_wdata.pio` doesn't count `EDGE_TICKS` (2) at each edge; the reader adds them back. Its 8-bit counts wrap after about 16 cells, which only the first interval can reach.
+- **The decoder must keep up with the capture:** an HD write is about 370 KB/s of intervals, against a 16 KB ring. `BurstWriter::feed` runs from RAM with the separator and scanner inlined, a whole interval at a time (`FieldScanner::addInterval`, `amiga::SectorScanner::addInterval`; FM goes cell by cell), at about 1,700 KB/s on the board; from flash, cell by cell, it managed 200 and every HD write overran. `s` reports `decode_kbps`; keep it well above 370. `test_interval_path_matches_cells` holds the fast path to the per-cell one.
 - The data separator uses Greaseweazle's gains (60% phase, 5% period). Lower gains take more jitter but follow speed errors worse; `test/native/test_write_decode.cpp` measures both.
 - **In flux generators, round each edge's absolute time to a tick, not each interval:** per-interval rounding adds up to a random walk that looks like a decoder fault.
-- **Card first, then the live track:** `BurstWriter::finish` writes each sector to the `TrackSource` and patches the loader only if that worked, so a read-back after a card failure shows the old data.
+- **Card first, then the live track:** `BurstWriter::finish` writes each sector to the `TrackSource`, syncs once (`TrackSource::flush`: a sync per sector took a track write 74 ms), and patches the loader only with sectors written and synced, so a read-back after a card failure shows the old data.
 - **Lost writes** (`lostWrite`: a sector the card refused, or an overrun) set `g_write_fault`. Core 1 then asserts write-protect until the next insert (console `d`, or a swap), so the host's next write fails visibly. A floppy can't report a failed write any other way.
 - `WDATA` and `RDATA` programs both live in PIO 2 or 1 (`pio_get_gpio_base == 0`), never PIO 0.
 
@@ -167,7 +168,7 @@ The Python parser is `host/fddproto/trace.py`; change both together.
 Console:
 - `h`: help, and the READY line with version and build;
 - `p`: input pin levels (wiring check);
-- `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
+- `s`: stats; on the drive build also `cyl`, `side`, `selected`, `disk`, the knock counts, the write path's (`decode_kbps`, `finish_us_max`, `burst_gap_us_max`) and the panel's (`oled`, `frames`, `draw_us_max`, `oled_aborts`, `volume`);
 - `d`: eject or insert the disk (drive build);
 - `g`: swap in the generated test disk, or back (drive build);
 - `t`: time a loader step in its parts (`BENCH`: read, build, interleave; drive build);

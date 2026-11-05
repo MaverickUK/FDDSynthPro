@@ -101,13 +101,22 @@ private:
     amiga::SectorScanner amiga_;  // or AmigaDOS sectors, for an Amiga disk; the store is shared
     bool amiga_disk_ = false;
     // A flux image's write: the cells themselves, spliced into the track.
-    void rawCell(bool one);
+    // An interval's cells (n - 1 zeros, then a 1) onto the burst's words.
+    ALWAYS_INLINE void rawInterval(unsigned n) {
+        raw_word_ = raw_word_ << n | 1u;
+        raw_bits_ += n;
+        if (raw_bits_ < 16) return;
+        raw_bits_ -= 16;
+        uint16_t* words = reinterpret_cast<uint16_t*>(store_);
+        if (raw_words_ < store_len_ / 2) words[raw_words_] = uint16_t(raw_word_ >> raw_bits_);
+        ++raw_words_;
+    }
     BurstResult finishRaw(const ibm::Format& fmt);
     bool raw_disk_ = false;
     size_t store_len_ = 0;
     uint32_t raw_words_ = 0;
     unsigned raw_bits_ = 0;
-    uint16_t raw_word_ = 0;
+    uint32_t raw_word_ = 0;  // the last cells; the low raw_bits_ not yet stored
     uint8_t* store_;
     mfm::DataSeparator separator_{16};
     WriteBurst burst_{};
@@ -158,6 +167,8 @@ public:
     // The drive the current (or last) burst was written to.
     uint8_t burstDrive() const { return burst_drive_; }
     uint32_t overruns() const { return overruns_; }
+    // How far into the stream core 0 has read: the bytes fed, for timing.
+    uint32_t consumed() const { return consumed_; }
 
 private:
     const uint8_t* ring_;

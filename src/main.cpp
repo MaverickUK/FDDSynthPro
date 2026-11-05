@@ -474,6 +474,14 @@ static uint32_t g_sectors_written = 0;  // console `s`
 static uint32_t g_write_bad_crc = 0;
 static uint32_t g_write_unplaced = 0;
 static uint32_t g_write_us_max = 0;  // the longest chunk of decoding
+// Decoding's speed against the capture's: time and bytes in calls that fed
+// bytes without finishing a burst; the longest finish (decoding's tail plus
+// writing to the card); the longest gap between core 0's passes while a
+// burst was being captured (anything else core 0 does then).
+static uint64_t g_decode_us_sum = 0;
+static uint64_t g_decode_bytes = 0;
+static uint32_t g_finish_us_max = 0;
+static uint32_t g_burst_gap_us_max = 0;
 static uint32_t g_write_faults = 0;
 
 // The FDD Synth: a sample pack from the card, in RAM, played by the mixer.
@@ -751,10 +759,21 @@ static void serviceSwap(unsigned drive) {
 constexpr size_t WRITE_CHUNK_BYTES = 2048;
 
 static void serviceWrites() {
+    static uint32_t last_pass = 0;
     uint32_t started = time_us_32();
+    if (g_capture->inBurst() && last_pass && started - last_pass > g_burst_gap_us_max)
+        g_burst_gap_us_max = started - last_pass;
+    last_pass = started;
+    uint32_t before = g_capture->consumed();
     BurstResult r;
     auto next_mark = [](CaptureStream::Mark& m) { return g_capture_marks.pop(m); };
-    if (g_capture->service(g_capture_produced.load(std::memory_order_acquire), WRITE_CHUNK_BYTES, next_mark, r)) {
+    bool finished = g_capture->service(g_capture_produced.load(std::memory_order_acquire), WRITE_CHUNK_BYTES, next_mark, r);
+    if (!finished && g_capture->inBurst() && g_capture->consumed() != before) {
+        g_decode_us_sum += time_us_32() - started;
+        g_decode_bytes += g_capture->consumed() - before;
+    }
+    if (finished && !r.overrun && time_us_32() - started > g_finish_us_max) g_finish_us_max = time_us_32() - started;
+    if (finished) {
         g_sectors_written += r.persisted;
         g_write_bad_crc += r.decoded.bad_crc;
         g_write_unplaced += r.decoded.unplaced;
@@ -797,6 +816,9 @@ static void zeroTimings() {
     g_read_us_max = g_encode_us_max = 0;
     g_read_us_sum = g_encode_us_sum = 0;
     g_reads = g_encodes = 0;
+    g_decode_us_sum = g_decode_bytes = 0;
+    g_finish_us_max = g_burst_gap_us_max = 0;
+    g_write_us_max = 0;
     Serial.println("# timings zeroed");
 }
 
@@ -1107,6 +1129,10 @@ static void printStats() {
                   (unsigned long)g_sectors_written, (unsigned long)g_write_bad_crc,
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
                   (unsigned long)g_capture->overruns(), (unsigned long)g_write_faults, (unsigned long)g_write_us_max);
+    Serial.printf(" decode_kbps=%lu decode_bytes=%llu finish_us_max=%lu burst_gap_us_max=%lu",
+                  (unsigned long)(g_decode_us_sum ? g_decode_bytes * 1000 / g_decode_us_sum : 0),
+                  (unsigned long long)g_decode_bytes, (unsigned long)g_finish_us_max,
+                  (unsigned long)g_burst_gap_us_max);
     Serial.printf(" pack=%s audio_underruns=%lu voices_stolen=%lu", g_pack_ok ? packName() : "none",
                   (unsigned long)audio::underruns(), (unsigned long)g_mixer.voicesStolen());
     Serial.printf(" clicks=%lu seeks=%lu bumps=%lu act_dropped=%lu", (unsigned long)g_activity.clicks(),
@@ -1264,8 +1290,17 @@ void loop() {
         if (!printLine(line, n)) return;
         has_pending = false;
     }
+    // During a write, only a few lines a pass: the capture must be decoded
+    // at the rate it arrives (16 KB is 46 ms of HD), and printing a flood of
+    // trace lines (noise on undriven lines while WDATA toggles, seen on the
+    // Feather rig) took long enough to overrun it. A trace line can wait or
+    // be dropped; a write can't.
+    int batch = 64;
+#if FIRMWARE_SLICE != 0
+    if (g_capture->inBurst()) batch = 4;
+#endif
     TraceEvent e;
-    for (int i = 0; i < 64 && g_trace.pop(e); ++i) {
+    for (int i = 0; i < batch && g_trace.pop(e); ++i) {
         g_last_event_ms = millis();
         if (g_coalescer.add(e, pending)) {
             char line[160];

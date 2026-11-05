@@ -69,13 +69,14 @@ public:
         uint32_t n = fmt.trackDataBytes(cylinder, head);
         return file.seekSet(fmt.trackOffset(cylinder, head)) && file.read(out, n) == int(n);
     }
-    // Written through at once, and synced: the card holds every sector the
-    // host has been told is written, even if the power goes.
+    // Written through at once, and synced by flush() at the burst's end:
+    // the card holds every sector before the live track shows it.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) override {
         if (flux || !writable_ || !hasTrack(fmt, cylinder, head) || sector >= fmt.track(cylinder, head).sectors) return false;
         uint32_t n = fmt.track(cylinder, head).sectorBytes();
-        return file.seekSet(fmt.trackOffset(cylinder, head) + sector * n) && file.write(data, n) == n && file.sync();
+        return file.seekSet(fmt.trackOffset(cylinder, head) + sector * n) && file.write(data, n) == n;
     }
+    bool flush() override { return file.sync(); }
     // A flux image's write: synced once it's all in.
     bool writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) override {
         return flux && disk.writeTrackBytes(cylinder, head, at, data, n);

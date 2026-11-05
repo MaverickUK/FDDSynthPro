@@ -61,6 +61,8 @@ Odd floppy pins 1–33 are all ground.
 | 13 (6A) | GND (unused gate); GPIO 23 after the rework |
 | 12 (6Y) | not connected; floppy pin 2 after the rework |
 
+Its TTL inputs read the RP2350's 3.3 V as high. Running it from VBUS means it is only powered when the BB48R is.
+
 ### Pin 2 for Shugart and Amiga hosts (a rework)
 
 A PC drives floppy pin 2 (density select), so the carrier only reads it. Shugart and Amiga hosts expect the drive to drive it, with DISK CHANGE (/CHNG): without it, an Amiga never notices a disk swap. The SN7407's sixth gate is spare for it. On the rev B carrier:
@@ -70,13 +72,10 @@ A PC drives floppy pin 2 (density select), so the carrier only reads it. Shugart
 3. Set `pin02=chg` in `/FDDSYNTH.CFG` ([config.md](config.md)), with `interface=shugart` or `interface=amiga`.
 
 Pin 2 then works both ways: the SN7407 releases it unless the disk has changed, and the drive still reads it on GPIO 12. With `interface=ibmpc` the firmware never drives it, whatever `pin02` says. Without the rework, GPIO 23 goes nowhere, so the setting does nothing.
-| 12 (6Y) | Not connected |
-
-Its TTL inputs read the RP2350's 3.3 V as high. Running it from VBUS means it is only powered when the BB48R is.
 
 ### The SD card
 
-The card goes in the BB48R's own microSD slot: nothing to wire. Only DAT0 and DAT3 of the slot are connected, so the firmware runs it in SPI mode on SPI1, at 37.5 MHz (`cfg::SD_SPI_MHZ`). The board has the card's pull-ups.
+The card goes in the BB48R's own microSD slot: nothing to wire. Only DAT0 and DAT3 of the slot are connected, so the firmware runs it in SPI mode on SPI1, at 25 MHz (`cfg::SD_SPI_MHZ`). The board has the card's pull-ups.
 
 | Slot signal | SPI use | GPIO | BB48R pin |
 |---|---|---|---|

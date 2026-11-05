@@ -112,6 +112,101 @@ static bool wholeTrack(const ibm::Format& fmt, uint8_t cyl, uint8_t head, const 
     return true;
 }
 
+// addInterval() must find exactly what addCell() does, cell by cell: on
+// clean tracks, and on corrupted ones, where fields break off mid-interval
+// and the scanner goes back to hunting at every possible offset.
+TEST(test_interval_path_matches_cells) {
+    std::vector<uint8_t> data;
+    uint32_t seed = 11;
+    for (int round = 0; round < 24; ++round) {
+        const ibm::Format& fmt = round % 3 == 2 ? ibm::DD_720 : ibm::HD_1440;
+        std::vector<uint16_t> words = trackCells(fmt, uint8_t(round * 3 % 80), uint8_t(round & 1), data);
+        std::vector<uint32_t> flux = toFlux(words, Timing{1.0, round ? 0.15 : 0.0, 0.0}, uint32_t(round + 1));
+        // From the fourth round on, corrupt it: runs of random intervals.
+        for (int k = 0; round >= 4 && k < round * 20; ++k) {
+            seed = seed * 1103515245u + 12345u;
+            size_t at = (seed >> 8) % flux.size();
+            seed = seed * 1103515245u + 12345u;
+            for (size_t j = at; j < flux.size() && j < at + 1 + (seed >> 28); ++j) {
+                seed = seed * 1103515245u + 12345u;
+                flux[j] = TICKS * (1 + (seed >> 12) % 16);
+            }
+        }
+        Decoded cells, intervals;
+        mfm::DataSeparator a(TICKS), b(TICKS);
+        cells.scanner.reset(512);
+        intervals.scanner.reset(512);
+        for (uint32_t ticks : flux) {
+            unsigned n = a.cells(ticks);
+            for (unsigned i = 1; i < n; ++i) cells.scanner.addCell(false);
+            cells.scanner.addCell(true);
+            intervals.scanner.addInterval(b.cells(ticks));
+        }
+        CHECK_EQ(intervals.scanner.count(), cells.scanner.count());
+        CHECK_EQ(intervals.scanner.overflowed(), cells.scanner.overflowed());
+        bool same = intervals.scanner.count() == cells.scanner.count();
+        for (size_t i = 0; same && i < cells.scanner.count(); ++i) {
+            const mfm::Field& x = cells.scanner.field(i);
+            const mfm::Field& y = intervals.scanner.field(i);
+            same = x.mark == y.mark && x.crc_ok == y.crc_ok && x.cell == y.cell &&
+                   std::memcmp(x.id, y.id, 4) == 0 && x.data_offset == y.data_offset && x.data_len == y.data_len;
+        }
+        CHECK(same);
+        CHECK(cells.store == intervals.store);
+        if (round == 0) CHECK(wholeTrack(fmt, 0, 0, data, intervals));
+    }
+}
+
+// The case the random rounds can't reach: a sync that ends in the same
+// interval as a field. An ID field's last word is 0x2244 and one more cell
+// (a 1) follows, so the last 16 cells are 0x4489 just after the field ends:
+// the start of a second field's syncs. Only an extra hunt after the word
+// finds it; cell by cell, it's found as a matter of course.
+TEST(test_interval_path_sync_right_after_a_field) {
+    std::vector<bool> bits;
+    auto word = [&](uint16_t w) {
+        for (int b = 15; b >= 0; --b) bits.push_back((w >> b) & 1);
+    };
+    auto field = [&](bool first_sync_done) {
+        for (int i = first_sync_done ? 1 : 0; i < 3; ++i) word(mfm::SYNC_A1);
+        word(mfm::encodeByteFast(mfm::MARK_IDAM, true));
+        for (int i = 0; i < 5; ++i) word(0x5555);
+    };
+    word(0x9254);  // something before, so the first sync isn't at cell 0
+    field(false);
+    word(0x2244);  // the first field's last word
+    bits.push_back(true);  // completes 0x4489 with the word's last 15 cells
+    field(true);
+    word(0x2244);
+    word(0x9254);
+    // Intervals: from each 1 to the next (the stream starts just after a 1).
+    std::vector<unsigned> intervals;
+    unsigned n = 0;
+    for (bool b : bits) {
+        ++n;
+        if (b) {
+            intervals.push_back(n);
+            n = 0;
+        }
+    }
+    Decoded cells, fast;
+    cells.scanner.reset(512);
+    fast.scanner.reset(512);
+    for (unsigned k : intervals) {
+        for (unsigned i = 1; i < k; ++i) cells.scanner.addCell(false);
+        cells.scanner.addCell(true);
+        fast.scanner.addInterval(k);
+    }
+    CHECK_EQ(cells.scanner.count(), 2u);
+    CHECK_EQ(fast.scanner.count(), 2u);
+    if (fast.scanner.count() == 2u && cells.scanner.count() == 2u)
+        CHECK_EQ(fast.scanner.field(1).cell, cells.scanner.field(1).cell);
+}
+
+TEST(test_decode_word_fast) {
+    for (uint32_t w = 0; w < 0x10000; ++w) CHECK_EQ(mfm::decodeWordFast(uint16_t(w)), mfm::decodeWord(uint16_t(w)));
+}
+
 // ---- Layout ----------------------------------------------------------------------
 
 TEST(test_field_positions) {
@@ -344,6 +439,7 @@ TEST(test_burst_track_write) {
     BurstResult res = r.writer.apply(WriteBurst{30, 0, 0, bytes.data(), bytes.size()}, 16, 2);
     CHECK_EQ(res.persisted, 18u);
     CHECK_EQ(r.source.writes, 18u);
+    CHECK_EQ(r.source.flushes, 1u);  // one sync for the burst, not one a sector
     bool all = true;
     for (uint8_t s = 0; s < 18; ++s) all = all && r.liveSector(0, s) == std::vector<uint8_t>(&data[s * 512], &data[s * 512] + 512);
     CHECK(all);
@@ -557,6 +653,32 @@ TEST(test_burst_card_refuses) {
     CHECK(r.liveSector(0, 2) == data);
 }
 
+TEST(test_burst_flush_fails) {
+    // The card takes the sector, then fails to keep it (its sync fails):
+    // that's a lost write too, and the live track keeps the old data.
+    WriteRig r;
+    r.load(6);
+    auto before = r.liveSector(0, 2);
+    auto data = pattern(12);
+    auto bytes = captured(toFlux(sectorWriteCells(data.data())), 2);
+    WriteBurst burst{6, 0, ibm::HD_1440.kinds[0].dataFieldStart(2), bytes.data(), bytes.size()};
+    r.source.flush_fails = true;
+    BurstResult res = r.writer.apply(burst, 16, 2);
+    CHECK_EQ(res.decoded.updates, 1u);
+    CHECK_EQ(res.failed, 1u);
+    CHECK_EQ(res.persisted, 0u);
+    CHECK_EQ(res.patched, 0u);
+    CHECK(lostWrite(res));
+    CHECK(r.liveSector(0, 2) == before);
+    // Working again: one flush for the burst, and the live track shows it.
+    r.source.flush_fails = false;
+    r.source.flushes = 0;
+    res = r.writer.apply(burst, 16, 2);
+    CHECK(!lostWrite(res));
+    CHECK_EQ(r.source.flushes, 1u);
+    CHECK(r.liveSector(0, 2) == data);
+}
+
 TEST(test_noise_never_writes) {
     // Random intervals: all over the place, then within MFM's range (2-4
     // cells, so the decoder sees plausible cells). Nothing may be written.
@@ -639,6 +761,9 @@ TEST(test_damaged_writes_store_all_or_nothing) {
 
 void runWriteDecodeTests() {
     RUN(test_field_positions);
+    RUN(test_interval_path_matches_cells);
+    RUN(test_interval_path_sync_right_after_a_field);
+    RUN(test_decode_word_fast);
     RUN(test_exact_flux_reads_back);
     RUN(test_jitter_speed_and_precomp);
     RUN(test_too_much_jitter_fails_the_crc);
@@ -657,6 +782,7 @@ void runWriteDecodeTests() {
     RUN(test_stream_nearly_a_ring_behind_is_an_overrun);
     RUN(test_stream_overrun_writes_nothing);
     RUN(test_burst_card_refuses);
+    RUN(test_burst_flush_fails);
     RUN(test_noise_never_writes);
     RUN(test_noise_after_a_real_sync_never_writes);
     RUN(test_damaged_writes_store_all_or_nothing);

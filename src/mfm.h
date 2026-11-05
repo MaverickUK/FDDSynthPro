@@ -66,6 +66,16 @@ constexpr uint8_t decodeWord(uint16_t cells) {
     return byte;
 }
 
+// The same without a loop, for the write decoder's every byte: gathers the
+// odd cells pairwise into the low byte.
+ALWAYS_INLINE uint8_t decodeWordFast(uint16_t cells) {
+    uint32_t x = cells & 0x5555u;
+    x = (x | x >> 1) & 0x3333u;
+    x = (x | x >> 2) & 0x0F0Fu;
+    x = (x | x >> 4) & 0x00FFu;
+    return uint8_t(x);
+}
+
 // Appends encoded bytes to a buffer of cell words, keeping track of the last
 // data bit. Writes past `capacity` are dropped and counted as an overflow.
 class Encoder {

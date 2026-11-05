@@ -1,27 +1,6 @@
 #include "mfm_decode.h"
 
-#include "crc16.h"
-#include "mfm.h"
-
 namespace mfm {
-
-unsigned DataSeparator::cells(uint32_t interval_ticks) {
-    // Time from the last grid point to this edge.
-    int32_t t = int32_t(interval_ticks << 8) + residual_x256_;
-    int32_t n = (t + cell_x256_ / 2) / cell_x256_;
-    if (n < 1) n = 1;
-    if (n > 16) n = 16;
-    int32_t error = t - n * cell_x256_;  // the edge's distance from its grid point
-    // Period: 5% of the error per cell. Kept within 10% of nominal, so a
-    // burst of noise can't run the clock away.
-    cell_x256_ += error * period_pct_ / (100 * n);
-    int32_t lo = nominal_x256_ * 9 / 10, hi = nominal_x256_ * 11 / 10;
-    if (cell_x256_ < lo) cell_x256_ = lo;
-    if (cell_x256_ > hi) cell_x256_ = hi;
-    // Phase: the grid moves 60% of the way to the edge.
-    residual_x256_ = error * (100 - phase_pct_) / 100;
-    return unsigned(n);
-}
 
 // An FM mark's cells: its data bits with clock C7.
 static constexpr uint16_t fmMark(uint8_t mark) {
@@ -95,43 +74,28 @@ void FieldScanner::addCell(bool one) {
             }
             return;
         }
-        if ((shift_ & 0xFFFF) == SYNC_A1) {
-            state_ = State::Syncs;
-            syncs_ = 1;
-            sync_cell_ = cells_ - 16;
-            word_bits_ = 0;
-        }
+        huntSync();
         return;
     }
 
     // Aligned to whole words from here on.
     if (++word_bits_ < 16) return;
     word_bits_ = 0;
-    uint16_t word = uint16_t(shift_);
+    takeWord(uint16_t(shift_));
+}
 
-    if (state_ == State::Syncs) {
-        if (word == SYNC_A1) {
-            ++syncs_;
-        } else if (syncs_ >= 3) {
-            uint8_t mark = decodeWord(word);
-            if (mark == MARK_IDAM || mark == MARK_DAM || mark == MARK_DDAM)
-                startField(mark);
-            else
-                state_ = State::Hunting;
-        } else {
+void FieldScanner::takeSyncWord(uint16_t word) {
+    if (word == SYNC_A1) {
+        ++syncs_;
+    } else if (syncs_ >= 3) {
+        uint8_t mark = decodeWord(word);
+        if (mark == MARK_IDAM || mark == MARK_DAM || mark == MARK_DDAM)
+            startField(mark);
+        else
             state_ = State::Hunting;
-        }
-        return;
+    } else {
+        state_ = State::Hunting;
     }
-
-    // Body: one more byte of the field.
-    uint8_t byte = decodeWord(word);
-    crc_ = crc16::updateFast(crc_, byte);
-    if (current_.mark == MARK_IDAM)
-        header_[body_pos_] = byte;
-    else if (body_pos_ < current_.data_len)
-        store_[current_.data_offset + body_pos_] = byte;
-    if (++body_pos_ == body_len_) finishField();
 }
 
 }  // namespace mfm

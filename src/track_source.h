@@ -22,11 +22,16 @@ public:
     // drive then sends a blank track.
     virtual bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) = 0;
     // Writes one sector (index from 0) back to the disk. Returns false if it
-    // can't keep it: a read-only image, or the generated disk.
+    // can't keep it: a read-only image, or the generated disk. It may wait
+    // in the disk's own buffers until flush().
     virtual bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) {
         (void)cylinder, (void)head, (void)sector, (void)data;
         return false;
     }
+    // After a burst's writes: everything written is on the disk for good,
+    // even if the power goes. Once a burst, not once a sector: a sync each
+    // sector took a whole-track write 74 ms on the card. False if it failed.
+    virtual bool flush() { return true; }
     virtual bool writable() const { return false; }
     // A flux image's write: `n` bytes of cells at byte `at` of the track's
     // (ibm::ENCODING_RAW). False if it can't keep them.
@@ -53,6 +58,7 @@ public:
     bool writeTrackBytes(uint8_t c, uint8_t h, uint32_t at, const uint8_t* data, uint32_t n) override {
         return disk_->writeTrackBytes(c, h, at, data, n);
     }
+    bool flush() override { return disk_->flush(); }
     bool writable() const override { return disk_->writable(); }
 
 private:

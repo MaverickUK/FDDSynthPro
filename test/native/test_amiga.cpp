@@ -16,6 +16,7 @@
 #include "drive.h"
 #include "image_list.h"
 #include "machine.h"
+#include "mfm.h"
 #include "settings.h"
 #include "virtual_hosts.h"
 
@@ -81,6 +82,91 @@ TEST(test_amiga_track_round_trip) {
     CHECK(scan.count() == amiga::SECTORS);
     CHECK(!scan.sector(0).ok);
     CHECK(scan.sector(1).ok);
+}
+
+// Feeds the same cells to one scanner a cell at a time and to another an
+// interval at a time (the cells before the first 1 are skipped by both).
+struct ScannerPair {
+    std::vector<uint8_t> store_a = std::vector<uint8_t>(16 * 1024), store_b = std::vector<uint8_t>(16 * 1024);
+    amiga::SectorScanner cells{store_a.data(), store_a.size()}, intervals{store_b.data(), store_b.size()};
+    void feed(const std::vector<bool>& bits) {
+        size_t first = 0;
+        while (first < bits.size() && !bits[first]) ++first;
+        unsigned n = 0;
+        for (size_t i = first + 1; i < bits.size(); ++i) {
+            ++n;
+            if (!bits[i]) {
+                if (n == 16) {  // a run too long for one interval: give up on it, both alike
+                    for (unsigned k = 0; k < n; ++k) cells.addCell(false);
+                    for (unsigned k = 0; k < n; ++k) intervals.addCell(false);
+                    n = 0;
+                }
+                continue;
+            }
+            for (unsigned k = 1; k < n; ++k) cells.addCell(false);
+            cells.addCell(true);
+            intervals.addInterval(n);
+            n = 0;
+        }
+    }
+    bool same() const {
+        if (cells.count() != intervals.count()) return false;
+        for (size_t i = 0; i < cells.count(); ++i) {
+            const auto& x = cells.sector(i);
+            const auto& y = intervals.sector(i);
+            if (x.track != y.track || x.sector != y.sector || x.ok != y.ok || x.data_offset != y.data_offset)
+                return false;
+        }
+        return store_a == store_b;
+    }
+};
+
+std::vector<bool> trackBits(const std::vector<uint16_t>& words, size_t start, size_t count) {
+    std::vector<bool> bits;
+    cellsFrom(words, start, count, [&](bool c) { bits.push_back(c); });
+    return bits;
+}
+
+TEST(test_amiga_interval_path_matches_cells) {
+    std::mt19937 rng(5);
+    for (int round = 0; round < 20; ++round) {
+        std::vector<uint8_t> data = randomTrack(uint32_t(round + 10));
+        std::vector<uint16_t> words(6250);
+        CHECK(amiga::buildTrack(uint8_t(round * 4 % 80), uint8_t(round & 1), amiga::SECTORS, data.data(), words.data(),
+                                words.size()));
+        std::vector<bool> bits = trackBits(words, rng() % (6250 * 16), 6250 * 16 + amiga::SECTOR_WORDS * 16);
+        // From the third round on, flip runs of cells: sectors break off and
+        // syncs turn up in odd places.
+        for (int k = 0; round >= 2 && k < round * 10; ++k) {
+            size_t at = rng() % bits.size();
+            for (size_t j = at; j < bits.size() && j < at + rng() % 24; ++j) bits[j] = rng() & 1;
+        }
+        ScannerPair p;
+        p.feed(bits);
+        CHECK(p.same());
+        if (round == 0) CHECK_EQ(p.intervals.count(), size_t(amiga::SECTORS));
+    }
+}
+
+TEST(test_amiga_interval_path_sync_on_a_word_boundary) {
+    // A sector's last two words are syncs, so the second ends exactly where
+    // the sector's last word does. Cell by cell, the sync wins: that sector
+    // is never finished, and a new one starts (soon cut off by the next real
+    // sector's syncs). The interval path must not finish it either.
+    std::vector<uint8_t> data = randomTrack(3);
+    std::vector<uint16_t> words(6250);
+    CHECK(amiga::buildTrack(10, 0, amiga::SECTORS, data.data(), words.data(), words.size()));
+    // The first sector: its two syncs at word GAP_WORDS, then 540 words.
+    size_t last = amiga::GAP_WORDS + 2 + 539;
+    words[last - 1] = mfm::SYNC_A1;
+    words[last] = mfm::SYNC_A1;
+    ScannerPair p;
+    p.feed(trackBits(words, 0, 6250 * 16));
+    CHECK(p.same());
+    unsigned good = 0;
+    for (size_t i = 0; i < p.intervals.count(); ++i) good += p.intervals.sector(i).ok;
+    CHECK_EQ(p.intervals.count(), size_t(amiga::SECTORS - 1));
+    CHECK_EQ(good, amiga::SECTORS - 1);
 }
 
 TEST(test_adf_format) {
@@ -310,6 +396,8 @@ TEST(test_virtual_amiga_reads_and_writes_tracks) {
 void runAmigaTests() {
     RUN(test_amiga_checksum);
     RUN(test_amiga_track_round_trip);
+    RUN(test_amiga_interval_path_matches_cells);
+    RUN(test_amiga_interval_path_sync_on_a_word_boundary);
     RUN(test_adf_format);
     RUN(test_amiga_select_lines_and_settings);
     RUN(test_amiga_motor_latches_at_select);

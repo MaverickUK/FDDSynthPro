@@ -25,6 +25,9 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "mfm.h"
+#include "ram_func.h"
+
 namespace amiga {
 
 constexpr unsigned SECTORS = 11;  // DD; HD's 22 need a 150 RPM drive
@@ -60,11 +63,39 @@ public:
 
     void reset();
     void addCell(bool cell);
+    // An interval's cells at once: n - 1 zeros, then a 1 (n from 1 to 16).
+    // The same as n addCell() calls, and faster: the drive runs it for every
+    // flux edge of a write. The two syncs end in a 1, so they can only
+    // complete on the interval's last cell, where addCell() checks for them
+    // before collecting a word: a sync there wins over a word ending there.
+    ALWAYS_INLINE void addInterval(unsigned n) {
+        shift_ = shift_ << n | 1u;
+        bool sync = shift_ == SYNCS;
+        if (in_sector_) {
+            cells_ += n;
+            if (cells_ >= 16) {
+                cells_ -= 16;  // the cells after the word: this interval's last
+                if (!(sync && cells_ == 0)) {
+                    raw_[words_++] = mfm::decodeWordFast(uint16_t(shift_ >> cells_));
+                    if (words_ == sizeof raw_) {
+                        in_sector_ = false;
+                        finishSector();
+                    }
+                }
+            }
+        }
+        if (sync) {
+            in_sector_ = true;
+            cells_ = words_ = 0;
+            word_ = 0;
+        }
+    }
 
     size_t count() const { return count_; }
     const Sector& sector(size_t i) const { return sectors_[i]; }
 
 private:
+    static constexpr uint32_t SYNCS = uint32_t(mfm::SYNC_A1) << 16 | mfm::SYNC_A1;
     void finishSector();
 
     uint8_t* store_;

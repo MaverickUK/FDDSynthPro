@@ -41,6 +41,7 @@ public:
     bool readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) override;
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data) override;
     bool writeTrackBytes(uint8_t cylinder, uint8_t head, uint32_t at, const uint8_t* data, uint32_t n) override;
+    bool flush() override { return backing_ ? backing_->flush() : true; }
     bool writable() const override { return backing_->writable(); }
 
 private:

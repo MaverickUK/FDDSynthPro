@@ -20,6 +20,16 @@ class Bits {
 public:
     Bits(uint8_t* out, uint32_t cap) : out_(out), cap_(cap) {}
     void put(uint8_t cells, unsigned n) {  // the top n of `cells`
+        // A whole byte on a byte boundary (every v1 byte): stored at once. Bit
+        // by bit took 24 s for a 4 MB image on the drive, each bit a
+        // read-modify-write of the output.
+        if (n == 8 && len_ % 8 == 0) {
+            if (out_ && len_ + 8 <= cap_) out_[len_ / 8] = cells;
+            if (!out_ || len_ + 8 <= cap_) {
+                len_ += 8;
+                return;
+            }
+        }
         for (unsigned i = 0; i < n; ++i, ++len_) {
             if (!out_ || len_ >= cap_) continue;
             uint8_t& b = out_[len_ / 8];
@@ -84,16 +94,29 @@ const char* parseHeader(const uint8_t* b, size_t len, Header& out) {
 }
 
 // One side's bytes of a track, as stored (after the bit reversal), through
-// `each(byte)`, a block at a time.
+// `each(byte)`. Read GROUP_BLOCKS blocks at a time, both halves: a read of
+// one half-block at a time made a card command of every sector, and a 4 MB
+// HD image took 24 s to load on the drive. Each read ends where the last
+// half-block's bytes end, as before. One buffer, off the stack: only core 0
+// reads images, one track at a time.
+static constexpr uint32_t GROUP_BLOCKS = 16;
+static uint8_t s_group[GROUP_BLOCKS * BLOCK];
+
 template <typename Each>
 static bool sideBytes(File& f, uint16_t block, uint16_t len, uint8_t head, Each each) {
     uint32_t todo = len / 2;
-    uint8_t chunk[256];
-    for (uint32_t b = 0; todo; ++b) {
-        uint32_t n = todo > 256 ? 256 : todo;
-        if (!f.read((uint32_t(block) + b) * BLOCK + head * 256u, chunk, n)) return false;
-        for (uint32_t i = 0; i < n; ++i) each(reverse8(chunk[i]));
-        todo -= n;
+    for (uint32_t b = 0; todo; b += GROUP_BLOCKS) {
+        uint32_t blocks = (todo + 255) / 256;
+        if (blocks > GROUP_BLOCKS) blocks = GROUP_BLOCKS;
+        uint32_t last = todo - (blocks - 1) * 256;  // this side's bytes in the group's last block
+        if (last > 256) last = 256;
+        if (!f.read((uint32_t(block) + b) * BLOCK, s_group, (blocks - 1) * BLOCK + head * 256u + last)) return false;
+        for (uint32_t k = 0; k < blocks; ++k) {
+            uint32_t n = todo > 256 ? 256 : todo;
+            const uint8_t* p = s_group + k * BLOCK + head * 256u;
+            for (uint32_t i = 0; i < n; ++i) each(reverse8(p[i]));
+            todo -= n;
+        }
     }
     return true;
 }
