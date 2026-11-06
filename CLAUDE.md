@@ -176,6 +176,7 @@ Console:
 - `t`: time a loader step in its parts (`BENCH`: read, build, interleave; drive build);
 - `z`: zero the loader's timings (`read_us_*`, `encode_us_*` in `s`; drive build);
 - `1` / `2`: which drive `i`, `[`, `]` and `d` act on, with two drives (drive build);
+- `,` `.` `<` `>`: the panel's action button, an encoder press, a turn down or up (`panel::inject`; prints `# panel <screen> volume=<n>`; drive build);
 - `k`: load the next sample pack, once the drive is idle (drive build);
 - `i`: the image being served (drive build);
 - `[` / `]`: swap to the previous or next image on the card (drive build);

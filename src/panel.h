@@ -27,6 +27,11 @@ void begin();
 // a frame may take.
 void service(const ui::Status& s, uint32_t now_ms, bool may_draw = true);
 
+// An input as if from the controls, applied on the next service(): the
+// console's , . < > keys, so a script can work the panel. Each one applied
+// prints the screen it leads to ("# panel Stats").
+void inject(ui::Input in);
+
 // The screens' state and the requests (swap, eject, volume) for main.cpp.
 ui::Model& model();
 

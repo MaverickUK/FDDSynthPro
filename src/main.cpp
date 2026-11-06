@@ -1319,7 +1319,7 @@ static void handleConsole() {
 #else
                 Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, "
                                "g generated disk on/off, 1 2 which drive i [ ] d g t act on, k next sample pack, "
-                               "t time a loader step, z zero timings, e set a setting, ! restart, m mark, "
+                               "t time a loader step, z zero timings, , . < > the panel's button, press and turns, e set a setting, ! restart, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
 #endif
                 break;
@@ -1356,6 +1356,11 @@ static void handleConsole() {
             case 'g': toggleGenerated(); break;
             case 't': benchLoader(g_console_drive); break;
             case 'z': zeroTimings(); break;
+            // The panel's controls: the action button, an encoder press, a turn.
+            case ',': panel::inject(ui::Input::Action); break;
+            case '.': panel::inject(ui::Input::Press); break;
+            case '<': panel::inject(ui::Input::TurnDown); break;
+            case '>': panel::inject(ui::Input::TurnUp); break;
             case 'e':
                 g_setting_len = 0;
                 g_setting_ms = millis();

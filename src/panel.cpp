@@ -33,6 +33,24 @@ uint32_t frame_count = 0, draw_us_max = 0, abort_count = 0;
 QuadratureDecoder decoder;
 std::atomic<int32_t> pending_detents{0};
 
+// Console inputs (core 0, as service() is), waiting for the next service().
+ui::Input injected[4];
+size_t injected_count = 0;
+
+const char* screenName(ui::Screen s) {
+    switch (s) {
+        case ui::Screen::Home: return "Home";
+        case ui::Screen::Disks: return "Disks";
+        case ui::Screen::Swap: return "Swap";
+        case ui::Screen::Volume: return "Volume";
+        case ui::Screen::HeadTrace: return "HeadTrace";
+        case ui::Screen::Sounds: return "Sounds";
+        case ui::Screen::Stats: return "Stats";
+        case ui::Screen::Packs: return "Packs";
+    }
+    return "?";
+}
+
 uint8_t readAB() { return uint8_t((gpio_get(cfg::PIN_ENC_A) << 1) | gpio_get(cfg::PIN_ENC_B)); }
 
 void onEncoderEdge() {
@@ -91,6 +109,11 @@ void service(const ui::Status& s, uint32_t now_ms, bool may_draw) {
     size_t n = panel_controls.update(detents, pressed(cfg::PIN_ENC_BUTTON), pressed(cfg::PIN_ACTION_BUTTON), now_ms,
                                      inputs);
     for (size_t i = 0; i < n; ++i) ui_model.input(inputs[i], s, now_ms);
+    for (size_t i = 0; i < injected_count; ++i) {
+        ui_model.input(injected[i], s, now_ms);
+        Serial.printf("# panel %s volume=%d\n", screenName(ui_model.screen()), ui_model.volume());
+    }
+    injected_count = 0;
     ui_model.tick(s, now_ms);
 
     if (now_ms - last_trace_ms >= cfg::HEAD_TRACE_SAMPLE_MS) {
@@ -109,6 +132,10 @@ void service(const ui::Status& s, uint32_t now_ms, bool may_draw) {
     stream.start(canvas.data());
     ++frame_count;
     feed();
+}
+
+void inject(ui::Input in) {
+    if (injected_count < sizeof injected / sizeof injected[0]) injected[injected_count++] = in;
 }
 
 ui::Model& model() { return ui_model; }

@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.7] - 2026-11-06
+
+### Added
+- **Console keys for the front panel:** `,` is the action button, `.` an encoder press, `<` and `>` a turn down and up. Each goes to the panel's model as the controls' inputs do, and prints the screen it leads to (`# panel Stats volume=50`), so a script can step through the screens and set the volume the way the encoder does.
+
 ## [0.23.6] - 2026-11-05
 
 ### Fixed
