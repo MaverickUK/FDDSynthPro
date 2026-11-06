@@ -184,6 +184,7 @@ Console:
 - `k`: load the next sample pack, once the drive is idle (drive build);
 - `i`: the image being served (drive build);
 - `[` / `]`: swap to the previous or next image on the card (drive build);
+- `j` then a name and Enter: swap straight to that image (`robocod` or `ROBOCOD.ADF`, any case; `ImageList::match`); `l`: list the card's images, the one in marked (drive build);
 - `m`: print a `MARK` timestamp;
 - `x` then `Y`: the solder-bridge test, floppy cable unplugged (`short_test.*`; the board reboots afterwards);
 - `e` then `key=value` and Enter: one setting into `/FDDSYNTH.CFG`, written at once if the drive is idle (`settings::set`; prints the file as `CONFIG` lines). `DriveLog.set_setting` sends it;

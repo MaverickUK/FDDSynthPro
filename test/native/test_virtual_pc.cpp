@@ -604,6 +604,24 @@ TEST(test_image_list) {
     CHECK_EQ(empty.next(0), 0u);
 }
 
+TEST(test_image_list_match) {
+    // Console `j`: an image by its name, with or without the extension.
+    ImageList l;
+    l.add("ROBOCOD.ADF", 901120);
+    l.add("GEN1440.IMG", 1474560);
+    l.add("GEN1440.HFE", 4015104);
+    l.add("BBC.DFS.IMG", 102400);
+    auto match = [&](const char* typed) { return l.match(typed, std::strlen(typed)); };
+    CHECK_STR(l.name(match("robocod")), "ROBOCOD.ADF");
+    CHECK_STR(l.name(match("Robocod.adf")), "ROBOCOD.ADF");
+    CHECK_STR(l.name(match("gen1440.hfe")), "GEN1440.HFE");
+    CHECK_EQ(match("gen1440"), l.count());  // two images: say which
+    CHECK_STR(l.name(match("bbc.dfs")), "BBC.DFS.IMG");
+    CHECK_EQ(match("bbc"), l.count());      // not a whole name, nor one less its extension
+    CHECK_EQ(match("robo"), l.count());     // nor a prefix
+    CHECK_EQ(match(""), l.count());
+}
+
 }  // namespace
 
 void runVirtualPcTests() {
@@ -624,4 +642,5 @@ void runVirtualPcTests() {
     RUN(test_pc_card_stalls);
     RUN(test_pc_format_verifies_first_time);
     RUN(test_image_list);
+    RUN(test_image_list_match);
 }

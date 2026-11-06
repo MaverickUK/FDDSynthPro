@@ -58,6 +58,24 @@ public:
             if (strcasecmp(entries_[i].name, name) == 0) return i;
         return count_;
     }
+    // An image a person typed (console `j`): its whole name, or its name
+    // without the extension ("robocod" for ROBOCOD.ADF), ignoring case.
+    // count() if none is, or if the name without the extension is more than
+    // one image's (GEN1440 is GEN1440.IMG and GEN1440.HFE).
+    size_t match(const char* typed, size_t len) const {
+        if (!len || len >= NAME) return count_;
+        size_t found = count_;
+        for (size_t i = 0; i < count_; ++i) {
+            const char* n = entries_[i].name;
+            if (strncasecmp(n, typed, len) != 0) continue;
+            if (n[len] == '\0') return i;  // the whole name
+            if (n[len] == '.' && !std::strchr(n + len + 1, '.')) {  // the name less its extension
+                if (found != count_) return count_;
+                found = i;
+            }
+        }
+        return found;
+    }
     uint32_t size(size_t i) const { return entries_[i].size; }
     // The next and previous image, wrapping round.
     size_t next(size_t i) const { return count_ ? (i + 1) % count_ : 0; }

@@ -1296,6 +1296,35 @@ static char g_setting_line[settings::NAME + 32];
 static size_t g_setting_len = 0;
 static bool g_taking_setting = false;
 static uint32_t g_setting_ms = 0;  // when `e` was typed
+// The same line, after `j`: an image's name to swap to.
+static bool g_line_is_jump = false;
+
+// Console `j`: straight to the image typed (its name, with or without the
+// extension), one swap instead of a `]` for each image on the way.
+static void applyJumpLine() {
+    const ImageList& images = sd_image::images();
+    size_t i = images.match(g_setting_line, g_setting_len);
+    if (i == images.count()) {
+        Serial.printf("# no image called %.*s (l lists them)\n", int(g_setting_len), g_setting_line);
+        return;
+    }
+    const DriveState& s = g_drv[g_console_drive];
+    if (s.from_card && s.builtin == Builtin::None && s.image_index == i) {
+        Serial.printf("# %s is in already\n", images.name(i));
+        return;
+    }
+    startSwap(g_console_drive, i);
+}
+
+// Console `l`: the images on the card, the one in marked.
+static void listImages() {
+    const ImageList& images = sd_image::images();
+    const DriveState& s = g_drv[g_console_drive];
+    for (size_t i = 0; i < images.count(); ++i)
+        Serial.printf("# %c %2u %s\n", s.from_card && s.builtin == Builtin::None && s.image_index == i ? '*' : ' ',
+                      unsigned(i + 1), images.name(i));
+    if (!images.count()) Serial.println("# no images on the card");
+}
 
 static void applySettingLine() {
     if (!g_card) {
@@ -1347,7 +1376,10 @@ static bool takeSettingChar(int c) {
     if (c == '\r' || c == '\n') {
         if (!g_setting_len) return true;  // the Enter after `e` itself
         g_taking_setting = false;
-        applySettingLine();
+        if (g_line_is_jump)
+            applyJumpLine();
+        else
+            applySettingLine();
         return true;
     }
     if (g_setting_len < sizeof g_setting_line) g_setting_line[g_setting_len++] = char(c);
@@ -1369,7 +1401,7 @@ static void handleConsole() {
                 Serial.println("# h help, p pins, s stats, m mark, x short test (cable unplugged), "
                                "b reboot to bootloader");
 #else
-                Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, d disk in/out, "
+                Serial.println("# h help, p pins, s stats, i image, [ ] previous/next image, j jump to an image, l list images, d disk in/out, "
                                "g generated disk on/off, 1 2 which drive i [ ] d g t act on, k next sample pack, "
                                "t time a loader step, z zero timings, , . < > the panel's button, press and turns, e set a setting, ! restart, m mark, "
                                "x short test (cable unplugged), b reboot to bootloader");
@@ -1414,11 +1446,15 @@ static void handleConsole() {
             case '<': panel::inject(ui::Input::TurnDown); break;
             case '>': panel::inject(ui::Input::TurnUp); break;
             case 'e':
+            case 'j':
                 g_setting_len = 0;
                 g_setting_ms = millis();
                 g_taking_setting = true;
-                Serial.println("# type a setting (interface=shugart), then Enter");
+                g_line_is_jump = c == 'j';
+                Serial.println(c == 'j' ? "# type an image's name (robocod, or ROBOCOD.ADF), then Enter"
+                                        : "# type a setting (interface=shugart), then Enter");
                 break;
+            case 'l': listImages(); break;
             case '!':
                 Serial.println("# restarting");
                 Serial.flush();
