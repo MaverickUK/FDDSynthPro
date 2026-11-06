@@ -23,6 +23,7 @@ Copies of all of them are in `~/fdd-images`, to check against afterwards and to 
    ~/.platformio-venv/bin/pio device monitor -p /dev/cu.usbmodem11101 | tee host/runs/realhw-$(date +%Y%m%d-%H%M).log
    ```
 3. **Power order:** the BB48R on USB first, then the computer. Off: the computer first, then unplug the BB48R. Its inputs are only 5 V tolerant while it's powered.
+   - **If the computer won't start** (a blank screen, most times) with the boards on USB and their cables in: they may be powering it a little through the cable while it's off. FDDSynthPro's pull-ups (1 kΩ to 3.3 V with J7 closed, about 3 mA a line) feed the PC's floppy outputs through their protection diodes, and HDDSynthPro's pins can do the same on the IDE cable; a PC held at a volt or two when it's switched on may not reset properly. Seen on the Evesham, 6 November 2026 (suspected, not proven). To tell, switch on with the boards' cables out: if it starts every time, plug them back one at a time. A real drive in FDDSynthPro's place is powered by the PC, so it can't do this.
 4. **At the end of each session**, type `s` and keep the line. `write_faults`, `capture_overruns`, `write_bad_crc` and `audio_underruns` should all be 0; `decode_kbps` well above 370.
 5. **Then check the log:** `scripts/check_log.py host/runs/realhw-....log` lists anything that needs a look (the board restarting on its own, lost writes, steps past either end of the disk, non-zero fault counters) and summarises the session: the lines the computer selected with, its step rate, its writes and disk changes.
 
@@ -53,7 +54,7 @@ Copies of all of them are in `~/fdd-images`, to check against afterwards and to 
 | 13 | Soak: a batch file that copies and compares in a loop for an hour or overnight | No errors, no hangs |
 | 14 | `COPY A:\FDDBENCH.EXE C:\`, then `C:\FDDBENCH A:` ([FDDBench](https://github.com/MaverickUK/FDDBench), on `DOS1440.IMG`): **A** for every read scenario, then **B** for the benchmark | No read errors; the benchmark shows 300 RPM (its PC timer line says how far the PC's own timer is out, and corrects for it), 0 errors and 0 retries. Run from C:, its log doesn't write to the disk under test |
 
-### Results: the Evesham, 6 November 2026 (0.23.7, then 0.23.8)
+### Results: the Evesham, 6 November 2026 (0.23.7 to 0.23.9)
 
 The Evesham booted DOS from HDDSynthPro (C:) with FDDSynthPro as A:, past the twist, J7 closed.
 
@@ -66,12 +67,14 @@ The Evesham booted DOS from HDDSynthPro (C:) with FDDSynthPro as A:, past the tw
 | 6, 7 | Writes clean: 599 sectors, no CRC errors, overruns or faults; `finish_us_max` 40 ms; `decode_kbps` 1,560 |
 | 8, 9 | Swap to DOS720 seen at once; CHKDSK clean, 730,112 bytes |
 | 10 | Not Ready with the disk out |
-| 11 | FORMAT completed, 1,457,664 bytes, no bad sectors, CHKDSK clean. **But each track's first format failed and was retried** (a recalibrate to cylinder 0 and back, twice a cylinder): a format straight after another format fails as it ends, one straight after the controller's reset works. Not yet understood; compare with a real drive on the same PC |
-| 14 | FDDBench 0.3.2: every scenario clean; benchmark 0 errors / 0 retries, 1.50 rev a track sequential (29.5 KB/s, what a real drive in a PC gives), track-to-track 33.2 ms, full stroke 439.5 ms, average access 272.2 ms. Rotation 295.4 RPM, where the drive's log shows exactly 600.0 ms a cylinder (3 revolutions of 200.0): the PC's timer, or FDDBench, is 1.55% out. FDDBench 0.4.0 checks its timer against the CMOS clock to tell |
+| 11 | FORMAT completed, 1,457,664 bytes, no bad sectors, CHKDSK clean. **But each track's first format failed and was retried** (148 tracks in 160): the verify straight after the format read a sector half old, half new, because showing the write overtook the head mid-sector. **Fixed in 0.23.10** (the copy starts at the head and holds back the sector under it); `test_pc_format_verifies_first_time` reproduced it in the virtual PC |
+| 14 | FDDBench 0.3.2: every scenario clean; benchmark 0 errors / 0 retries, 1.50 rev a track sequential (29.5 KB/s, what a real drive in a PC gives), track-to-track 33.2 ms, full stroke 439.5 ms, average access 272.2 ms. Rotation 295.4 RPM, where the drive's log shows exactly 600.0 ms a cylinder (3 revolutions of 200.0). Against the drive's log, every short FDDBench time read 1.55% long (rotation 203.1 for 200.0, track-to-track 33.2 for 32.74, full stroke 439.5 for 432.75) while its long ones matched to 0.16%: the Evesham's timer runs fast and its BIOS clock is kept in step. FDDBench 0.4.1 counts the timer itself and corrects for it |
 
 The log checker's only complaints were the flash to 0.23.8 (a restart it wasn't told about) and both selects read low while the Evesham was off.
 
-Next on this PC: the same FORMAT and FDDBench run with a real drive, to compare the rotation, the seek figures and the format retries.
+**With a real drive on the Evesham** (the afternoon; FDDBench 0.3.2, its log from C:, a Voice Memo): every scenario took the same time as on FDDSynthPro to within about a second, and the benchmark gave 296.6 RPM (202.3 ms), 1.50 rev a track, 29.6 KB/s, track-to-track 33.2 ms, full stroke 436.4 ms, average access 267.0 ms, 0 / 0. By the phone's clock the drive turns at 299.2 RPM (a sequential read's cylinders 0.6016 s apart, three revolutions each). The memo's seeks became `samples/RealDrive/seek.wav` ([recording.md](recording.md)). The Evesham's date had reset to 2000-01-01 by then: its CMOS battery may be low.
+
+Next on this PC: FDDBench 0.4.1 on both drives (copy it to C: first), for the timer check; FORMAT on 0.23.10, which should verify every track first time.
 
 ### Afterwards
 - Card into the Mac: `fsck.fat -n "/Volumes/FDDSYNTHPRO/DOS1440.IMG"` and `mdir -i "/Volumes/FDDSYNTHPRO/DOS1440.IMG" ::GAMES` should agree with what the PC did.
