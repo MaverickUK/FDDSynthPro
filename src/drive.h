@@ -89,8 +89,22 @@ public:
     StepEvent onSample(uint32_t now_us, uint32_t pins, bool step_edge = false);
     void useStepLatch(bool on) { step_latch_ = on; }
 
+    // Edge samples (an Amiga, amiga_pio.h): the inputs as they were at the
+    // instant STEP fell, or at the instant the drive's select fell. An
+    // Amiga selects for only 4-20 us, with DIR changed alongside, so a
+    // sample a pass later can't say whether a step was this drive's, which
+    // way it went, or what the motor line was at select. With
+    // useEdgeSamples(), steps come only from onStepEdge() and an Amiga's
+    // motor is latched only by onSelectEdge(); onSample() does the rest.
+    StepEvent onStepEdge(uint32_t now_us, uint32_t pins);
+    void onSelectEdge(uint32_t now_us, uint32_t pins);
+    void useEdgeSamples(bool on) { edge_samples_ = on; }
+
     // The output lines at this moment.
     Outputs outputs(uint32_t now_us);
+    // The same as if the drive were selected: what a hardware gate puts on
+    // the cable while the select is asserted (amiga_pio.h).
+    Outputs outputsSelected(uint32_t now_us);
 
     // Whether RDATA may carry the track now: selected, a disk in, the motor
     // at speed, and the streamer's buffer holding the cylinder under the
@@ -129,7 +143,9 @@ private:
     bool selected_ = false;
     bool step_was_asserted_ = false;
     bool step_latch_ = false;
+    bool edge_samples_ = false;
     bool motor_latched_ = false;  // Amiga: the motor line as it was at select
+    StepEvent step(uint32_t pins);  // a step this drive takes, DIR from `pins`
     uint8_t side_ = 0;
     bool disk_present_ = false;
     bool write_protected_ = true;

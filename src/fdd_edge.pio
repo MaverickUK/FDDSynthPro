@@ -1,0 +1,22 @@
+; Samples the ten inputs at each falling edge of one of them: STEP, or an
+; Amiga drive's select. An Amiga selects its drive for a few microseconds
+; at a time (32 pulses of 4 us to read a drive's ID; 20 us around each step)
+; and changes DIR with the select, so core 1's once-a-pass sample may miss a
+; pulse, or see DIR as it was after. Each sample here is the inputs as they
+; were within two cycles of the edge.
+;
+; Configure: jmp pin = the edge's pin; IN base = the first input (GPIO 12),
+; shifting left, no autopush; RX FIFO joined (8 samples). A full FIFO drops
+; the newest sample (push noblock): core 1 drains it every pass.
+
+.program fdd_edge
+
+.wrap_target
+low:
+    jmp pin high        ; wait for the pin to be high (released)
+    jmp low
+high:
+    jmp pin high        ; then for it to fall
+    in pins, 10         ; GPIO 12-21 at the edge
+    push noblock
+.wrap

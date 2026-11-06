@@ -4,6 +4,7 @@
 // as trackdisk.device does: from wherever the head is, with no index.
 // Greaseweazle checks the tracks themselves (test_track_encoder.py).
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -254,6 +255,183 @@ TEST(test_pin_2_disk_change) {
     CHECK(!fdd::asserted(drive::outputPins(o, bus::Interface::Amiga, true), cfg::PIN_CHNG));
 }
 
+// ---- An Amiga's short selects, as the board sees them --------------------------------
+
+// The drive on the board, driven the way an A1200's trackdisk drives it (seen
+// on the bench, 6 Nov 2026): the select asserted for 4 us at a time to read
+// the ID, and for about 20 us around each step, with DIR set and cleared
+// alongside it. Core 1 samples the inputs once a pass (PASS_US); with
+// `edges`, the PIO samplers also give the inputs at the instant STEP or the
+// select falls, and the gate shows the levels from the last pass whenever
+// the select is asserted, as amiga_pio does. Without, the drive is core 1's
+// alone, as it was in 0.23.10.
+class BoardAmiga {
+public:
+    static constexpr uint32_t PASS_US = 7;
+
+    explicit BoardAmiga(bool edges, uint8_t start_cylinder = 5) : edges_(edges), d_(config(start_cylinder)) {
+        d_.insertDisk(false);
+        d_.useStepLatch(true);
+        d_.useEdgeSamples(edges);
+    }
+
+    // trackdisk's drive ID: the motor latched on, then off, then 32 selects,
+    // each reading /RDY 2 us in.
+    uint32_t readId() {
+        pulse(sample({cfg::PIN_MOTEA, cfg::PIN_MOTEB}), 2);
+        pulse(sample({cfg::PIN_MOTEA}), 2);
+        uint32_t id = 0;
+        for (int bit = 0; bit < 32; ++bit) {
+            set(sample({cfg::PIN_MOTEA}));
+            run(2);
+            id = id << 1 | (cable(cfg::PIN_DSKCHG) ? 1u : 0u);
+            run(2);
+            set(IDLE);
+            run(4);
+        }
+        return id;
+    }
+
+    // Out until /TRK0, read 3 us after selecting, as trackdisk's recalibrate;
+    // the steps taken.
+    int recalibrate() {
+        int steps = 0;
+        for (; steps < 85; ++steps) {
+            set(sample({cfg::PIN_MOTEA}));
+            run(3);
+            bool trk0 = cable(cfg::PIN_TRK00);
+            if (trk0) {
+                set(IDLE);
+                break;
+            }
+            stepPulse(sample({cfg::PIN_MOTEA}));
+            set(IDLE);
+            run(3000);
+        }
+        return steps;
+    }
+
+    // In by `n`, DIR set with the select and cleared with it.
+    void stepIn(int n) {
+        for (int i = 0; i < n; ++i) {
+            set(sample({cfg::PIN_MOTEA, cfg::PIN_DIR}));
+            stepPulse(sample({cfg::PIN_MOTEA, cfg::PIN_DIR}));
+            set(IDLE);
+            run(3000);
+        }
+    }
+
+    int cylinder() const { return d_.head().cylinder(); }
+    drive::Drive& drive() { return d_; }
+
+private:
+    static constexpr uint32_t IDLE = fdd::INPUT_MASK;
+
+    static drive::Config config(uint8_t start) {
+        drive::Config c;
+        c.lines = bus::lines(bus::Setup{bus::Interface::Amiga, bus::Cable::Twisted, 1});
+        c.interface = bus::Interface::Amiga;
+        c.start_cylinder = start;
+        c.spindle.spin_up_us = 1000;
+        return c;
+    }
+
+    // STEP low for 2 us, 8 us into the select, then the rest of 20 us.
+    void stepPulse(uint32_t selected) {
+        run(8);
+        set(selected & ~fdd::maskOf(cfg::PIN_STEP));
+        run(2);
+        set(selected);
+        run(10);
+    }
+
+    void pulse(uint32_t pins, uint32_t us) {
+        set(pins);
+        run(us);
+        set(IDLE);
+        run(us);
+    }
+
+    // The Amiga changes its lines: the samplers catch the falling edges.
+    void set(uint32_t pins) {
+        bool step_fell = fdd::asserted(pins, cfg::PIN_STEP) && !fdd::asserted(pins_, cfg::PIN_STEP);
+        bool select_fell = fdd::asserted(pins, cfg::PIN_MOTEA) && !fdd::asserted(pins_, cfg::PIN_MOTEA);
+        pins_ = pins;
+        if (step_fell) step_edge_ = true;  // the GPIO block's latch
+        if (edges_ && select_fell) d_.onSelectEdge(now_, pins);
+        if (edges_ && step_fell) d_.onStepEdge(now_, pins);
+    }
+
+    void run(uint32_t us) {
+        for (uint32_t end = now_ + us; now_ != end; ++now_)
+            if (now_ % PASS_US == 0) pass();
+    }
+
+    // Core 1's pass: the sample, then the outputs onto the pins.
+    void pass() {
+        d_.onSample(now_, pins_, step_edge_);
+        step_edge_ = false;
+        selected_levels_ = drive::outputPins(d_.outputsSelected(now_), bus::Interface::Amiga);
+        levels_ = drive::outputPins(d_.outputs(now_), bus::Interface::Amiga);
+    }
+
+    // What the Amiga reads on an output now.
+    bool cable(unsigned pin) const {
+        uint32_t levels = edges_ ? (fdd::asserted(pins_, cfg::PIN_MOTEA) ? selected_levels_ : fdd::OUTPUT_MASK) : levels_;
+        return fdd::asserted(levels, pin);
+    }
+
+    bool edges_;
+    drive::Drive d_;
+    uint32_t pins_ = IDLE;
+    uint32_t now_ = 0;
+    bool step_edge_ = false;
+    uint32_t levels_ = fdd::OUTPUT_MASK, selected_levels_ = fdd::OUTPUT_MASK;
+};
+
+TEST(test_amiga_short_selects_by_core_1_alone) {
+    // 0.23.10 on the A1200: the ID read garbled, track 0 never seen (the head
+    // knocking at the stop), steps lost or taken the wrong way.
+    BoardAmiga a(false);
+    uint32_t id = a.readId();
+    int steps = a.recalibrate();
+    a.stepIn(40);
+    std::printf("    core 1 alone: ID %08x, recalibrate %d steps, cylinder %d (40 wanted)\n", unsigned(id), steps,
+                a.cylinder());
+    CHECK(id != 0xFFFFFFFFu || steps != 5 || a.cylinder() != 40);
+}
+
+TEST(test_amiga_short_selects_with_edge_samples) {
+    // With the PIO samplers and gate: a 3.5-inch DD drive's ID (all ones),
+    // track 0 seen on the first select there, and every step counted the
+    // right way.
+    BoardAmiga a(true);
+    CHECK_EQ(a.readId(), 0xFFFFFFFFu);
+    CHECK(!a.drive().spindle().motorOn());  // the ID's selects latched it off
+    CHECK_EQ(a.recalibrate(), 5);
+    CHECK_EQ(a.cylinder(), 0);
+    a.stepIn(40);
+    CHECK_EQ(a.cylinder(), 40);
+}
+
+TEST(test_amiga_edge_samples_ignore_other_drives) {
+    // DF1's select and steps on the shared lines: DF0 neither steps nor
+    // latches its motor from them.
+    drive::Drive d(amigaDrive(0));
+    d.useEdgeSamples(true);
+    d.onSelectEdge(0, sample({cfg::PIN_MOTEA, cfg::PIN_MOTEB}));
+    CHECK(d.spindle().motorOn());
+    uint8_t before = d.head().cylinder();
+    CHECK(!d.onStepEdge(10, sample({cfg::PIN_DRVSB, cfg::PIN_DIR})).stepped);
+    CHECK_EQ(d.head().cylinder(), before);
+    CHECK(d.onStepEdge(20, sample({cfg::PIN_MOTEA, cfg::PIN_DIR})).stepped);
+    CHECK_EQ(d.head().cylinder(), before + 1);
+    // A sample a pass later, deselected: no second step, and the latch holds.
+    d.onSample(30, sample({cfg::PIN_MOTEB}), true);
+    CHECK_EQ(d.head().cylinder(), before + 1);
+    CHECK(d.spindle().motorOn());
+}
+
 // ---- A virtual Amiga -----------------------------------------------------------------
 
 // trackdisk.device's way with DF0: motor on (latched at select), wait for
@@ -403,5 +581,8 @@ void runAmigaTests() {
     RUN(test_amiga_motor_latches_at_select);
     RUN(test_amiga_ready_and_id);
     RUN(test_pin_2_disk_change);
+    RUN(test_amiga_short_selects_by_core_1_alone);
+    RUN(test_amiga_short_selects_with_edge_samples);
+    RUN(test_amiga_edge_samples_ignore_other_drives);
     RUN(test_virtual_amiga_reads_and_writes_tracks);
 }

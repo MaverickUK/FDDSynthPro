@@ -51,6 +51,7 @@
 #include "ibm_track.h"
 #include "image_cache.h"
 #include "panel.h"
+#include "amiga_pio.h"
 #include "rdata_pio.h"
 #include "rdata_stream.h"
 #include "sd_image.h"
@@ -208,6 +209,7 @@ static unsigned g_drive_count = 1;
 static drive::Config g_drive_config[bus::MAX_DRIVES];
 static bus::Interface g_interface = bus::Interface::IbmPc;
 static bool g_pin2_chng = false;  // floppy pin 2 driven as DISK CHANGE (bus.h)
+static bool g_amiga_edges = false;  // core 1: an Amiga drive's selects and steps from amiga_pio
 static CylinderLoader* g_loaders[bus::MAX_DRIVES];
 static std::atomic<bool> g_started{false};
 // How far core 1 has got: 1 set up, 2 released, 3 streamer, 4 capture, 5 running.
@@ -266,6 +268,10 @@ void setup1() {
     rdata_pio::begin(g_cylinder_slots[0], disk.words, disk.rate);
     g_core1_stage.store(3);
     wdata_pio::begin(g_capture_ring, cfg::CAPTURE_RING_BYTES, disk.rate);
+    // An Amiga's selects and steps are too short for core 1's loop alone
+    // (amiga_pio.h). One drive: two would need two selects in the gate.
+    if (g_interface == bus::Interface::Amiga && g_drive_count == 1)
+        g_amiga_edges = amiga_pio::begin(g_drive_config[0].lines.select);
     g_core1_stage.store(4);
 }
 
@@ -303,6 +309,7 @@ void loop1() {
     WriteBurst burst{};
     g_core1_stage.store(5);
     for (unsigned i = 0; i < n; ++i) drives[i]->useStepLatch(true);
+    if (g_amiga_edges) d0.useEdgeSamples(true);
     takeStepEdge();  // forget any edge from before the loop
     for (;;) {
         uint32_t now = time_us_32();
@@ -321,13 +328,24 @@ void loop1() {
         drive::StepEvent e;
         for (unsigned i = 0; i < n; ++i) {
             DriveShared& s = g_shared[i];
-            drive::StepEvent each = drives[i]->onSample(now, pins, step_edge);
-            if (each.stepped) {  // only a selected drive steps
+            auto stepped = [&](const drive::StepEvent& each) {
+                if (!each.stepped) return;  // only a selected drive steps
                 e = each;
                 s.cylinder.store(each.cylinder, std::memory_order_relaxed);
                 if (each.outcome == head::Step::AtOuterStop) s.outer_knocks.fetch_add(1, std::memory_order_relaxed);
                 if (each.outcome == head::Step::AtInnerStop) s.inner_knocks.fetch_add(1, std::memory_order_relaxed);
+            };
+            if (g_amiga_edges && i == 0) {
+                // The inputs at each select and each step, in the order the
+                // edges came within their kind: selects first (the motor
+                // latch), then steps.
+                uint32_t at;
+                while (amiga_pio::takeSelectSample(at))
+                    if (!host_off) drives[0]->onSelectEdge(now, at);
+                while (amiga_pio::takeStepSample(at))
+                    if (!host_off) stepped(drives[0]->onStepEdge(now, at));
             }
+            stepped(drives[i]->onSample(now, pins, step_edge));
             s.selected.store(drives[i]->selected(), std::memory_order_relaxed);
 
             int request = s.disk_request.exchange(0, std::memory_order_relaxed);
@@ -378,7 +396,8 @@ void loop1() {
         // The cable's lines: each drive releases its own while deselected.
         uint32_t levels = fdd::OUTPUT_MASK;
         for (unsigned i = 0; i < n; ++i) levels &= drive::outputPins(drives[i]->outputs(now), g_interface, g_pin2_chng);
-        putOutputs(levels);
+        putOutputs(levels);  // with the gate, only the trace's view: the pins are the gate's
+        if (g_amiga_edges) amiga_pio::setLevels(drive::outputPins(d0.outputsSelected(now), g_interface, g_pin2_chng));
 
         // The host selected the other drive: the streamer moves to its
         // buffer, at the word under its head, and the capture to its rate.

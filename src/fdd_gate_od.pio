@@ -1,0 +1,17 @@
+; fdd_gate for the direct builds (config.h: OUTPUTS_OPEN_DRAIN): the pins'
+; levels stay low and the directions change, an output asserting its line.
+; Core 1 sends the levels inverted (1 = asserted).
+
+.program fdd_gate_od
+.pio_version 1      ; mov pindirs: the RP2350's PIO
+
+.wrap_target
+top:
+    pull noblock
+    mov x, osr
+    jmp pin released
+    mov pindirs, x
+    jmp top
+released:
+    mov pindirs, null
+.wrap

@@ -1,0 +1,22 @@
+; Puts an Amiga drive's outputs on the cable only while its select is
+; asserted, within a few cycles: the Amiga reads /RDY (the drive's ID),
+; /TRK0 and the rest a microsecond or two after it selects, and deselects
+; again within 4-20 us, faster than core 1's loop can follow. Core 1 sends
+; the levels as they'd be with the drive selected, whenever they change.
+;
+; SN7407 build: the levels go on the pins (low asserts the line). OUT pins
+; = GPIO 4-23 (INDEX to CHNG); only the pins given to this PIO block follow
+; it, so RDATA (GPIO 7) must be another block's. jmp pin = the select.
+
+.program fdd_gate
+
+.wrap_target
+top:
+    pull noblock        ; new levels, or the last ones again (from X)
+    mov x, osr
+    jmp pin released    ; deselected (high): let every line go
+    mov pins, x
+    jmp top
+released:
+    mov pins, ~null
+.wrap
