@@ -44,9 +44,29 @@ If it heard too few steps, the recording is too quiet or the offset is wrong: `-
 
 ## What the Feather can't do
 
-- **Turn the motor off:** after a command it can keep the motor running, so the session's spin-ups aren't from rest and its spin-downs are doubtful. `samples/RealDrive` (6 November) has real steps, spin, inserts and ejects, but its spin-up and spin-down want recording again, best from a PC (below).
+- **Turn the motor off:** after a command it can keep the motor running, so the session's spin-ups aren't from rest and its spin-downs are doubtful. `samples/RealDrive` (6 November) has real steps, spin, inserts and ejects, but its spin-up and spin-down want recording again: with a real Greaseweazle, or with the drive out of the case on a PC's cable (inside it, the PC's noise hides the motor: below).
 
 - **Fast seeks:** it steps every 26 ms, so its seeks sound like separate clicks, which is what the drive itself does at that rate. A PC steps every 3–6 ms. Its seeks need a real Greaseweazle (`gw delays`), or a PC.
 - **Bumps:** it stops stepping out at TRK00, and `gw seek` refuses a negative cylinder ("must be 0 or greater"). The cutter says if it heard no bump; `--borrow` takes another pack's.
 
-**A PC does all three:** its BIOS stops the motor 2 s after each access, it seeks at 3-6 ms a step, and a recalibrate from far out knocks the stop. A Voice Memo of a real drive in a PC running FDDBench (spin-up and idle, recalibrate, full stroke, butterfly) is the source for the spin-up, spin-down, seek and bump.
+**A PC does what it can't, but not everything:** its BIOS stops the motor 2 s after each access, and it seeks at 3-6 ms a step. A Voice Memo of a real drive in a PC running FDDBench gave the seek; the rest stayed out of reach (the Evesham, 6 November):
+
+- **The seek: yes.** FDDBench's Full stroke (ten seeks of 79 steps) is a loud, clean buzz, 30 dB over the room, at the Evesham's 5.05 ms a step. A seek's peak is 6.5 dB over a single step's: overlapping steps ring together.
+- **Spin-up, spin-down and the hum: no.** Inside the PC the motor doesn't show over the PC's own noise at all, even with the phone at the drive's front.
+- **A bump: no.** The BIOS's recalibrate stops at TRK00 and never knocks.
+
+## Cutting a seek from a PC recording
+
+```
+scripts/cut_seek.py memo.m4a --seeks 145.5:153.5 --steps 126.5:134.5 --step-ms 5.052 --pack samples/RealDrive --audition /tmp/seek.wav
+```
+
+It loops 40 whole steps from the middle of the median seek in `--seeks`, starting on a step, and writes the pack's `seek.wav` at the level that keeps it against the pack's `step.wav` as the recording had it against the single steps in `--steps`. If the pack no longer fits the sample pool, it shortens the spin-down, as the cutter does.
+
+- **Finding the windows:** FDDBench's `FDDBENCH.LOG` timestamps each scenario. Line it up with the recording by a distinctive one: a sequential read clicks every 0.6 s, three revolutions a cylinder, and Full stroke is ten buzzes 0.8 s apart.
+- **The step period:** from FDDSynthPro's log of the same PC, a 79-step seek's `STEP` span over 78 (394,079 µs on the Evesham); or from the recording, where the buzz's peaks repeat.
+- **The drive's speed** comes free: a sequential read's clicks are three revolutions apart by the phone's clock, which is independent of the PC (the Evesham's drive: 0.6016 s, 299.2 RPM).
+
+`host/tests/test_cut_seek.py` runs it on a simulated recording.
+
+`samples/RealDrive`'s seek comes from the Evesham's memo (`--seeks 145.5:153.5 --steps 126.5:134.5 --step-ms 5.052`); its steps, spin, inserts and ejects from the Feather session; its bump from Recorded. Its spin-up and spin-down are still the Feather's.
