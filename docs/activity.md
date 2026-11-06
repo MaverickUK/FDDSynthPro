@@ -99,4 +99,8 @@ Recording these from a real drive is easiest with a Greaseweazle or the Feather 
 
 - **Reads and writes sound the same as idle** on a 3.5-inch drive: the heads are always loaded. 5.25-inch drives with a head-load solenoid would add a `HEAD_LOAD` event.
 - **Seek speed.** `SEEK_START` doesn't yet say how fast the steps come. A 3 ms seek and a 10 ms seek buzz at different pitches; the step interval could be reported for the synth to pick a sample or a playback rate.
+  - **What a real PC seek is** (the Evesham's memo, 6 November 2026, 5.05 ms a step): a buzz that peaks 6.5 dB over a single step, as each step's ringing overlaps the next, with its energy at 800-3,200 Hz.
+  - **The `rate-aware-seeks` branch** (0.24.0, not merged) plays one step's click at the measured rate, each cut short with a fade when the next comes. Cut short, the clicks never overlap, so a fast seek comes out quieter than one step, the opposite of the real thing. Its `SEEK_START` interval is worth keeping.
+  - **Overlap-adding a whole recorded step** at 5.05 ms gets the loudness right (RMS within 1 dB of the real seek) but not the tone: about 12 dB too much at 400-800 Hz, the step rate's harmonics and a step-from-rest's body.
+  - **So:** at rates near a pack's recorded seek, play its loop (resampled a little), with the rate it was cut at kept in the pack (RealDrive's: 5.05 ms); at slow rates, where steps really are separate (the Feather's 26 ms), overlap-add the step. Between them (a Greaseweazle's 10 ms) wants a recording to judge.
 - **Tuning.** The 20 ms gap is a starting value. Listening against real hosts will refine it, and the synth may want two thresholds (a "fast click" region).
