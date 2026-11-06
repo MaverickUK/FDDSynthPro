@@ -34,6 +34,13 @@ constexpr uint32_t OUTPUT_MASK = outputMask();  // not consecutive: GPIO 4-7 and
 // STEP is recorded as its own event (one per assertion), not as a change.
 constexpr uint32_t WATCHED_MASK = INPUT_MASK & ~maskOf(cfg::PIN_WDATA);
 
+// A host that's switched off holds every line low through its chips'
+// protection diodes: all the inputs asserted at once, which no running host
+// does (both selects, both motors, WGATE and STEP together). The drive then
+// takes the lines as released, so it doesn't spin and click by itself while
+// the computer is off and the drive is on USB (0.23.9).
+constexpr bool hostOff(uint32_t sample) { return (sample & INPUT_MASK) == 0; }
+
 // Short name of a floppy line ("?" for a pin that isn't one).
 const char* signalName(unsigned pin);
 

@@ -180,6 +180,7 @@ static DiskTiming timingOf(const DriveShared& s) {
 }
 static DriveShared g_shared[bus::MAX_DRIVES];
 static std::atomic<uint8_t> g_side{0};  // the host's SIDE1, the same for both drives
+static std::atomic<bool> g_host_off{false};  // every line low: the computer is off (fdd::hostOff)
 
 // What the drive did, from core 1 to core 0's activity tracker.
 static SpscRing<activity::DriveEvent, 256> g_drive_events;
@@ -300,6 +301,14 @@ void loop1() {
         uint32_t now = time_us_32();
         bool step_edge = takeStepEdge();
         uint32_t pins = pinsAsSample();
+        // A switched-off computer holds every line low: the drive takes them
+        // as released, and the trace shows them so
+        bool host_off = fdd::hostOff(pins);
+        if (host_off) {
+            pins |= fdd::INPUT_MASK;
+            step_edge = false;
+        }
+        if (host_off != g_host_off.load(std::memory_order_relaxed)) g_host_off.store(host_off, std::memory_order_relaxed);
         watch(w, now, pins);
 
         drive::StepEvent e;
@@ -1173,6 +1182,7 @@ static void printStats() {
                       (unsigned long)loader.loads(), n, (unsigned long)loader.restarts(), n,
                       g_drv[i].cache->cachedTracks(), g_drv[i].cache->tracks(), n, (int)sh.writable.load());
     }
+    Serial.printf(" host=%s", g_host_off.load() ? "off" : "on");
     Serial.printf(" side=%u read_us_max=%lu encode_us_max=%lu", (unsigned)g_side.load(), (unsigned long)g_read_us_max,
                   (unsigned long)g_encode_us_max);
     Serial.printf(" read_us_mean=%lu encode_us_mean=%lu reads=%lu encodes=%lu",
@@ -1433,6 +1443,18 @@ void setup() {
     printReady();
 }
 
+#if FIRMWARE_SLICE != 0
+// Says when the computer is switched off or on (every line low: fdd::hostOff).
+static void serviceHost() {
+    static bool shown = false;
+    bool off = g_host_off.load(std::memory_order_relaxed);
+    if (off == shown) return;
+    shown = off;
+    Serial.println(off ? "# host off: every line is low (the computer is switched off), so they're ignored"
+                       : "# host on");
+}
+#endif
+
 void loop() {
 #if FIRMWARE_SLICE != 0
     // Audio between every slow step, so the I2S queue never runs dry.
@@ -1444,6 +1466,7 @@ void loop() {
     serviceWeakBits();
     audio::service();
     serviceActivity();
+    serviceHost();
     servicePanel();
     audio::service();
     servicePack();      // only when the drive is idle

@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.9] - 2026-11-06
+
+### Fixed
+- **The drive spun and clicked by itself with the computer off:** a switched-off PC holds every line on the cable low through its chips' protection diodes, which reads as both selects, both motors, the write gate and a step all asserted, so the drive on USB played its spin. All the inputs low at once is something no running host does, so the drive now takes it as the host switched off (`fdd::hostOff`) and the lines as released: no select, no motor, no steps, no write gate, and the trace shows them released. The console says `# host off` and `# host on`, and `s` shows `host=off`.
+
 ## [0.23.8] - 2026-11-06
 
 ### Fixed

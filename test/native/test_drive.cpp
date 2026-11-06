@@ -270,6 +270,19 @@ TEST(test_drive_counts_latched_steps) {
     CHECK_EQ(cyl, 10);
 }
 
+// A switched-off PC holds every line low (the Evesham, 6 November): that's
+// "host off", which no running host can produce; one line high isn't.
+TEST(test_host_off_is_every_line_low) {
+    CHECK(fdd::hostOff(0));
+    CHECK(fdd::hostOff(~fdd::INPUT_MASK));  // the outputs' bits don't matter
+    CHECK(!fdd::hostOff(fdd::INPUT_MASK));
+    for (unsigned pin = cfg::FIRST_INPUT_PIN; pin <= cfg::LAST_INPUT_PIN; ++pin)
+        CHECK(!fdd::hostOff(fdd::maskOf(pin)));
+    // What a running PC does at its busiest: selected, motor, stepping, writing
+    CHECK(!fdd::hostOff(sample({cfg::PIN_DRVSB, cfg::PIN_MOTEB, cfg::PIN_DIR, cfg::PIN_STEP, cfg::PIN_WGATE,
+                                cfg::PIN_WDATA, cfg::PIN_SIDE1, cfg::PIN_DENSEL})));
+}
+
 TEST(test_drive_side) {
     drive::Drive d;
     d.onSample(0, sample({cfg::PIN_DRVSB}));
@@ -502,6 +515,7 @@ void runDriveTests() {
     RUN(test_shugart_pin_34_is_ready);
     RUN(test_drive_steps_once_per_assertion_and_only_when_selected);
     RUN(test_drive_counts_latched_steps);
+    RUN(test_host_off_is_every_line_low);
     RUN(test_drive_side);
     RUN(test_drive_disk_change);
     RUN(test_drive_index_needs_motor_disk_and_select);
