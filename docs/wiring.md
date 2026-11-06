@@ -67,9 +67,13 @@ Its TTL inputs read the RP2350's 3.3 V as high. Running it from VBUS means it is
 
 A PC drives floppy pin 2 (density select), so the carrier only reads it. Shugart and Amiga hosts expect the drive to drive it, with DISK CHANGE (/CHNG): without it, an Amiga never notices a disk swap. The SN7407's sixth gate is spare for it. On the rev B carrier:
 
-1. Lift U2 pin 13 (6A) from its ground pad, or cut its track, and wire it to GPIO 23 (BB48R EXT1-27).
-2. Wire U2 pin 12 (6Y) to floppy pin 2 (J1-2).
-3. Set `pin02=chg` in `/FDDSYNTH.CFG` ([config.md](config.md)), with `interface=shugart` or `interface=amiga`.
+1. Lift U2 pin 13 (6A) from its pad and wire it to GPIO 23 (BB48R EXT1-27). The pad is in the ground pour, with no track to cut: heat the pin and lift it half a millimetre clear with a needle, keeping off pin 14 (VBUS) beside it. Check that pin 13 no longer beeps to GND.
+2. Wire U2 pin 12 (6Y, whose pad goes nowhere) to floppy pin 2 (J1-2, on the underside).
+3. Fit 10 kΩ from EXT1-27 to EXT1-1 (+3.3 V). The RP2350's pins start as inputs with a weak pull-down, so for the few milliseconds before the firmware runs, GPIO 23 would read low and gate 6 would pull pin 2 low. Harmless on a PC (open collector, and long before the BIOS looks), but this keeps it released.
+4. Run the solder-bridge test (`x` then `Y`, floppy cable unplugged): it covers GPIO 23.
+5. Set `pin02=chg` in `/FDDSYNTH.CFG` ([config.md](config.md)), with `interface=shugart` or `interface=amiga`.
+
+An Amiga needs this for more than swaps: on the A1200 (6 November 2026), Lotus Turbo Challenge II ran in an emulated A1200 from FDDSynthPro's own tracks, but on the real one the system clicked at DF0 as if it were empty once past the title; Golden Axe clicked waiting for a change.
 
 Pin 2 then works both ways: the SN7407 releases it unless the disk has changed, and the drive still reads it on GPIO 12. With `interface=ibmpc` the firmware never drives it, whatever `pin02` says. Without the rework, GPIO 23 goes nowhere, so the setting does nothing.
 
