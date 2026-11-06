@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "fdd_edge.pio.h"
+#include "fdd_step.pio.h"
 #include "fdd_gate.pio.h"
 #include "fdd_gate_od.pio.h"
 #include "fdd_signals.h"
@@ -21,7 +22,7 @@ static_assert(GATE_BASE == cfg::BUS_FIRST_PIN, "the gate's bit 0 is sample layou
 static_assert(cfg::PIN_RDATA > GATE_BASE && cfg::PIN_RDATA < GATE_BASE + GATE_COUNT,
               "RDATA is inside the gate's OUT range: the gate must be in another PIO block");
 
-static PIO s_edge_pio, s_gate_pio;
+static PIO s_edge_pio, s_step_pio, s_gate_pio;
 static uint s_step_sm, s_select_sm, s_gate_sm;
 static uint32_t s_levels = 0xFFFFFFFFu;  // what the gate was last sent
 static bool s_running = false;
@@ -54,15 +55,15 @@ static bool claim(const pio_program_t* program, unsigned sms, PIO not_this, PIO&
     return false;
 }
 
-static void startEdge(uint sm, uint offset, unsigned pin) {
-    pio_sm_config c = fdd_edge_program_get_default_config(offset);
+// Either sampler: IN from the first input, the edge's pin as the jmp pin.
+static void startSampler(PIO pio, uint sm, uint offset, pio_sm_config c, unsigned pin) {
     sm_config_set_in_pins(&c, cfg::FIRST_INPUT_PIN);
     sm_config_set_in_shift(&c, false, false, 32);  // shift left: GPIO 12 in bit 0 of the ten
     sm_config_set_jmp_pin(&c, pin);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     sm_config_set_clkdiv_int_frac8(&c, 1, 0);
-    pio_sm_init(s_edge_pio, sm, offset, &c);
-    pio_sm_set_enabled(s_edge_pio, sm, true);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
 }
 
 // The PIO block whose program drives RDATA: the gate must be in another.
@@ -80,21 +81,24 @@ static uint32_t gateWord(uint32_t levels) {
 }
 
 bool begin(unsigned select_pin) {
-    uint edge_offset, gate_offset;
-    uint edge_sms[2];
+    uint edge_offset, step_offset, gate_offset;
     const pio_program_t* gate = cfg::OUTPUTS_OPEN_DRAIN ? &fdd_gate_od_program : &fdd_gate_program;
-    if (!claim(&fdd_edge_program, 2, nullptr, s_edge_pio, edge_sms, edge_offset)) return false;
-    s_step_sm = edge_sms[0];
-    s_select_sm = edge_sms[1];
-    if (!claim(gate, 1, rdataPio(), s_gate_pio, &s_gate_sm, gate_offset)) {
-        pio_sm_unclaim(s_edge_pio, s_step_sm);
+    if (!claim(&fdd_edge_program, 1, nullptr, s_edge_pio, &s_select_sm, edge_offset)) return false;
+    if (!claim(&fdd_step_program, 1, nullptr, s_step_pio, &s_step_sm, step_offset)) {
         pio_sm_unclaim(s_edge_pio, s_select_sm);
         pio_remove_program(s_edge_pio, &fdd_edge_program, edge_offset);
         return false;
     }
+    if (!claim(gate, 1, rdataPio(), s_gate_pio, &s_gate_sm, gate_offset)) {
+        pio_sm_unclaim(s_edge_pio, s_select_sm);
+        pio_remove_program(s_edge_pio, &fdd_edge_program, edge_offset);
+        pio_sm_unclaim(s_step_pio, s_step_sm);
+        pio_remove_program(s_step_pio, &fdd_step_program, step_offset);
+        return false;
+    }
 
-    startEdge(s_step_sm, edge_offset, cfg::PIN_STEP);
-    startEdge(s_select_sm, edge_offset, select_pin);
+    startSampler(s_step_pio, s_step_sm, step_offset, fdd_step_program_get_default_config(step_offset), cfg::PIN_STEP);
+    startSampler(s_edge_pio, s_select_sm, edge_offset, fdd_edge_program_get_default_config(edge_offset), select_pin);
 
     // The gate: every line released before the pins are its.
     const uint32_t mask = gateMask();
@@ -122,15 +126,17 @@ bool begin(unsigned select_pin) {
     return true;
 }
 
-static bool take(uint sm, uint32_t& pins) {
-    if (!s_running || pio_sm_is_rx_fifo_empty(s_edge_pio, sm)) return false;
-    uint32_t raw = pio_sm_get(s_edge_pio, sm) & 0x3FFu;  // GPIO 12-21
-    pins = (raw << (cfg::FIRST_INPUT_PIN - cfg::BUS_FIRST_PIN)) | fdd::OUTPUT_MASK;
+bool takeStepSample(uint32_t& pins) {
+    if (!s_running || pio_sm_is_rx_fifo_empty(s_step_pio, s_step_sm)) return false;
+    pins = stepPins(pio_sm_get(s_step_pio, s_step_sm));
     return true;
 }
 
-bool takeStepSample(uint32_t& pins) { return take(s_step_sm, pins); }
-bool takeSelectSample(uint32_t& pins) { return take(s_select_sm, pins); }
+bool takeSelectSample(uint32_t& pins) {
+    if (!s_running || pio_sm_is_rx_fifo_empty(s_edge_pio, s_select_sm)) return false;
+    pins = samplePins(pio_sm_get(s_edge_pio, s_select_sm));
+    return true;
+}
 
 void setLevels(uint32_t levels) {
     levels &= fdd::OUTPUT_MASK;

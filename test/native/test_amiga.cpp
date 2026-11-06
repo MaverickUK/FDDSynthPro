@@ -11,6 +11,7 @@
 #include <random>
 #include <vector>
 
+#include "amiga_pio.h"
 #include "amiga_track.h"
 #include "bus.h"
 #include "check.h"
@@ -321,6 +322,23 @@ public:
         }
     }
 
+    // A game's loader: DIR set in the same write that pulls STEP low, so at
+    // STEP's falling edge it can still read as before (SWIV, on the A1200).
+    void stepWithDir(int n, bool inwards) {
+        for (int i = 0; i < n; ++i) {
+            set(sample({cfg::PIN_MOTEA}));
+            run(8);
+            uint32_t step = sample({cfg::PIN_MOTEA, cfg::PIN_STEP});
+            if (inwards) step &= ~fdd::maskOf(cfg::PIN_DIR);
+            set(step, /*dir_late=*/true);
+            run(2);
+            set(step | fdd::maskOf(cfg::PIN_STEP));
+            run(10);
+            set(IDLE);
+            run(3000);
+        }
+    }
+
     int cylinder() const { return d_.head().cylinder(); }
     drive::Drive& drive() { return d_; }
 
@@ -352,15 +370,34 @@ private:
         run(us);
     }
 
-    // The Amiga changes its lines: the samplers catch the falling edges.
-    void set(uint32_t pins) {
+    // The Amiga changes its lines: the samplers catch the edges. With
+    // `dir_late`, DIR changes in the same write as STEP falls, and the
+    // sampler (a couple of cycles in) still sees the old DIR at the fall.
+    void set(uint32_t pins, bool dir_late = false) {
         bool step_fell = fdd::asserted(pins, cfg::PIN_STEP) && !fdd::asserted(pins_, cfg::PIN_STEP);
+        bool step_rose = !fdd::asserted(pins, cfg::PIN_STEP) && fdd::asserted(pins_, cfg::PIN_STEP);
         bool select_fell = fdd::asserted(pins, cfg::PIN_MOTEA) && !fdd::asserted(pins_, cfg::PIN_MOTEA);
+        uint32_t at_fall = pins;
+        if (dir_late) at_fall = (pins & ~fdd::maskOf(cfg::PIN_DIR)) | (pins_ & fdd::maskOf(cfg::PIN_DIR));
         pins_ = pins;
-        if (step_fell) step_edge_ = true;  // the GPIO block's latch
+        if (step_fell) {
+            step_edge_ = true;  // the GPIO block's latch
+            fall_ = at_fall;
+        }
         if (edges_ && select_fell) d_.onSelectEdge(now_, pins);
-        if (edges_ && step_fell) d_.onStepEdge(now_, pins);
+        if (edges_ && step_rose) d_.onStepEdge(now_, rise_dir_ ? stepWord(fall_, pins) : fall_);
     }
+
+    // fdd_step's word, as the board takes it apart (amiga_pio::stepPins).
+    static uint32_t stepWord(uint32_t fall, uint32_t rise) {
+        auto raw = [](uint32_t p) { return (p >> (cfg::FIRST_INPUT_PIN - cfg::BUS_FIRST_PIN)) & 0x3FFu; };
+        return amiga_pio::stepPins(raw(fall) << 10 | raw(rise));
+    }
+
+public:
+    bool rise_dir_ = true;  // false: DIR as STEP fell (0.24.0 as first written)
+
+private:
 
     void run(uint32_t us) {
         for (uint32_t end = now_ + us; now_ != end; ++now_)
@@ -384,6 +421,7 @@ private:
     bool edges_;
     drive::Drive d_;
     uint32_t pins_ = IDLE;
+    uint32_t fall_ = IDLE;
     uint32_t now_ = 0;
     bool step_edge_ = false;
     uint32_t levels_ = fdd::OUTPUT_MASK, selected_levels_ = fdd::OUTPUT_MASK;
@@ -412,6 +450,21 @@ TEST(test_amiga_short_selects_with_edge_samples) {
     CHECK_EQ(a.cylinder(), 0);
     a.stepIn(40);
     CHECK_EQ(a.cylinder(), 40);
+}
+
+TEST(test_amiga_dir_set_with_the_step) {
+    // A game's loader setting DIR in the same write as STEP falls: taken at
+    // the fall, DIR is the old one and the head goes the wrong way (SWIV
+    // stepped out from 79 when it asked for in); taken as STEP rises, right.
+    BoardAmiga at_fall(true, 40);
+    at_fall.rise_dir_ = false;
+    at_fall.stepWithDir(5, true);
+    CHECK(at_fall.cylinder() != 45);
+    BoardAmiga at_rise(true, 40);
+    at_rise.stepWithDir(5, true);
+    CHECK_EQ(at_rise.cylinder(), 45);
+    at_rise.stepWithDir(7, false);
+    CHECK_EQ(at_rise.cylinder(), 38);
 }
 
 TEST(test_amiga_edge_samples_ignore_other_drives) {
@@ -583,6 +636,7 @@ void runAmigaTests() {
     RUN(test_pin_2_disk_change);
     RUN(test_amiga_short_selects_by_core_1_alone);
     RUN(test_amiga_short_selects_with_edge_samples);
+    RUN(test_amiga_dir_set_with_the_step);
     RUN(test_amiga_edge_samples_ignore_other_drives);
     RUN(test_virtual_amiga_reads_and_writes_tracks);
 }

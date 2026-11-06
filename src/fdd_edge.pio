@@ -1,5 +1,5 @@
-; Samples the ten inputs at each falling edge of one of them: STEP, or an
-; Amiga drive's select. An Amiga selects its drive for a few microseconds
+; Samples the ten inputs at each falling edge of a pin: an Amiga drive's
+; select (fdd_step does STEP). An Amiga selects its drive for a few microseconds
 ; at a time (32 pulses of 4 us to read a drive's ID; 20 us around each step)
 ; and changes DIR with the select, so core 1's once-a-pass sample may miss a
 ; pulse, or see DIR as it was after. Each sample here is the inputs as they

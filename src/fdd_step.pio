@@ -1,0 +1,26 @@
+; Samples the ten inputs at both edges of STEP: as it falls (whether this
+; drive is selected) and as it rises again (DIR). An Amiga game's loader may
+; set DIR in the same write that pulls STEP low (SWIV, on an A1200, 6 Nov
+; 2026), so DIR at the falling edge can be the old direction; a drive takes
+; the step as the pulse ends, with DIR long settled by then.
+;
+; Configure: jmp pin = STEP; IN base = the first input (GPIO 12), shifting
+; left, no autopush; RX FIFO joined. Each step pushes one word: bits 19-10
+; the inputs at the fall, bits 9-0 at the rise. A full FIFO drops the newest.
+
+.program fdd_step
+
+.wrap_target
+wait_high:
+    jmp pin high        ; STEP released
+    jmp wait_high
+high:
+    jmp pin high        ; until it falls
+    in pins, 10         ; GPIO 12-21 as it falls
+rise:
+    jmp pin rose        ; until it rises
+    jmp rise
+rose:
+    in pins, 10         ; and as it rises
+    push noblock
+.wrap

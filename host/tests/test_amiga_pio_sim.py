@@ -1,4 +1,4 @@
-"""Runs the real src/fdd_edge.pio and src/fdd_gate*.pio in the simulator:
+"""Runs the real src/fdd_edge.pio, fdd_step.pio and fdd_gate*.pio in the simulator:
 the Amiga's bus at hardware speed (src/amiga_pio.h). No hardware needed.
 
 An A1200 selects its drive for 4 us to read each bit of the drive ID and
@@ -33,7 +33,7 @@ def run_edge(program, waves, cycles, jmp_pin):
         seen.append(waves(k))
         sim.step(seen.pop(0))
         while sim.rx_fifo:
-            out.append((k, sim.rx_fifo.pop(0) & 0x3FF))
+            out.append((k, sim.rx_fifo.pop(0) & 0xFFFFF))
     return out
 
 
@@ -80,6 +80,47 @@ def test_select_edges_of_an_id_read(edge):
 
     got = run_edge(edge, wave, starts[-1] + 2000, SELECT)
     assert len(got) == len(starts)
+
+
+@pytest.fixture(scope="module")
+def step(assemble):
+    return assemble("fdd_step")
+
+
+def test_step_takes_dir_as_it_rises(step):
+    """A game's loader setting DIR in the same write that pulls STEP low
+    (SWIV): the word has the inputs as STEP fell (the select) and as it rose
+    (the new DIR). 200 steps of 300 cycles (2 us at 150 MHz), each with a
+    random select and a new random DIR from the falling edge on."""
+    rng = random.Random(3)
+    pulses, t = [], 50
+    for _ in range(200):
+        selected = rng.random() < 0.7
+        inwards = rng.random() < 0.5
+        pulses.append((t, selected, inwards))
+        t += 300 + rng.choice([200, 3000])
+    old_dir = True  # released: out
+
+    def wave(k):
+        pins = IDLE
+        for start, selected, inwards in pulses:
+            if start - 100 <= k < start + 400:
+                if selected:
+                    pins &= ~(1 << SELECT)
+                if k >= start and inwards:  # DIR changes with STEP's fall
+                    pins &= ~(1 << DIR)
+                if start <= k < start + 300:
+                    pins &= ~(1 << STEP)
+        return pins
+
+    got = run_edge(step, wave, t + 50, STEP)
+    assert len(got) == len(pulses)
+    for (_, word), (start, selected, inwards) in zip(got, pulses):
+        fall, rise = (word >> 10) & 0x3FF, word & 0x3FF
+        assert bool(~fall >> SELECT & 1) == selected
+        assert bool(~fall >> STEP & 1)  # sampled with STEP low
+        assert bool(~rise >> DIR & 1) == inwards
+        assert rise >> STEP & 1  # and high again
 
 
 def run_gate(program, levels_at, select_at, cycles, out_count=20):
