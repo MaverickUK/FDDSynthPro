@@ -51,9 +51,30 @@ Copies of all of them are in `~/fdd-images`, to check against afterwards and to 
 | 11 | Swap to `RAND1440.IMG` (`]`/`[`, `i` to check), `FORMAT A:` | Formats all 80 cylinders; a track write each, so watch `s` afterwards for write faults |
 | 12 | Copy files onto the new disk, `CHKDSK A:` | No errors |
 | 13 | Soak: a batch file that copies and compares in a loop for an hour or overnight | No errors, no hangs |
+| 14 | `COPY A:\FDDBENCH.EXE C:\`, then `C:\FDDBENCH A:` ([FDDBench](https://github.com/MaverickUK/FDDBench), on `DOS1440.IMG`): **A** for every read scenario, then **B** for the benchmark | No read errors; the benchmark shows 300 RPM (its PC timer line says how far the PC's own timer is out, and corrects for it), 0 errors and 0 retries. Run from C:, its log doesn't write to the disk under test |
+
+### Results: the Evesham, 6 November 2026 (0.23.7, then 0.23.8)
+
+The Evesham booted DOS from HDDSynthPro (C:) with FDDSynthPro as A:, past the twist, J7 closed.
+
+| # | Result |
+|---|---|
+| 1 | Found at POST: selected on 12/16, recalibrated (cylinder 1 to 0), no error |
+| 2 | Not bootable, as expected (the BIOS went on to look for a SCSI disk) |
+| 3, 4 | Directory and README read. The BIOS stepped in and out before the first read, clearing DSKCHG: pin 34 reaches the PC |
+| 5 | **Failed on 0.23.7** with Sector Not Found at cylinder 9, every retry too: the PC's few-microsecond STEP pulses were sometimes missed (one fell inside the pass that restarts the stream at the index). **Fixed in 0.23.8** (steps from STEP's edge latch): copy and `FC /B` clean |
+| 6, 7 | Writes clean: 599 sectors, no CRC errors, overruns or faults; `finish_us_max` 40 ms; `decode_kbps` 1,560 |
+| 8, 9 | Swap to DOS720 seen at once; CHKDSK clean, 730,112 bytes |
+| 10 | Not Ready with the disk out |
+| 11 | FORMAT completed, 1,457,664 bytes, no bad sectors, CHKDSK clean. **But each track's first format failed and was retried** (a recalibrate to cylinder 0 and back, twice a cylinder): a format straight after another format fails as it ends, one straight after the controller's reset works. Not yet understood; compare with a real drive on the same PC |
+| 14 | FDDBench 0.3.2: every scenario clean; benchmark 0 errors / 0 retries, 1.50 rev a track sequential (29.5 KB/s, what a real drive in a PC gives), track-to-track 33.2 ms, full stroke 439.5 ms, average access 272.2 ms. Rotation 295.4 RPM, where the drive's log shows exactly 600.0 ms a cylinder (3 revolutions of 200.0): the PC's timer, or FDDBench, is 1.55% out. FDDBench 0.4.0 checks its timer against the CMOS clock to tell |
+
+The log checker's only complaints were the flash to 0.23.8 (a restart it wasn't told about) and both selects read low while the Evesham was off.
+
+Next on this PC: the same FORMAT and FDDBench run with a real drive, to compare the rotation, the seek figures and the format retries.
 
 ### Afterwards
-- Card into the Mac: `fsck.fat -n "/Volumes/NO NAME/DOS1440.IMG"` and `mdir -i "/Volumes/NO NAME/DOS1440.IMG" ::GAMES` should agree with what the PC did.
+- Card into the Mac: `fsck.fat -n "/Volumes/FDDSYNTHPRO/DOS1440.IMG"` and `mdir -i "/Volumes/FDDSYNTHPRO/DOS1440.IMG" ::GAMES` should agree with what the PC did.
 - Put the test images back from `~/fdd-images` (step 11 formatted `RAND1440.IMG`; the rig tests compare against the copies).
 - Clear the fixed disk with `e` `device0=` if you want the drive to remember the last disk again.
 
@@ -93,7 +114,7 @@ Without it the Amiga reads the disk that was in at boot but never sees a swap. O
 | 8 | DiskCopy between DF0 and DF1 (with a real drive as the other) | Copies both ways |
 
 ### Afterwards
-- Card into the Mac: `host/.venv/bin/xdftool "/Volumes/NO NAME/AMIGADOS.ADF" list` shows what the Amiga left, and `xdftool ... validate` checks the file system.
+- Card into the Mac: `host/.venv/bin/xdftool "/Volumes/FDDSYNTHPRO/AMIGADOS.ADF" list` shows what the Amiga left, and `xdftool ... validate` checks the file system.
 - Put the ADFs back from `~/fdd-images`.
 
 ### If something fails
