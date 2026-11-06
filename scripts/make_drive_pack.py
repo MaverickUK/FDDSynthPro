@@ -83,7 +83,11 @@ class Analysis:
         # The room: most of a session is pauses, so the quiet fifth of it.
         self.floor = sorted(self.hp)[n // 5] or 1e-6
         self.rms_floor = sorted(self.rms)[n // 5] or 1e-6
-        self.threshold = 8 * self.floor
+        # 8x the quiet, but also no less than 8% of the loudest clicks: with the
+        # motor running through most of a session, the "quiet" is its hum, and
+        # its knock once a revolution would otherwise count as clicks
+        loud = sorted(self.hp)[min(n - 1, int(n * 0.995))]
+        self.threshold = max(8 * self.floor, 0.08 * loud)
         self.clicks = self._clicks()
         self.times = [c.t for c in self.clicks]
 
@@ -246,13 +250,39 @@ def make_sounds(a: Analysis, log: list[Logged], offset: float) -> Cut:
     return Cut(sounds, extras, notes)
 
 
+# Done with a hand next to the mic, so far louder than anything the drive
+# does: they mustn't set the pack's gain, only be held under the peak
+HANDLED = ("insert", "eject")
+
+
 def balance(sounds: dict[str, list[float]]) -> dict[str, list[float]]:
     """make_recorded_pack.py's rule: one gain putting a step 6 dB under the
-    peak and nothing but the bump over it; the bump alone to the peak."""
+    peak and nothing but the bump over it; the bump alone to the peak. An
+    insert or eject takes the same gain, or less if that would put it over
+    the peak."""
     peak = {k: max(abs(v) for v in s) or 1e-9 for k, s in sounds.items()}
-    others = [p for k, p in peak.items() if k != "bump"]
+    others = [p for k, p in peak.items() if k != "bump" and k not in HANDLED]
     gain = min(PEAK / 2 / peak["step"], PEAK / max(others))
-    return {k: [v * (PEAK / peak[k] if k == "bump" else gain) for v in s] for k, s in sounds.items()}
+
+    def gain_for(k: str) -> float:
+        if k == "bump":
+            return PEAK / peak[k]
+        if k in HANDLED:
+            return min(gain, PEAK / peak[k])
+        return gain
+    return {k: [v * gain_for(k) for v in s] for k, s in sounds.items()}
+
+
+def borrow(sounds: dict[str, list[float]], pack: Path) -> list[str]:
+    """Fills the sounds the recording lacks from another pack, at that pack's
+    levels (its steps are balanced the same way). Returns what it took."""
+    taken = []
+    for name in ("step", "seek", "bump", "spinup", "spin", "spindown", "insert", "eject"):
+        path = pack / f"{name}.wav"
+        if name not in sounds and path.exists():
+            sounds[name] = decode(path)
+            taken.append(name)
+    return taken
 
 
 def fit(sounds: dict[str, list[float]]) -> dict[str, list[float]]:
@@ -275,14 +305,26 @@ def main():
     p.add_argument("--name", default="Drive", help="the pack's name: samples/<name>/ (default Drive)")
     p.add_argument("--offset", type=float, help="recording time minus log time, if the search gets it wrong")
     p.add_argument("--audition", type=Path, help="also write each sound in turn to this WAV")
+    p.add_argument("--borrow", help="a pack under samples/ to take missing sounds from (e.g. Recorded)")
     args = p.parse_args()
 
     log = drive_session.load(args.run / "session.jsonl")
     print("decoding and analysing...")
     a = Analysis(decode(args.recording or args.run / "recording.wav"))
-    offset = args.offset if args.offset is not None else find_offset(a, log)
+    saved = args.run / "recording.json"
+    if args.offset is not None:
+        offset = args.offset
+    elif saved.exists() and not args.recording:
+        offset = json.loads(saved.read_text())["offset_s"]  # measured as it recorded
+    else:
+        offset = find_offset(a, log)
     cut = make_sounds(a, log, offset)
-    sounds = fit(balance(cut.sounds))
+    sounds = balance(cut.sounds)
+    if args.borrow:
+        taken = borrow(sounds, REPO / "samples" / args.borrow)
+        if taken:
+            cut.notes["borrowed"] = f"{', '.join(taken)} from {args.borrow}"
+    sounds = fit(sounds)
 
     out = REPO / "samples" / args.name
     out.mkdir(parents=True, exist_ok=True)

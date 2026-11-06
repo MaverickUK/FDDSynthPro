@@ -9,16 +9,30 @@ Then scripts/make_drive_pack.py cuts the pack.
     scripts/record_drive.py --mic 0 --writes        # a mic by its number in --list-mics
     scripts/record_drive.py --no-record          # record it yourself; the cutter finds the offset
     scripts/record_drive.py --dry-run            # no gw, no recording: the plan and its timing
+    scripts/record_drive.py --mic 0 --check      # 15 s of the motor: does the mic keep its hum?
 
 Before: the real drive on the Feather's cable (the BB48R unplugged from it),
 powered from its own supply, a disk in it. --writes overwrites cylinders
 38-42 of that disk. The mic close to the drive, the room quiet. macOS asks
 for microphone access the first time.
+
+The iPhone's microphone (Continuity) can take 30 s or more to start, so the
+session waits until audio is arriving, and saves how much was recorded
+before it began (recording.json), which the cutter uses as the offset.
+
+macOS's voice processing removes a steady hum within a second or two, so
+the motor vanishes from a spin. Set Mic Mode to Wide Spectrum (Control
+Centre, while the mic is recording) and run --check: it says whether the
+hum held.
 """
 from __future__ import annotations
 
 import argparse
+import array
+import json
+import math
 import signal
+import wave
 import subprocess
 import sys
 import tempfile
@@ -56,6 +70,27 @@ class Recorder:
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "avfoundation", "-i", f":{mic}",
              "-ac", "1", "-ar", "48000", str(path)], stdin=subprocess.PIPE)
 
+    def audio_seconds(self) -> float:
+        """How much audio is in the file so far (48 kHz mono 16-bit)."""
+        try:
+            return max(0, self.path.stat().st_size - 44) / 96000
+        except FileNotFoundError:
+            return 0.0
+
+    def wait_for_audio(self, timeout: float = 120) -> float:
+        """Until audio is arriving; returns the seconds of it already in the file."""
+        start = time.monotonic()
+        print("waiting for the microphone's audio to start...", flush=True)
+        while self.audio_seconds() < 2.0:
+            if self.p.poll() is not None:
+                raise SystemExit("ffmpeg stopped: try --list-mics")
+            if time.monotonic() - start > timeout:
+                raise SystemExit(f"no audio from the microphone after {timeout:.0f} s")
+            time.sleep(0.1)
+        lead = self.audio_seconds()
+        print(f"audio is arriving (after {time.monotonic() - start:.1f} s)")
+        return lead
+
     def stop(self):
         try:
             self.p.communicate(b"q", timeout=10)  # ffmpeg's own quit: the WAV's header is finished
@@ -92,6 +127,48 @@ def run_action(gw, x: Action, scratch: Path, dry: bool) -> tuple[bool, str]:
     return r.ok, r.output
 
 
+def levels(path: Path, step_s: float = 0.5) -> list[float]:
+    """RMS in dBFS for each step_s of a mono 16-bit WAV."""
+    with wave.open(str(path)) as w:
+        x = array.array("h", w.readframes(w.getnframes()))
+        n = int(w.getframerate() * step_s)
+    out = []
+    for i in range(0, len(x) - n, n):
+        seg = x[i:i + n]
+        out.append(20 * math.log10(max(1.0, math.sqrt(sum(v * v for v in seg) / n)) / 32768))
+    return out
+
+
+def check(mic: str):
+    """Records 4 s of the room, then 15 s of the motor turning: says whether
+    the hum held or the mic's voice processing took it out."""
+    from fddproto.greaseweazle import Greaseweazle
+    gw = Greaseweazle()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "check.wav"
+        rec = Recorder(mic, path)
+        rec.wait_for_audio()
+        time.sleep(4)
+        t_motor = rec.audio_seconds()
+        r = gw.run("read", "--revs", "75", "--tracks", "c=40:h=0", str(Path(tmp) / "spin.scp"), timeout=60)
+        time.sleep(1)
+        rec.stop()
+        if not r.ok:
+            raise SystemExit(f"gw read failed:\n{r.output}")
+        db = levels(path)
+    room = sorted(db[2:int(t_motor * 2) - 1])[len(db[2:int(t_motor * 2) - 1]) // 2]
+    # From 3 s after the motor starts (past the spin-up) to the end of the read
+    spin = db[int(t_motor * 2) + 6:-3]
+    low = min(spin)
+    print(f"room {room:.1f} dB; motor {sorted(spin)[len(spin) // 2]:.1f} dB typical, {low:.1f} dB lowest")
+    print("half-seconds: " + " ".join(f"{v:.0f}" for v in db[int(t_motor * 2):]))
+    if low - room < 6:
+        print("FAIL: the hum fell to the room's level: the mic's voice processing is removing it. "
+              "Set Mic Mode to Wide Spectrum (Control Centre, while this runs) and try again.")
+    else:
+        print(f"OK: the hum held, {low - room:.0f} dB or more over the room")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--mic", default=DEFAULT_MIC, help=f"the microphone (default: {DEFAULT_MIC})")
@@ -101,9 +178,13 @@ def main():
     p.add_argument("--repeats", type=int, default=2, help="how many of each step and seek (default 2)")
     p.add_argument("--dry-run", action="store_true", help="no gw and no recording: try the plan")
     p.add_argument("--out", type=Path, help="the session folder (default host/runs/<time>-drive)")
+    p.add_argument("--check", action="store_true", help="15 s of the motor: does the mic keep the hum?")
     args = p.parse_args()
     if args.list_mics:
         print(list_mics())
+        return
+    if args.check:
+        check(args.mic)
         return
 
     actions = drive_session.plan(writes=args.writes, repeats=args.repeats)
@@ -125,7 +206,11 @@ def main():
         time.sleep(0.5)
         if recorder.p.poll() is not None:
             raise SystemExit(f"ffmpeg couldn't record from {args.mic!r}: try --list-mics")
+        lead = recorder.wait_for_audio()
     start = time.monotonic()
+    if recorder:
+        # Recording time minus log time, for the cutter
+        (out / "recording.json").write_text(json.dumps({"offset_s": round(lead, 3)}))
     log: list[Logged] = []
     try:
         with tempfile.TemporaryDirectory() as tmp:
