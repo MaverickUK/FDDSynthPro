@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.8] - 2026-11-06
+
+### Fixed
+- **A real PC's steps could be missed:** core 1 saw a step only when one of its passes sampled STEP low, and a PC's controller pulses STEP for a few microseconds. A pulse that fell inside a long pass (the one restarting the stream at the index, just where a sequential read steps to the next cylinder) was lost: the head stayed a cylinder short and the PC got "Sector not found" (the Evesham, copying `RANDOM.BIN`, at cylinder 9; every retry's seek back came up one step short too). Steps are now counted from the GPIO block's edge latch (its raw interrupt status, which latches whether or not the interrupt is enabled), so every falling edge on STEP is a step, exactly once, however short. The Greaseweazle's 15 µs and the Feather's 13 ms pulses were always long enough.
+
 ## [0.23.7] - 2026-11-06
 
 ### Added

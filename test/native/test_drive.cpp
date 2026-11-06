@@ -236,6 +236,40 @@ TEST(test_drive_steps_once_per_assertion_and_only_when_selected) {
     CHECK(!d2.onSample(5, sample({cfg::PIN_DRVSB, cfg::PIN_STEP})).stepped);
 }
 
+// A PC's controller pulses STEP for a few microseconds: shorter than one of
+// core 1's passes now and then (the one restarting the stream at the index).
+// With the GPIO block's edge latch every pulse steps, exactly once, even when
+// no sample saw STEP low (a Sector Not Found at cylinder 9 on the Evesham).
+TEST(test_drive_counts_latched_steps) {
+    drive::Drive d;
+    d.useStepLatch(true);
+    d.onSample(0, sample({cfg::PIN_DRVSB, cfg::PIN_DIR}));
+    // A pulse that came and went between samples: a step all the same.
+    drive::StepEvent e = d.onSample(10, sample({cfg::PIN_DRVSB, cfg::PIN_DIR}), true);
+    CHECK(e.stepped);
+    CHECK_EQ(e.cylinder, 1);
+    // A pulse a sample did see: one step, on the edge, not on the level too.
+    e = d.onSample(20, sample({cfg::PIN_DRVSB, cfg::PIN_DIR, cfg::PIN_STEP}), true);
+    CHECK(e.stepped);
+    CHECK_EQ(e.cylinder, 2);
+    CHECK(!d.onSample(25, sample({cfg::PIN_DRVSB, cfg::PIN_DIR, cfg::PIN_STEP})).stepped);
+    CHECK(!d.onSample(30, sample({cfg::PIN_DRVSB, cfg::PIN_DIR})).stepped);
+    // The level alone (no edge latched) isn't a step in this mode: the edge
+    // that caused it was counted when it was latched.
+    CHECK(!d.onSample(40, sample({cfg::PIN_DRVSB, cfg::PIN_DIR, cfg::PIN_STEP})).stepped);
+    // Not selected: an edge is ignored.
+    d.onSample(50, sample({cfg::PIN_DIR}));
+    CHECK(!d.onSample(60, sample({cfg::PIN_DIR}), true).stepped);
+    CHECK_EQ(d.onSample(70, sample({cfg::PIN_DRVSB, cfg::PIN_DIR})).cylinder, 0);  // no step: nothing reported
+    // Ten fast pulses, none of them seen by a sample: ten cylinders.
+    drive::Drive f;
+    f.useStepLatch(true);
+    f.onSample(0, sample({cfg::PIN_DRVSB, cfg::PIN_DIR}));
+    uint8_t cyl = 0;
+    for (int i = 1; i <= 10; ++i) cyl = f.onSample(uint32_t(i * 3000), sample({cfg::PIN_DRVSB, cfg::PIN_DIR}), true).cylinder;
+    CHECK_EQ(cyl, 10);
+}
+
 TEST(test_drive_side) {
     drive::Drive d;
     d.onSample(0, sample({cfg::PIN_DRVSB}));
@@ -467,6 +501,7 @@ void runDriveTests() {
     RUN(test_shugart_drive_answers_on_its_ds_line);
     RUN(test_shugart_pin_34_is_ready);
     RUN(test_drive_steps_once_per_assertion_and_only_when_selected);
+    RUN(test_drive_counts_latched_steps);
     RUN(test_drive_side);
     RUN(test_drive_disk_change);
     RUN(test_drive_index_needs_motor_disk_and_select);

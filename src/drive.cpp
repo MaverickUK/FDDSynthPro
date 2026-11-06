@@ -6,7 +6,7 @@ namespace drive {
 
 Drive::Drive(Config c) : cfg_(c), head_(c.last_cylinder, c.start_cylinder), spindle_(c.spindle) {}
 
-StepEvent Drive::onSample(uint32_t now_us, uint32_t pins) {
+StepEvent Drive::onSample(uint32_t now_us, uint32_t pins, bool step_edge) {
     bool selected = fdd::asserted(pins, cfg_.lines.select);
     bool motor = fdd::asserted(pins, cfg_.lines.motor);
     if (cfg_.interface == bus::Interface::Amiga) {
@@ -19,7 +19,8 @@ StepEvent Drive::onSample(uint32_t now_us, uint32_t pins) {
 
     StepEvent e;
     bool step = fdd::asserted(pins, cfg::PIN_STEP);
-    if (step && !step_was_asserted_ && selected_) {
+    bool new_step = step_latch_ ? step_edge : step && !step_was_asserted_;
+    if (new_step && selected_) {
         e.stepped = true;
         e.outcome = head_.step(fdd::asserted(pins, cfg::PIN_DIR));
         e.cylinder = head_.cylinder();

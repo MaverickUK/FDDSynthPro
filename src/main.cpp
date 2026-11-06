@@ -71,6 +71,18 @@ static std::atomic<uint32_t> g_steps{0};    // STEP assertions seen
 // Pins in sample layout (bit n = GPIO BUS_FIRST_PIN + n).
 static uint32_t pinsAsSample() { return gpio_get_all() >> cfg::BUS_FIRST_PIN; }
 
+// Whether STEP has been asserted (a falling edge) since the last call. The
+// GPIO block latches edges in its raw interrupt status whether or not the
+// interrupt is enabled, so a pulse shorter than one of core 1's passes isn't
+// lost: a PC's controller pulses STEP for a few microseconds, and a pass that
+// restarts the stream at the index takes longer than that (0.23.8).
+static bool takeStepEdge() {
+    constexpr unsigned SHIFT = 4 * (cfg::PIN_STEP % 8);
+    if (!(io_bank0_hw->intr[cfg::PIN_STEP / 8] & (GPIO_IRQ_EDGE_FALL << SHIFT))) return false;
+    gpio_acknowledge_irq(cfg::PIN_STEP, GPIO_IRQ_EDGE_FALL);
+    return true;
+}
+
 constexpr uint32_t OUTPUT_GPIO_MASK = fdd::OUTPUT_MASK << cfg::BUS_FIRST_PIN;
 
 static void record(const TraceEvent& e) {
@@ -282,15 +294,18 @@ void loop1() {
     WriteGate write_gate;
     WriteBurst burst{};
     g_core1_stage.store(5);
+    for (unsigned i = 0; i < n; ++i) drives[i]->useStepLatch(true);
+    takeStepEdge();  // forget any edge from before the loop
     for (;;) {
         uint32_t now = time_us_32();
+        bool step_edge = takeStepEdge();
         uint32_t pins = pinsAsSample();
         watch(w, now, pins);
 
         drive::StepEvent e;
         for (unsigned i = 0; i < n; ++i) {
             DriveShared& s = g_shared[i];
-            drive::StepEvent each = drives[i]->onSample(now, pins);
+            drive::StepEvent each = drives[i]->onSample(now, pins, step_edge);
             if (each.stepped) {  // only a selected drive steps
                 e = each;
                 s.cylinder.store(each.cylinder, std::memory_order_relaxed);

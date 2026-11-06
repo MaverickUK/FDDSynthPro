@@ -80,7 +80,14 @@ public:
 
     // Takes a pin sample (fdd_signals.h layout). Call on every change of the
     // inputs, or simply on every pass of the loop.
-    StepEvent onSample(uint32_t now_us, uint32_t pins);
+    //
+    // Steps: by default a step is STEP seen asserted after a sample that saw
+    // it released. With useStepLatch(), only `step_edge` counts: STEP fell at
+    // some point since the last sample (the GPIO block's edge latch), so a
+    // pulse shorter than a pass still steps, and each counts exactly once. A
+    // PC's controller pulses STEP for a few microseconds.
+    StepEvent onSample(uint32_t now_us, uint32_t pins, bool step_edge = false);
+    void useStepLatch(bool on) { step_latch_ = on; }
 
     // The output lines at this moment.
     Outputs outputs(uint32_t now_us);
@@ -121,6 +128,7 @@ private:
     rotation::Spindle spindle_;
     bool selected_ = false;
     bool step_was_asserted_ = false;
+    bool step_latch_ = false;
     bool motor_latched_ = false;  // Amiga: the motor line as it was at select
     uint8_t side_ = 0;
     bool disk_present_ = false;
