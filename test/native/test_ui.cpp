@@ -253,6 +253,39 @@ TEST(test_screen_stats) {
 
 // ---- The controls ---------------------------------------------------------------------------
 
+TEST(test_screen_splash) {
+    // The logo at power-on (scripts/make_splash.py), centred, about a third lit.
+    Canvas c;
+    ui::Model m;
+    ui::HeadTrace trace;
+    m.showSplash(0);
+    screens::draw(c, m, ui::Status{}, trace);
+    preview(c, "splash");
+    int on = lit(c, 0, 0, 127, 63);
+    CHECK(on > 1000 && on < 4000);
+    CHECK(lit(c, 0, 0, 20, 63) < lit(c, 21, 0, 106, 63));  // the floppy, not off to one side
+}
+
+TEST(test_ui_splash_then_home) {
+    // A second of the logo, then Home; a turn or press skips it, and does
+    // nothing else (the volume stays).
+    Card k;
+    ui::Model m;
+    m.showSplash(1000);
+    m.tick(k.s, 1500);
+    CHECK(m.screen() == ui::Screen::Splash);
+    m.tick(k.s, 2000);
+    CHECK(m.screen() == ui::Screen::Home);
+    ui::Model n;
+    n.setVolume(50);
+    n.showSplash(1000);
+    n.input(ui::Input::TurnUp, k.s, 1100);
+    CHECK(n.screen() == ui::Screen::Home);
+    CHECK_EQ(n.volume(), 50);
+    ui::Model fresh;  // without showSplash: Home at once, as the tests and showreel have it
+    CHECK(fresh.screen() == ui::Screen::Home);
+}
+
 TEST(test_ui_volume_overlay) {
     Card k;
     ui::Model m;
@@ -635,6 +668,8 @@ void runUiTests() {
     RUN(test_screen_head_trace);
     RUN(test_screen_sounds);
     RUN(test_screen_stats);
+    RUN(test_screen_splash);
+    RUN(test_ui_splash_then_home);
     RUN(test_ui_volume_overlay);
     RUN(test_ui_choose_and_insert_a_disk);
     RUN(test_ui_disk_list_wraps_and_cancels);

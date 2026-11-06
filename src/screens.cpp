@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "font5x7.h"
+#include "splash_logo.h"
 
 namespace screens {
 
@@ -307,6 +308,13 @@ void stats(Canvas& c, const ui::Status& s) {
     }
 }
 
+// The logo at power-on (src/splash_logo.h, from media/FDDSynthPro.png).
+static void splashScreen(Canvas& c) {
+    for (int y = 0; y < splash::HEIGHT; ++y)
+        for (int x = 0; x < splash::WIDTH; ++x)
+            if (splash::LOGO[y][x / 8] & (0x80 >> (x % 8))) c.pixel(x, y);
+}
+
 void draw(Canvas& c, const ui::Model& m, const ui::Status& s, const ui::HeadTrace& trace) {
     c.clear();
     switch (m.screen()) {
@@ -318,6 +326,7 @@ void draw(Canvas& c, const ui::Model& m, const ui::Status& s, const ui::HeadTrac
         case ui::Screen::HeadTrace: headTrace(c, s, trace); break;
         case ui::Screen::Sounds: sounds(c, s); break;
         case ui::Screen::Stats: stats(c, s); break;
+        case ui::Screen::Splash: splashScreen(c); break;
     }
 }
 

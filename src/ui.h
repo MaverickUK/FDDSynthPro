@@ -21,7 +21,7 @@
 
 namespace ui {
 
-enum class Screen : uint8_t { Home, Disks, Swap, Volume, HeadTrace, Sounds, Stats, Packs };
+enum class Screen : uint8_t { Home, Disks, Swap, Volume, HeadTrace, Sounds, Stats, Packs, Splash };
 enum class Input : uint8_t { TurnUp, TurnDown, Press, Action, LongAction };
 enum class Activity : uint8_t { Idle, Read, Write, Seek };
 
@@ -80,6 +80,14 @@ class Model {
 public:
     static constexpr uint32_t OVERLAY_MS = 4000;  // volume
     static constexpr uint32_t LIST_MS = 15000;    // the disk and pack lists close if left alone
+    static constexpr uint32_t SPLASH_MS = 1000;   // the logo at power-on
+
+    // The logo (Screen::Splash) until SPLASH_MS after `now_ms`, then Home.
+    // The firmware shows it at power-on; a turn or press skips it.
+    void showSplash(uint32_t now_ms) {
+        screen_ = Screen::Splash;
+        splash_ms_ = now_ms;
+    }
 
     void input(Input in, const Status& s, uint32_t now_ms);
     // Timeouts. Call every frame.
@@ -129,6 +137,7 @@ private:
     size_t selection_ = 0;
     int volume_ = 75;
     uint32_t last_input_ms_ = 0;
+    uint32_t splash_ms_ = 0;  // when the splash began
     bool swap_pending_ = false;
     size_t swap_to_ = 0;
     uint8_t swap_drive_ = 0;

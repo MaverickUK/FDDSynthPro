@@ -47,6 +47,7 @@ const char* screenName(ui::Screen s) {
         case ui::Screen::Sounds: return "Sounds";
         case ui::Screen::Stats: return "Stats";
         case ui::Screen::Packs: return "Packs";
+        case ui::Screen::Splash: return "Splash";
     }
     return "?";
 }
@@ -101,6 +102,16 @@ void begin() {
         Serial.printf("# oled: found at 0x%02x\n", cfg::OLED_I2C_ADDR);
     else
         Serial.println("# oled: no display answering on the Qwiic connector (I2C1, 0x3C); OLED off");
+
+    // The logo, at once: frames only start in loop(), after the card is
+    // mounted and the disk cached. It stays up for SPLASH_MS from here, or
+    // until then. Waiting for this one frame (23 ms) is fine at power-on.
+    ui_model.showSplash(millis());
+    if (!found) return;
+    screens::draw(canvas, ui_model, ui::Status{}, trace);
+    stream.start(canvas.data());
+    for (uint32_t started = millis(); !stream.done() && millis() - started < 100;) feed();
+    last_frame_ms = millis();
 }
 
 void service(const ui::Status& s, uint32_t now_ms, bool may_draw) {

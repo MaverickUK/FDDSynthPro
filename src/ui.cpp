@@ -7,6 +7,10 @@ static size_t packCount(const Status& s) { return s.packs ? s.packs->count() : 0
 
 void Model::input(Input in, const Status& s, uint32_t now_ms) {
     last_input_ms_ = now_ms;
+    if (screen_ == Screen::Splash) {  // any input skips the logo, and does nothing else
+        screen_ = Screen::Home;
+        return;
+    }
     if (screen_ == Screen::Disks) {
         size_t n = imageCount(s);
         switch (in) {
@@ -112,6 +116,7 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
 
 void Model::tick(const Status& s, uint32_t now_ms) {
     uint32_t idle = now_ms - last_input_ms_;
+    if (screen_ == Screen::Splash && now_ms - splash_ms_ >= SPLASH_MS) screen_ = Screen::Home;
     if (screen_ == Screen::Volume && idle >= OVERLAY_MS) screen_ = base_;
     if (screen_ == Screen::Disks && idle >= LIST_MS) screen_ = base_;
     if (screen_ == Screen::Packs && idle >= LIST_MS) screen_ = Screen::Sounds;
