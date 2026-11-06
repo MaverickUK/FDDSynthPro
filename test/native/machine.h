@@ -106,8 +106,20 @@ public:
     // on the board). The scratch and the write decoder's store are core 0's,
     // shared: it works on one drive at a time.
     struct Unit {
+        // Where RDATA is in this drive's buffer at the Machine's time, as the
+        // RDATA DMA's read address tells core 0 on the board.
+        struct Position : StreamPosition {
+            Unit* u = nullptr;  // not const: the spindle keeps its anchor near now
+            const uint32_t* now = nullptr;
+            uint32_t nextWord(const uint32_t*) const override {
+                if (!u->d.streams(*now, u->loader.ready())) return NOT_STREAMING;
+                const ibm::Format& f = u->slot.format();
+                return uint32_t(uint64_t(u->d.spindle().phaseUs(*now)) * f.dataRate() / 8000000u) % f.track_bytes;
+            }
+        };
+
         Unit(const ibm::Format& fmt, const drive::Config& dc, uint16_t* scratch, uint8_t* store, size_t store_len,
-             mfm::Field* fields, size_t max_fields)
+             mfm::Field* fields, size_t max_fields, const uint32_t* now)
             : slots(ibm::MAX_TRACK_WORDS),
               data0(ibm::MAX_TRACK_DATA),
               data1(ibm::MAX_TRACK_DATA),
@@ -117,7 +129,11 @@ public:
               cache(cache_ram.data(), cache_ram.size()),
               slot(cache),
               loader(slot, slots.data(), scratch, data0.data(), data1.data()),
-              writer(slot, loader, store, store_len, fields, max_fields) {}
+              writer(slot, loader, store, store_len, fields, max_fields) {
+            position.u = this;
+            position.now = now;
+            loader.setStreamPosition(&position);
+        }
 
         std::vector<uint32_t> slots;  // the RDATA streamer's buffer
         std::vector<uint8_t> data0, data1;
@@ -128,6 +144,7 @@ public:
         DiskSlot slot;        // the cache, always
         CylinderLoader loader;
         BurstWriter writer;
+        Position position;
     };
 
 private:
@@ -140,6 +157,7 @@ private:
     std::vector<mfm::Field> fields_ = std::vector<mfm::Field>(144);
     // The WDATA capture ring, as on the board.
     std::vector<uint8_t> ring_ = std::vector<uint8_t>(cfg::CAPTURE_RING_BYTES);
+    uint32_t now_ = 0;  // the time core 1's and core 0's work is being done at
     std::vector<std::unique_ptr<Unit>> units_;
 
 public:
@@ -227,6 +245,7 @@ public:
     // at a time, each taking its cost. The loaders see their heads'
     // cylinders as each step starts.
     void runCore0(uint32_t now) {
+        now_ = now;
         // Writes first, as on the board: decode whatever has arrived.
         BurstResult r;
         if (!costs_.decode_kbps) {
@@ -347,12 +366,13 @@ private:
             c.interface = bus.interface;
             c.start_cylinder = start_cylinder;
             units.push_back(std::make_unique<Unit>(*formats[i], c, scratch_.data(), store_.data(), store_.size(),
-                                                   fields_.data(), fields_.size()));
+                                                   fields_.data(), fields_.size(), &now_));
         }
         return units;
     }
 
     void sample(uint32_t now, uint32_t pins, const drive::StepEvent& e) {
+        now_ = now;
         // The drive the host is using: the selected one, else the last.
         for (size_t i = 0; i < units_.size(); ++i)
             if (units_[i]->d.selected()) current_ = i;

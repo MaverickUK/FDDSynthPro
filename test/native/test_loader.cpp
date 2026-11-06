@@ -3,6 +3,7 @@
 // host's settle time.
 #include <cstdint>
 #include <cstdio>
+#include <utility>
 #include <vector>
 
 #include "check.h"
@@ -184,6 +185,129 @@ TEST(test_loader_read_error_blanks_one_head) {
     CHECK(!r.headIsBlank(0));
 }
 
+// ---- Showing a write while the buffer streams ---------------------------------
+
+// The streamer's position, as the test sets it.
+struct FixedPosition : StreamPosition {
+    uint32_t word = NOT_STREAMING;
+    uint32_t nextWord(const uint32_t*) const override { return word; }
+};
+
+std::vector<uint16_t> cellsOf(const std::vector<uint32_t>& slots, uint8_t head) {
+    std::vector<uint16_t> out(slots.size());
+    for (size_t i = 0; i < slots.size(); ++i) out[i] = rdata::headCells(slots[i], head);
+    return out;
+}
+
+// [first, end) runs where two tracks' cells differ, gaps of up to 4 words
+// inside a run (a data field's CRC can match by chance; its mark never changes).
+std::vector<std::pair<uint32_t, uint32_t>> changedRuns(const std::vector<uint16_t>& a, const std::vector<uint16_t>& b) {
+    std::vector<std::pair<uint32_t, uint32_t>> runs;
+    for (uint32_t i = 0; i < a.size(); ++i) {
+        if (a[i] == b[i]) continue;
+        if (!runs.empty() && i - runs.back().second <= 4)
+            runs.back().second = i + 1;
+        else
+            runs.push_back({i, i + 1});
+    }
+    return runs;
+}
+
+// Cylinder 5 loaded, with a stream position; then every sector of head 0
+// rewritten with 0xF6 (as a format does), and the head encoded. `old` and
+// `fresh` are head 0's cells before and as they should end up.
+struct WriteRig {
+    explicit WriteRig(uint32_t at_offset_in_sector4, bool inside) {
+        r.loader.setStreamPosition(&pos);
+        r.loader.request(5);
+        r.runUntilIdle();
+        old = cellsOf(r.slots, 0);
+        other = cellsOf(r.slots, 1);
+        const ibm::Format& fmt = r.source.format();
+        std::vector<uint8_t> data(fmt.track(5, 0).dataBytes(), 0xF6);
+        fresh.resize(fmt.track_bytes);
+        ibm::buildTrack(fmt, 5, 0, data.data(), fresh.data());
+        runs = changedRuns(old, fresh);
+        pos.word = inside ? runs[3].first + at_offset_in_sector4 : runs[3].second + at_offset_in_sector4;
+        for (uint8_t sec = 0; sec < fmt.track(5, 0).sectors; ++sec)
+            r.loader.storeSector(5, 0, sec, data.data() + sec * fmt.sectorBytes());
+        r.loader.encodeHead(5, 0);
+    }
+    // Head 0's cells are the new track's except in `held` (the old), and head 1's are untouched.
+    bool shows(int held) const {
+        std::vector<uint16_t> now = cellsOf(r.slots, 0);
+        for (uint32_t i = 0; i < now.size(); ++i) {
+            bool in = held >= 0 && i >= runs[size_t(held)].first && i < runs[size_t(held)].second;
+            if (now[i] != (in ? old[i] : fresh[i])) return false;
+        }
+        return cellsOf(r.slots, 1) == other;
+    }
+    Rig r;
+    FixedPosition pos;
+    std::vector<uint16_t> old, fresh, other;
+    std::vector<std::pair<uint32_t, uint32_t>> runs;
+};
+
+TEST(test_loader_holds_the_sector_under_the_head) {
+    // The host is reading sector 4 when the write is shown: it must read it
+    // whole, old, and every other sector new. On the Evesham, FORMAT's
+    // verify read a sector half old, half new, and failed.
+    WriteRig w(100, true);
+    CHECK_EQ(w.runs.size(), 18u);  // a data field a sector
+    CHECK(w.r.loader.holding());
+    CHECK_EQ(w.r.loader.heldRuns(), 1u);
+    CHECK(w.shows(3));
+    CHECK(w.r.loader.service() == Step::Idle);  // still in it
+    CHECK(w.shows(3));
+    w.pos.word = w.runs[3].second;  // just past it, but RDATA, behind, isn't
+    CHECK(w.r.loader.service() == Step::Idle);
+    w.pos.word = w.runs[3].second + StreamPosition::LAG_WORDS;
+    CHECK(w.r.loader.service() == Step::Held);
+    CHECK(!w.r.loader.holding());
+    CHECK(w.shows(-1));
+}
+
+TEST(test_loader_held_run_waits_for_a_head_coming_round) {
+    // A head about to reach the run (it will be inside before the rebuild
+    // is done) waits too, then a head well clear of it doesn't.
+    WriteRig w(100, true);
+    w.pos.word = w.runs[3].first - 10;
+    CHECK(w.r.loader.service() == Step::Idle);
+    CHECK(w.shows(3));
+    w.pos.word = w.runs[8].first;
+    CHECK(w.r.loader.service() == Step::Held);
+    CHECK(w.shows(-1));
+}
+
+TEST(test_loader_copies_at_once_with_the_head_in_a_gap) {
+    WriteRig w(40, false);  // in the gap after sector 4
+    CHECK(!w.r.loader.holding());
+    CHECK_EQ(w.r.loader.heldRuns(), 0u);
+    CHECK(w.shows(-1));
+}
+
+TEST(test_loader_copies_at_once_when_not_streaming) {
+    WriteRig w(100, true);
+    w.r.loader.reset();  // a new disk: nothing held
+    CHECK(!w.r.loader.holding());
+    Rig r;  // no stream position at all
+    r.loader.request(5);
+    r.runUntilIdle();
+    std::vector<uint8_t> data(512, 0xF6);
+    CHECK(r.loader.writeSector(5, 0, 3, data.data()));
+    CHECK(!r.loader.holding());
+}
+
+TEST(test_loader_load_drops_a_held_run) {
+    // The head moves on before the run is copied: the load rewrites it all.
+    WriteRig w(100, true);
+    w.pos.word = StreamPosition::NOT_STREAMING;
+    w.r.loader.request(6);
+    w.r.runUntilIdle();
+    CHECK(!w.r.loader.holding());
+    CHECK(w.r.holds(6));
+}
+
 TEST(test_loader_dd_format) {
     Rig r(ibm::DD_720);
     r.loader.request(79);
@@ -289,6 +413,11 @@ void runLoaderTests() {
     RUN(test_loader_head_moving_back_during_reads);
     RUN(test_loader_blank_beyond_the_image);
     RUN(test_loader_read_error_blanks_one_head);
+    RUN(test_loader_holds_the_sector_under_the_head);
+    RUN(test_loader_held_run_waits_for_a_head_coming_round);
+    RUN(test_loader_copies_at_once_with_the_head_in_a_gap);
+    RUN(test_loader_copies_at_once_when_not_streaming);
+    RUN(test_loader_load_drops_a_held_run);
     RUN(test_loader_dd_format);
     RUN(test_ready_within_settle_time);
     RUN(test_slow_card_misses_the_settle_time);

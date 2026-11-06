@@ -442,6 +442,41 @@ TEST(test_pc_card_stalls) {
     }
 }
 
+TEST(test_pc_format_verifies_first_time) {
+    // DOS FORMAT, with the board's write timings: each track formatted (a
+    // revolution's write from the index), then verified straight away. On
+    // the Evesham (6 Nov 2026) the first verify of 148 tracks in 160 failed
+    // and FORMAT formatted the track again: core 0's re-encode of the new
+    // sectors, finished while the verify was reading, overtook the head in
+    // the middle of a sector, which read half old and half new. The second
+    // format changed nothing, so its verify passed.
+    for (uint32_t finish_us : {2000u, 4000u, 6700u, 12000u, 40000u}) {
+        Machine m(ibm::HD_1440, boardWriteCosts(finish_us), 0);
+        VirtualPc pc(m);
+        pc.motorOn();
+        pc.recalibrate();
+        std::vector<uint8_t> buf(18 * 512), fill(512, 0xF6);
+        unsigned wrong = 0, stale = 0;
+        for (uint8_t cyl = 10; cyl < 16; ++cyl)
+            for (uint8_t head = 0; head < 2; ++head) {
+                std::vector<uint8_t> old = sectors(m.source, cyl, head, 1, 18);
+                CHECK(pc.formatTrack(cyl, head, 0xF6) == Status::Ok);
+                CHECK(pc.readSectors(cyl, head, 1, 18, buf.data()) == Status::Ok);
+                for (unsigned i = 0; i < 18; ++i) {
+                    if (std::memcmp(buf.data() + i * 512, fill.data(), 512) == 0) continue;
+                    if (std::memcmp(buf.data() + i * 512, old.data() + i * 512, 512) == 0)
+                        ++stale;  // read before the finish was over: a verify checks only the CRC
+                    else
+                        ++wrong;
+                }
+            }
+        std::printf("    finish %5u us: held %u, retries %u, CRC errors %u, read before the finish %u\n", finish_us, m.loader.heldRuns(), pc.retries,
+                    pc.crc_errors, stale);
+        CHECK_EQ(pc.retries, 0u);
+        CHECK_EQ(wrong, 0u);
+    }
+}
+
 // Seeks, reading one sector after each, as a busy DOS program does: every
 // load against the settle time, with the panel drawing throughout. Half are
 // to a random cylinder, half a single step on (as reading a file does). A
@@ -587,5 +622,6 @@ void runVirtualPcTests() {
     RUN(test_pc_panel_margin);
     RUN(test_pc_timed_writes_keep_up);
     RUN(test_pc_card_stalls);
+    RUN(test_pc_format_verifies_first_time);
     RUN(test_image_list);
 }

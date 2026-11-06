@@ -193,6 +193,13 @@ static std::atomic<uint32_t> g_drive_events_dropped{0};
 // The first drive's are static; a second drive's (77 KB with its track
 // data) are allocated at power-on, only when one is set up (chooseDisks).
 static uint32_t g_slots0[ibm::MAX_TRACK_WORDS];
+
+// Where the RDATA DMA is in a drive's buffer, so a write is shown without
+// tearing the sector the host is reading (cylinder_loader.h).
+struct DmaPosition final : StreamPosition {
+    uint32_t nextWord(const uint32_t* slots) const override { return rdata_pio::nextWord(slots, ibm::MAX_TRACK_WORDS); }
+};
+static DmaPosition g_dma_position;
 static uint32_t* g_cylinder_slots[bus::MAX_DRIVES] = {g_slots0};
 
 // Set by core 0 in setup() (chooseDisk): the drives, how they sit on the
@@ -634,6 +641,7 @@ static void chooseDisk(unsigned i) {
     reportFill(s, started);
     s.slot = new DiskSlot(*s.cache);
     s.loader = new CylinderLoader(*s.slot, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
+    s.loader->setStreamPosition(&g_dma_position);
     s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
     s.writer->between_writes = audio::service;  // a track's card writes outlast the audio queue
     while (s.loader->service() != CylinderLoader::Step::Idle) audio::service();  // cylinder 0, before the host can ask

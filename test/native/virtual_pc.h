@@ -13,9 +13,13 @@
 //   - RECALIBRATE steps out until TRK00, checking it before each step, up
 //     to 79 steps.
 //   - Finding a sector: read ID fields as they come round; give up after
-//     two index pulses ("sector not found").
+//     two index pulses ("sector not found"). A bad CRC in the wanted
+//     sector's data field ends the command (a data error), as a 765 does.
 //   - A sector write: after its ID field, skip gap 2, then WGATE on and the
 //     data field (12 x 00, A1 A1 A1, FB, data, CRC, one 4E), WGATE off.
+//   - Formatting a track (formatTrack, INT 13h function 5): at the index,
+//     WGATE on for one revolution, the whole track (every sector's ID and
+//     data field, the format's own gaps), WGATE off at the next index.
 //   - Errors: three tries, recalibrating between them, as INT 13h does.
 //   - Disk change: the BIOS reads DSKCHG before an access; a change is
 //     cleared by stepping (here: to cylinder 1 and back).
@@ -128,6 +132,33 @@ public:
         return access(cyl, head, first, count, nullptr, data);
     }
 
+    // INT 13h, function 5: formats (cyl, head), every sector's data `fill`,
+    // laid out as the disk's format lays a track out (ibm::buildTrack). DOS
+    // FORMAT verifies each track straight after (readSectors).
+    Status formatTrack(uint8_t cyl, uint8_t head, uint8_t fill) {
+        if (cable().wpt) return Status::WriteProtected;
+        if (!seekTo(cyl)) return Status::SectorNotFound;
+        set(cfg::PIN_SIDE1, head == 1);
+        const ibm::Format& fmt = m_.format();
+        std::vector<uint8_t> data(fmt.track(cyl, head).dataBytes(), fill);
+        std::vector<uint16_t> cells(fmt.track_bytes);
+        if (!ibm::buildTrack(fmt, cyl, head, data.data(), cells.data())) return Status::SectorNotFound;
+        // The controller starts at the index pulse.
+        for (uint32_t last = position();;) {
+            run(m_.usPerByte());
+            uint32_t pos = position();
+            if (pos < last) break;
+            last = pos;
+        }
+        set(cfg::PIN_WGATE, true);
+        sendCells(cells.data(), cells.size());
+        set(cfg::PIN_WGATE, false);
+        return Status::Ok;
+    }
+
+    // Data fields read with a bad CRC (each a failed try).
+    unsigned crc_errors = 0;
+
     // The controller's data rate, as the BIOS last set it.
     uint32_t rate_bps = 500000;
 
@@ -208,7 +239,13 @@ private:
             if (f.mark == mfm::MARK_IDAM) {
                 id_seen = f.crc_ok && f.id[0] == cyl && f.id[1] == head && f.id[2] == r;
                 if (id_seen && !out) return true;
-            } else if (id_seen && f.crc_ok) {
+            } else if (id_seen) {
+                // The controller ends the command on the data field either
+                // way: a bad CRC is a data error (ST1 DE), not a search.
+                if (!f.crc_ok) {
+                    ++crc_errors;
+                    return false;
+                }
                 std::memcpy(out, &store[f.data_offset], f.data_len);
                 return true;
             } else {
@@ -241,19 +278,26 @@ private:
         e.byte(0x4E);
 
         set(cfg::PIN_WGATE, true);
-        // WDATA: one interval per 1 cell, in capture ticks.
+        sendCells(cells.data(), cells.size());
+        set(cfg::PIN_WGATE, false);
+        return true;
+    }
+
+    // WDATA for `n` words of cells, with WGATE on: one interval per 1 cell,
+    // in capture ticks, a word's worth at a time as time passes (a whole
+    // track's intervals are more than the capture ring holds at once).
+    void sendCells(const uint16_t* cells, size_t n) {
         uint32_t since = 0;
-        for (uint16_t w : cells)
+        for (size_t i = 0; i < n; ++i) {
             for (int b = 15; b >= 0; --b) {
                 since += Machine::TICKS_PER_CELL;
-                if ((w >> b) & 1) {
+                if ((cells[i] >> b) & 1) {
                     m_.captureInterval(since);
                     since = 0;
                 }
             }
-        run(uint32_t(cells.size()) * m_.usPerByte());
-        set(cfg::PIN_WGATE, false);
-        return true;
+            run(m_.usPerByte());
+        }
     }
 
     // Where the disk is under the head, in bytes from the index.

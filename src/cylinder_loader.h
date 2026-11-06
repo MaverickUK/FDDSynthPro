@@ -22,6 +22,14 @@
 // the first write into it until the load finishes; the drive keeps RDATA
 // released meanwhile, so the host never reads a half-built or stale
 // cylinder (stale IDs would look like a seek error).
+//
+// A write is shown by re-encoding the head and copying it over the live
+// buffer while the DMA streams it. The copy is far faster than the disk, so
+// it starts at the word the streamer fetches next (StreamPosition) and
+// stays ahead of the head; only the run of changed words the head is in
+// (a sector being read) is held back, and copied by service() once the head
+// has left it. Otherwise the host would read that sector half old and half
+// new: a CRC error, and DOS FORMAT's verify failed every first try.
 #pragma once
 
 #include <atomic>
@@ -29,9 +37,22 @@
 
 #include "track_source.h"
 
+// Where the streamer is in a cylinder buffer: the next word its DMA fetches
+// (RDATA is up to LAG_WORDS behind it, in the PIO's FIFO), or NOT_STREAMING
+// if it isn't streaming that buffer.
+class StreamPosition {
+public:
+    static constexpr uint32_t NOT_STREAMING = UINT32_MAX;
+    static constexpr uint32_t LAG_WORDS = 12;  // the joined TX FIFO's 8, the shift register's 1, and some
+    virtual uint32_t nextWord(const uint32_t* slots) const = 0;
+
+protected:
+    ~StreamPosition() = default;
+};
+
 class CylinderLoader {
 public:
-    enum class Step : uint8_t { Idle, ReadHead0, ReadHead1, EncodeHead0, EncodeHead1 };
+    enum class Step : uint8_t { Idle, ReadHead0, ReadHead1, EncodeHead0, EncodeHead1, Held };
 
     // `slots`: the streamer's buffer, format().track_bytes words.
     // `scratch`: format().track_bytes cell words.
@@ -46,21 +67,28 @@ public:
         loading_ = -1;
         next_ = Step::Idle;
         present_[0] = present_[1] = false;
+        held_.active = false;
         ready_.store(-1, std::memory_order_release);
     }
 
     // The cylinder the head is on now. Cheap; call as often as you like.
     void request(uint8_t cylinder) { wanted_ = cylinder; }
 
+    // Where the streamer is, for writes shown while it streams. Without one,
+    // a write is copied over the buffer at once, start to end.
+    void setStreamPosition(const StreamPosition* position) { position_ = position; }
+
     // Does the next step of a load, if there is one. Returns the step done
-    // (Idle: nothing to do).
+    // (Idle: nothing to do). Between loads, it copies a write's held-back
+    // run once the head has left it (Step::Held).
     Step service();
 
     // A sector the host wrote: puts it in the loaded track data and
     // re-encodes that head into the buffer, so the host reads it back at
     // once. The buffer is rewritten in place with the same cells except the
-    // sector's, so RDATA stays valid throughout. Returns false (and changes
-    // nothing) unless the buffer holds `cylinder`.
+    // sector's, so RDATA stays valid throughout; a sector under the head is
+    // held back until it has passed (see the top). Returns false (and
+    // changes nothing) unless the buffer holds `cylinder`.
     bool writeSector(uint8_t cylinder, uint8_t head, uint8_t sector, const uint8_t* data);
 
     // writeSector() in two halves, for a burst of many sectors: store each
@@ -93,6 +121,9 @@ public:
     // Loads finished, and loads abandoned because the head moved.
     uint32_t loads() const { return loads_; }
     uint32_t restarts() const { return restarts_; }
+    // Writes whose run under the head was held back, and one waiting now.
+    uint32_t heldRuns() const { return held_runs_; }
+    bool holding() const { return held_.active; }
 
 private:
     TrackSource& source_;
@@ -111,6 +142,22 @@ private:
     Run weak_[2][MAX_WEAK];
     unsigned weak_count_[2] = {0, 0};
     uint32_t rng_ = 0x2545F491u;
+
+    // A write's run held back from the copy: words [first, first + count)
+    // of `head`'s track (round the end), still the old cells.
+    struct Held {
+        bool active = false;
+        uint8_t head = 0;
+        int cylinder = -1;
+        uint32_t first = 0, count = 0;
+    };
+    void publishHead(uint8_t head);
+    bool differs(uint8_t head, uint32_t word) const;
+    void copyWords(uint8_t head, uint32_t first, uint32_t count);  // from scratch_, round the end
+    bool settleHeld();
+    const StreamPosition* position_ = nullptr;
+    Held held_;
+    uint32_t held_runs_ = 0;
 
     int wanted_ = 0;
     std::atomic<int> ready_{-1};

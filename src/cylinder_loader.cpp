@@ -22,8 +22,113 @@ bool CylinderLoader::encodeHead(uint8_t cylinder, uint8_t head) {
     const ibm::Format& fmt = source_.format();
     int image_cylinder = fmt.imageCylinder(cylinder);
     if (ready() != cylinder || loading_ >= 0 || head > 1 || image_cylinder < 0 || !present_[head]) return false;
+    if (held_.active && held_.head != head) settleHeld();  // the other head's, first: scratch_ is about to change
     if (!ibm::buildTrack(fmt, uint8_t(image_cylinder), head, data_[head], scratch_)) return false;
-    rdata::setHead(head, scratch_, fmt.track_bytes, slots_);
+    publishHead(head);
+    return true;
+}
+
+// ---- Showing a write while the buffer streams -------------------------------------------
+
+// Words of unchanged cells that still count as inside a run: a sector's
+// data field and CRC change, its sync and mark don't, and a reader inside
+// any of it must see all old or all new.
+static constexpr uint32_t RUN_GAP_WORDS = 4;
+
+bool CylinderLoader::differs(uint8_t head, uint32_t word) const {
+    return rdata::headCells(slots_[word], head) != scratch_[word];
+}
+
+void CylinderLoader::copyWords(uint8_t head, uint32_t first, uint32_t count) {
+    const uint32_t words = source_.format().track_bytes;
+    first %= words;
+    uint32_t n = count < words - first ? count : words - first;
+    rdata::setHeadWords(head, scratch_ + first, first, n, slots_);
+    if (count > n) rdata::setHeadWords(head, scratch_, 0, count - n, slots_);
+}
+
+// scratch_ holds `head`'s new track. Copies it over the live buffer starting
+// at the word the streamer fetches next, so the copy stays ahead of the head
+// all the way round; a run of changed words the head is in is held back.
+void CylinderLoader::publishHead(uint8_t head) {
+    const uint32_t words = source_.format().track_bytes;
+    if (held_.active && held_.head == head) held_.active = false;  // this copy covers it
+    uint32_t at = position_ ? position_->nextWord(slots_) : StreamPosition::NOT_STREAMING;
+    if (at >= words) {  // not streaming this buffer: no reader to race
+        rdata::setHead(head, scratch_, words, slots_);
+        return;
+    }
+    // A changed word the reader may be in: RDATA is up to LAG_WORDS behind `at`.
+    uint32_t lag = StreamPosition::LAG_WORDS < words ? StreamPosition::LAG_WORDS : words - 1;
+    uint32_t hit = words;
+    for (uint32_t back = 0; back <= lag && hit == words; ++back) {
+        uint32_t w = (at + words - back) % words;
+        if (differs(head, w)) hit = w;
+    }
+    if (hit == words) {
+        copyWords(head, at, words);
+        return;
+    }
+    // The run round it: changed words no more than RUN_GAP_WORDS apart.
+    uint32_t first = hit, last = hit;  // inclusive, round the end
+    for (uint32_t gap = 0, k = 1; k < words && gap < RUN_GAP_WORDS; ++k) {
+        uint32_t w = (hit + words - k) % words;
+        if (differs(head, w)) {
+            first = w;
+            gap = 0;
+        } else {
+            ++gap;
+        }
+    }
+    for (uint32_t gap = 0, k = 1; k < words && gap < RUN_GAP_WORDS; ++k) {
+        uint32_t w = (hit + k) % words;
+        if (differs(head, w)) {
+            last = w;
+            gap = 0;
+        } else {
+            ++gap;
+        }
+    }
+    uint32_t count = (last + words - first) % words + 1;
+    if (count >= words / 2) {  // most of the track: nothing to gain by holding
+        copyWords(head, at, words);
+        return;
+    }
+    // The head is in the run: everything after it is ahead of the head, and
+    // everything before it behind, so from its end round to its start.
+    copyWords(head, (first + count) % words, words - count);
+    held_ = Held{true, head, ready(), first, count};
+    ++held_runs_;
+}
+
+// Copies the held run once the head has left it (rebuilding the head:
+// scratch_ is shared). True if it did work (a rebuild).
+bool CylinderLoader::settleHeld() {
+    if (!held_.active) return false;
+    const ibm::Format& fmt = source_.format();
+    const uint32_t words = fmt.track_bytes;
+    if (ready() != held_.cylinder) {  // a load rewrites it anyway
+        held_.active = false;
+        return false;
+    }
+    // Clear of it: not inside it (nor RDATA, behind), nor about to be within
+    // `lead` words, the time the rebuild takes (an encode, 3 ms on the board,
+    // is 190 words at 500 kbit/s; a sixteenth of the track is 780).
+    auto clear = [&](uint32_t lead) {
+        uint32_t at = position_ ? position_->nextWord(slots_) : StreamPosition::NOT_STREAMING;
+        if (at >= words) return true;
+        uint32_t into = (at + lead + words - held_.first) % words;
+        return into >= held_.count + StreamPosition::LAG_WORDS + lead;
+    };
+    if (!clear(words / 16)) return false;
+    int image_cylinder = fmt.imageCylinder(uint8_t(held_.cylinder));
+    if (image_cylinder < 0 || !ibm::buildTrack(fmt, uint8_t(image_cylinder), held_.head, data_[held_.head], scratch_)) {
+        held_.active = false;
+        return false;
+    }
+    if (!clear(0)) return true;  // slower than it should be: try again next pass
+    held_.active = false;
+    copyWords(held_.head, held_.first, held_.count);
     return true;
 }
 
@@ -36,7 +141,8 @@ CylinderLoader::Step CylinderLoader::service() {
     const ibm::Format& fmt = source_.format();
     const bool raw = fmt.encoding == ibm::ENCODING_RAW;
     if (loading_ < 0) {
-        if (ready_.load(std::memory_order_relaxed) == wanted_) return Step::Idle;
+        if (ready_.load(std::memory_order_relaxed) == wanted_) return settleHeld() ? Step::Held : Step::Idle;
+        held_.active = false;  // the load rewrites the buffer
         loading_ = wanted_;
         next_ = raw ? Step::EncodeHead0 : Step::ReadHead0;  // a flux track needs no reading apart
     }
@@ -85,6 +191,7 @@ CylinderLoader::Step CylinderLoader::service() {
             break;
         }
         case Step::Idle:
+        case Step::Held:  // not a load's
             break;
     }
     return done;

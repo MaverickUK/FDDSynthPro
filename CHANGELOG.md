@@ -4,6 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.23.10] - 2026-11-06
+
+### Fixed
+- **DOS FORMAT formatted every track twice:** on the Evesham, the first verify of 148 tracks in 160 failed, and FORMAT reset the controller and formatted the track again. A write is shown by re-encoding the head and copying it over the buffer the DMA is streaming. The copy overtook the head in the middle of the sector the verify was reading, which then read half old and half new: a CRC error. An ordinary write changes one sector, rarely the one being read, so it hardly showed; a format changes all of them. The copy now starts at the word the DMA fetches next (`rdata_pio::nextWord`), so it stays ahead of the head all the way round, and the one run of changed words the head is in is held back until the head has left it (`CylinderLoader`'s `StreamPosition`). That sector reads whole, old, as it would on a real drive the instant before the write.
+
+### Added
+- The virtual PC formats tracks (INT 13h function 5: a revolution's write from the index), and a bad data CRC now fails its read as a 765 does, instead of the PC reading the sector again next revolution: `test_pc_format_verifies_first_time` formats and verifies tracks with the board's write timings.
+
 ## [0.23.9] - 2026-11-06
 
 ### Fixed

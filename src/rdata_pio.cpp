@@ -5,6 +5,8 @@
 #include <hardware/gpio.h>
 #include <hardware/pio.h>
 
+#include <atomic>
+#include <cstdint>
 #include <initializer_list>
 
 #include "config.h"
@@ -24,6 +26,7 @@ static const uint32_t* s_cylinder;
 static uint32_t s_words;
 static uint32_t s_rate;
 static const uint32_t* s_rewind_addr;  // what the control channel writes: the buffer's start
+static std::atomic<int> s_position_dma{-1};  // s_data_dma, for core 0's nextWord once it's claimed
 
 // RDATA held released, whatever the program does.
 static void hold() {
@@ -111,6 +114,19 @@ void begin(const uint32_t* cylinder, uint32_t words, uint32_t data_rate_bps) {
                           false);
 
     restartAtIndex();
+    s_position_dma.store(s_data_dma, std::memory_order_release);
+}
+
+uint32_t nextWord(const uint32_t* cylinder, uint32_t words) {
+    int ch = s_position_dma.load(std::memory_order_acquire);
+    if (ch < 0) return UINT32_MAX;
+    // The channel's read address: a hardware register, so a plain read is
+    // safe from either core. Past the end means the control channel is
+    // rewinding it: the start comes next.
+    uintptr_t addr = dma_hw->ch[ch].read_addr, base = reinterpret_cast<uintptr_t>(cylinder);
+    if (addr < base || addr > base + words * sizeof(uint32_t)) return UINT32_MAX;
+    uint32_t word = uint32_t((addr - base) / sizeof(uint32_t));
+    return word < words ? word : 0;
 }
 
 // Starts the stream again from slot `start_word`.
