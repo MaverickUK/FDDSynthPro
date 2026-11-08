@@ -26,3 +26,6 @@ hardware/production/
 # The slice 0 reference traces: the first set was recorded with DIR broken.
 # Unignore this once valid ones are recorded on the carrier.
 host/reference/
+# kicad-cli's ERC/DRC reports (hardware/revc/build.sh writes them on every run)
+*-drc.rpt
+*-erc.rpt

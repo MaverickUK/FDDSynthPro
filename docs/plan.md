@@ -203,7 +203,7 @@ Each slice ends in a passing automated test before the next starts. Each one als
 3. 5.25-inch drives: 360 KB and 1.2 MB, 360 RPM for HD, double stepping. *Done (0.13).*
 4. Other formats: Atari ST, Amiga ADF (a different sector layout and drive-ready behaviour). *Done: ST disks are PC-style MFM, served by size or `IMG.CFG` (0.13); the Amiga in 0.14.*
 5. Flux images (HFE) for copy-protected disks. *Done (0.18), but for tracks whose bit rate changes along them.*
-6. A PCB. *Rev B done: the carrier board, with the SN7407 and termination. A rev C would route the SN7407's spare gate to floppy pin 2 (the Amiga's /CHNG), and could add Schmitt-trigger input buffering.*
+6. A PCB. *Rev B done: the carrier board, with the SN7407 and termination. Rev C, being designed ([pcb-revc.md](pcb-revc.md)), puts the RP2350B, PSRAM, microSD and the amp on the board. It also takes floppy power, wires the SN7407's spare gate to floppy pin 2 (the Amiga's /CHNG), and fits a 3.5-inch bay in a printed sled.*
 
 ## Risks and open questions
 

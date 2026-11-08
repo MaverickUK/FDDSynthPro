@@ -1,0 +1,108 @@
+(footprint "TE_171825-4_1x04_P2.50mm_Vertical"
+	(version 20241229)
+	(generator "fddsynthpro_revc_gen")
+	(generator_version "1.0")
+	(layer "F.Cu")
+	(descr "3.5-inch floppy drive power header (Berg), TE AMP EI series 171825-4, straight. 4 pins, 2.5 mm pitch, 0.9 mm holes; pin 1 +5V.")
+	(tags "floppy power berg TE 171825")
+	(property "Reference" "REF**"
+		(at -3.6 3.75 90)
+		(layer "F.SilkS")
+		(uuid "1ae2833c-56d7-5b7f-b5f8-22c302d0f02a")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "Floppy power"
+		(at 3.6 3.75 90)
+		(layer "F.Fab")
+		(uuid "9cef7618-3daf-5b74-af8b-a710af2c3804")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_rect
+		(start -2.45 -1.25)
+		(end 2.45 8.75)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "e218e04c-ed58-58a5-b610-4a438504deb9")
+	)
+	(fp_rect
+		(start -2.57 -1.37)
+		(end 2.57 8.87)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "dc92ca58-a145-54b0-906e-06e77a54d64c")
+	)
+	(fp_rect
+		(start -2.85 -1.55)
+		(end 2.85 9.05)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "0b271bbf-9fec-51c3-9f81-289263065221")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 3.75 90)
+		(layer "F.Fab")
+		(uuid "1e4030b7-c623-508d-95bd-ce0ff6e84bea")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole rect
+		(at 0 0)
+		(size 1.7 1.7)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "67b7ea56-ee29-5ec1-be00-c275116f2e82")
+	)
+	(pad "2" thru_hole circle
+		(at 0 2.5)
+		(size 1.7 1.7)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "f963baff-0e7d-50f5-be2e-669ab5dac996")
+	)
+	(pad "3" thru_hole circle
+		(at 0 5)
+		(size 1.7 1.7)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "6fda9b17-899d-5219-b7fc-ed3005ea97c8")
+	)
+	(pad "4" thru_hole circle
+		(at 0 7.5)
+		(size 1.7 1.7)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "274dbeed-565c-57a6-98bd-3695d17d1b9a")
+	)
+	(embedded_fonts no)
+)

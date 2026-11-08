@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "FDDSynthProRevC")(type "KiCad")(uri "${KIPRJMOD}/FDDSynthProRevC.kicad_sym")(options "")(descr "FDDSynthPro rev C parts"))
+)
