@@ -28,7 +28,7 @@ The RP2350B gets the BB48R's pins, flash and PSRAM, so the `bb48_drive` firmware
 - GPIO 9, 10, 11, 24: the microSD socket in SPI mode (CS, SCK, MOSI, MISO), with the card's pull-ups. The firmware runs the card at 25 MHz in SPI mode and serves every disk from PSRAM, so 4-bit SDIO would gain nothing.
 - GPIO 2, 3: I2C1 for the OLED, pulled up with 2.2 kΩ as on the BB48R (R17/R18).
 - GPIO 25: the activity LED (D2), at the front edge for a light pipe in the bezel. J13, beside it, takes an external LED through its own 330 Ω (R46): a case's 2-pin HDD LED lead fits, pin 1 (+) the anode. The pin then lights two LEDs, about 7 mA; the RP2350's default 4 mA drive strength still lights both, a little dimmer, and the firmware can raise it to 8 mA.
-- GPIO 0, 1: a debug UART header, as rev B's J6.
+- GPIO 0, 1: not connected. Rev B's debug UART header (J6) is left off: the firmware doesn't use it, and SWD covers debugging.
 - GPIO 32–35: the encoder and button headers, as rev B's J3 and J4. These need the RP2350B (QFN-80); the MK5's RP2350A (QFN-60) doesn't have them.
 
 **Checked:** the BB48R has 16 MB of flash and 8 MB of QSPI PSRAM (Olimex's specifications). Rev C has a W25Q128JV (16 MB) and an APS6404L (8 MB), so the board definition and the PSRAM set-up stay the same. Olimex's schematic names their exact parts; any 8 MB QSPI PSRAM works with the core's driver.
@@ -97,7 +97,7 @@ All heights are from the bottom of the bay.
 - **The front edge** (x = 0) is the MK5's speaker end. The speaker's 40 mm square (x 0–41, y 20.3–60) has no parts and no copper on any layer, as on rev B.
 - **Above the speaker:**
   - the microSD socket, its card in from the top edge;
-  - the SWD and UART headers;
+  - the SWD header;
   - the activity LED at the front edge, and J13 for an external LED beside it.
 - **Below the speaker:**
   - USB-C, its plug in from the bottom edge;
@@ -111,6 +111,11 @@ All heights are from the bottom of the bay.
   - the power parts by the power header;
   - the panel headers and the buttons along the top edge;
   - the logo in silkscreen, between the speaker and the flash (`tools/make_logo.py` makes it from `media/FDDSynthPro.png`, simplified to print: 11.8 × 8.6 mm, 1.5 mm clear of the speaker's square).
+  - the header labels in the HDD Synth MK5's style: bold, knocked out of a filled box, in plain names ("Rotary encoder", "Boot sel", "Floppy power"). "+5V" stays by J8's pin 1, to show which way round the plug goes.
+- **On the back:**
+  - the MK5's credit, "Nostalgia by Peter Bridger", beside the speaker grille, where the MK5 has it on the same outline;
+  - an easter egg: the "Don't copy that floppy" sign (`media/dont-copy-that-floppy.png`, 26 × 12.8 mm, also by `make_logo.py`), under the PSRAM and the power parts, the one patch there clear of through-hole pads.
+  - a second: DOS's "Abort, Retry, Fail?", vertical, beside the floppy header's pins.
 
 **The sled** ([hardware/mount/fddsynthpro_bay.scad](../hardware/mount/fddsynthpro_bay.scad)) is parametric OpenSCAD, printed in PETG:
 

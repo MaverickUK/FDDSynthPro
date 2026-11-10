@@ -18,7 +18,7 @@ Status: **not reviewed, not ordered.** The schematic passes ERC with 0 violation
 | `tools/gen_schematic.py` | Generates the schematic, with each part's LCSC number |
 | `tools/layout_pcb.py` | Places the parts, Raspberry Pi's regulator copper and the planes |
 | `tools/autoroute.py` | Routes with Freerouting, then pours ground on the outer layers |
-| `tools/make_logo.py` | Makes the silkscreen logo (a board-only footprint) from `media/FDDSynthPro.png` |
+| `tools/make_logo.py` | Makes the silkscreen logo and the easter egg on the back (board-only footprints) from `media/FDDSynthPro.png` and `media/dont-copy-that-floppy.png` |
 | `tools/add_parts.py` | Adds parts the schematic has gained to the routed board, or moves parts on it (`--move`), so only their nets get routed |
 
 The generators follow HDDSynthPro's (`../../HDDSynthPro/hardware/tools`). They bootstrap the design: once the files are edited in KiCad, those edits are the source, and rerunning a generator overwrites them.

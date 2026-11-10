@@ -5122,27 +5122,13 @@
 		)
 		(uuid "45670157-637a-58c6-a78f-6e798aa370e5")
 	)
-	(wire
-		(pts
-			(xy 231.14 104.14)
-			(xy 233.68 104.14)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "baa6fa43-f9da-537a-b8b6-22bb2e68acbb")
+	(no_connect
+		(at 231.14 104.14)
+		(uuid "25fbbcbc-5315-5584-9922-e3e4d778d993")
 	)
-	(wire
-		(pts
-			(xy 231.14 106.68)
-			(xy 233.68 106.68)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ab8f12f1-fc78-5d43-ae4c-9eccd6e14a15")
+	(no_connect
+		(at 231.14 106.68)
+		(uuid "a50936ef-de3f-5047-a1f3-14fe9149171d")
 	)
 	(wire
 		(pts
@@ -14294,50 +14280,6 @@
 			(justify right bottom)
 		)
 		(uuid "ad9bdcba-ea50-543b-b891-6907745edb0c")
-	)
-	(global_label "UART_TX"
-		(shape bidirectional)
-		(at 233.68 104.14 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "1a06649a-a4e8-5155-9309-ec29d52e380e")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 233.68 104.14 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "UART_RX"
-		(shape bidirectional)
-		(at 233.68 106.68 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "ed53063f-148f-5c32-bc9d-c95a9767b81e")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 233.68 106.68 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
 	)
 	(global_label "I2C_SDA"
 		(shape bidirectional)

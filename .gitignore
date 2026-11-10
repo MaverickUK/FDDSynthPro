@@ -23,6 +23,10 @@ hardware/*_fab.zip
 # hardware/build.sh writes the ones to use, into hardware/jlc/.
 hardware/*.step
 hardware/production/
+hardware/revc/*.step
+hardware/revc/production/
+# KiCad's local history snapshots
+.history/
 # The slice 0 reference traces: the first set was recorded with DIR broken.
 # Unignore this once valid ones are recorded on the carrier.
 host/reference/

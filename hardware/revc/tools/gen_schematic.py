@@ -437,7 +437,7 @@ LCSC = {
     "F1": "C2830250",                                            # 1.5A polyfuse 1206, 12V: basic (the 6V one isn't)
     "FB1": "C85840", "FB2": "C85840",
     "J1": "C48603650",                                           # 2x17 right-angle box header [438]
-    "J2": "C124378", "J3": "C124379", "J4": "C124375", "J5": "C131337", "J6": "C124376", "J7": "C124375",
+    "J2": "C124378", "J3": "C124379", "J4": "C124375", "J5": "C131337", "J7": "C124375",
     "J8": "C210162",                                             # TE 171825-4, straight
     "J9": "C165948", "J10": "C393941", "J11": "C124376", "J12": "C474892", "J13": "C124375",
     "L1": "C42411119",                                           # [0 at LCSC on 2026-11-08]
@@ -452,7 +452,7 @@ LCSC = {
 # 37 (the board ID: tied low through 4.7k, where the BB48R leaves it open), and 38-41 (J14, spare).
 # The floppy inputs' GPIO-side nets end in _IN: each reaches its pin through a 1k series resistor.
 GPIO = {
-    0: "UART_TX", 1: "UART_RX", 2: "I2C_SDA", 3: "I2C_SCL",
+    2: "I2C_SDA", 3: "I2C_SCL",  # GPIO 0 and 1 (rev B's debug UART) are left unconnected
     4: "INDEX_DRV", 5: "TRK00_DRV", 6: "WPT_DRV", 7: "RDATA_DRV",
     8: "PSRAM_CS", 9: "SD_CS", 10: "SD_SCK", 11: "SD_MOSI",
     12: "DENSEL_IN", 13: "MOTEA_IN", 14: "DRVSB_IN", 15: "DRVSA_IN", 16: "MOTEB_IN",
@@ -708,10 +708,8 @@ def audio_sheet(sh):
             "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical")
     sh.part("Connector_Generic:Conn_01x02", "J4", "Button", 152.4, 203.2, {"1": "ACTION_BTN", "2": "GND"},
             "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
-    sh.part("Connector_Generic:Conn_01x03", "J6", "UART", 205.74, 203.2, {"1": "UART_TX", "2": "UART_RX", "3": "GND"},
-            "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
     sh.note("J2: SSD1306 OLED (GND, 3V3, SCL, SDA). J3: KY-040 encoder (CLK, DT, SW, +, GND).\n"
-            "J4: action button to GND. J6: debug UART (GPIO 0, 1). The firmware uses internal pull-ups.", 30.48, 228.6)
+            "J4: action button to GND. The firmware uses internal pull-ups.", 30.48, 228.6)
 
 
 def sd_sheet(sh):

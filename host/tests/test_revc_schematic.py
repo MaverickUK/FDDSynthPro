@@ -200,7 +200,7 @@ def test_every_configured_pin_is_wired(netlist):
 
 
 def test_gpio_0_to_3_stay_off_the_interface(netlist):
-    """GPIO 0-3: the debug UART and the OLED's I2C, never a floppy line (CLAUDE.md)."""
+    """GPIO 0-3: unconnected, and the OLED's I2C; never a floppy line (CLAUDE.md)."""
     nets, _ = netlist
     for gpio in range(4):
         assert not any(ref in ("J1", "U2") for ref, _ in net_of(nets, *gp(netlist, gpio))), gpio

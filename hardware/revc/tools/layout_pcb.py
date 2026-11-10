@@ -108,7 +108,6 @@ PLACE = {
     "SW2": (73.0, 10.0, 0),        # RESET
     "R33": (77.6, 10.0, 90),       # RUN to RESET, 1k
     "J11": (38.6, 3.0, 0),         # SWD, 1x3, pins down
-    "J6": (38.6, 12.0, 0),         # UART, 1x3
     # The microSD socket above the speaker, card in from the top edge.
     "J10": (27.0, 9.69, 180),
     **{r: (15.4, 8.0 + 1.4 * k, 0) for k, r in enumerate(["R41", "R42", "R43", "R44", "R45"])},
@@ -226,25 +225,40 @@ DECOUPLING = {
     "C18": (6.6, -5.6, 90), "C23": (7.8, -5.6, 90),
 }
 REF_HIDDEN = ([f"C{n}" for n in range(1, 37)] + [f"R{n}" for n in range(1, 63)]
-              + ["L1", "FB1", "FB2", "H1", "H2", "H3", "H4", "J2", "J3", "J4", "J6", "J11", "J13", "SW1", "SW2",
-                 "D2", "J5", "J12", "J14", "R46", "U2", "U6", "U8", "LOGO1"])
-SILK = [  # text, x, y, size, rotation (board coordinates)
-    ("FDDSynthPro rev C", 66.0, 52.4, 1.2, 0),
-    ("10k", 83.6, 10.6, 0.8, 0), ("1k", 81.2, 8.8, 0.8, 0),
-    ("J1 FLOPPY", 85.1, 34.0, 0.8, 90),
-    ("PC/AMIGA", 75.0, 47.8, 0.8, 90),
-    ("ENC", 48.6, 5.2, 0.8, 0), ("OLED", 61.4, 5.2, 0.8, 0), ("BTN", 70.2, 5.2, 0.8, 0),
-    ("BOOT", 65.0, 14.6, 0.8, 0), ("RST", 73.0, 14.6, 0.8, 0),
-    ("SWD", 36.4, 5.5, 0.8, 90), ("UART", 36.4, 14.5, 0.8, 90),
-    ("+5V", 91.4, 61.0, 0.8, 0),
-    ("SPK", 45.3, 52.8, 0.8, 0),
-    ("J12", 51.0, 64.6, 1.0, 90),
-    ("+ LED -", 6.27, 9.6, 0.8, 0),
-    ("GPIO 38-41", 69.6, 41.4, 0.8, 0),
+              + ["L1", "FB1", "FB2", "H1", "H2", "H3", "H4", "J2", "J3", "J4", "J11", "J13", "SW1", "SW2",
+                 "D2", "J5", "J10", "J12", "J14", "R46", "U2", "U6", "U8", "LOGO1", "LOGO2"])
+# Silkscreen text styles: PLAIN; LABEL, the HDD Synth MK5's header labels (bold, knocked out of a filled
+# box, 1 mm); BACK, on the back (mirrored, so it reads from there; left-justified, as the MK5's credit);
+# BACK_CENTRE, the same centred.
+PLAIN, LABEL, BACK, BACK_CENTRE = "plain", "label", "back", "back-centre"
+SILK = [  # text, x, y, size, rotation (board coordinates), style
+    ("FDDSynthPro rev C", 66.0, 52.4, 1.2, 0, PLAIN),
+    ("10k", 83.6, 10.6, 0.8, 0, PLAIN), ("1k", 81.2, 8.8, 0.8, 0, PLAIN),
+    ("Floppy", 84.0, 46.4, 1.0, 90, LABEL),         # beside pins 26-30: no pull-ups on that stretch
+    ("PC/Amiga", 75.0, 47.0, 1.0, 90, LABEL),
+    ("Rotary encoder", 48.6, 5.4, 1.0, 0, LABEL), ("OLED", 61.4, 5.4, 1.0, 0, LABEL),
+    ("Button", 70.2, 5.4, 1.0, 0, LABEL),
+    ("Boot sel", 65.0, 14.6, 1.0, 0, LABEL), ("Reset", 73.0, 14.6, 1.0, 0, LABEL),
+    ("SWD", 36.4, 5.5, 1.0, 90, LABEL),
+    ("Floppy power", 93.6, 60.6, 1.0, 0, LABEL),
+    ("+5V", 91.4, 68.5, 0.8, 0, PLAIN),           # J8's pin 1: which way round the plug goes
+    ("Speaker", 42.0, 56.8, 1.0, 90, LABEL),       # beside J5, just outside the speaker's square
+    ("J12", 51.0, 64.6, 1.0, 90, PLAIN),
+    ("+ LED -", 6.27, 9.6, 1.0, 0, LABEL),
+    ("GPIO 38-41", 69.6, 41.4, 1.0, 0, LABEL),
+    ("SD card", 27.0, 18.2, 1.0, 0, LABEL),
+    # The MK5's credit, beside the speaker on the back, at the same place on the same outline.
+    ("Nostalgia by Peter Bridger", 1.27, 52.13, 1.0, 270, BACK),
+    # The second easter egg: DOS's prompt, beside the floppy header's pins (between them and the edge),
+    # reading the same way as the credit.
+    ("Abort, Retry, Fail?", 94.0, 33.5, 1.2, 270, BACK_CENTRE),
 ]
 # The logo (tools/make_logo.py, a board-only footprint) between the speaker and the flash, turned to read
 # along the board: x, y, rotation. 1.5 mm clear of the speaker's square (x 41.26), 0.3 mm of the PSRAM_CS via.
 LOGO = ("FDDSynthPro_Logo", 47.1, 41.25, 90)
+# The easter egg, flipped onto the back: under the PSRAM and the power parts, the one patch there clear of
+# through-hole pads (J12's, the speaker's, H4 and J8's), 26 x 12.8 mm.
+SIGN = ("DontCopyThatFloppy", 68.0, 60.6, 0)
 POWER_PATTERNS = ["+5V", "*VBUS_USB", "*5V_FDD", "*5V_FDD_IN"]  # GND and +3V3 are planes
 # Power tracks are 0.4 mm, which still enter the LM66200's and the amp's 0.5 mm-pitch pads. The speaker
 # lines: about 1 A peak, from neighbouring amp pads, so 0.3 mm (two fit side by side).
@@ -487,28 +501,44 @@ def core_copper(board):
 
 
 def place_logo(board):
-    """Adds the logo from the library at LOGO. Returns the copies already on the board, for the caller to
-    remove last (KiCad 10's bindings misbehave after a Remove)."""
-    name, x, y, r = LOGO
-    old = [f for f in board.GetFootprints() if f.GetFPID().GetLibItemName() == name]
-    fp = load_footprint(f"{LIB}:{name}")
-    fp.SetReference("LOGO1")
-    fp.Reference().SetVisible(False)
-    fp.SetPosition(vec(x, y))
-    fp.SetOrientationDegrees(r)
-    board.Add(fp)
+    """Adds the logo (LOGO) and the easter egg (SIGN, flipped onto the back) from the library. Returns the
+    copies already on the board, for the caller to remove last (KiCad 10's bindings misbehave after a Remove)."""
+    old = []
+    for ref, (name, x, y, r), back in (("LOGO1", LOGO, False), ("LOGO2", SIGN, True)):
+        old += [f for f in board.GetFootprints() if f.GetFPID().GetLibItemName() == name]
+        fp = load_footprint(f"{LIB}:{name}")
+        fp.SetReference(ref)
+        fp.Reference().SetVisible(False)
+        fp.SetPosition(vec(x, y))
+        fp.SetOrientationDegrees(r)
+        board.Add(fp)
+        if back:  # once it's on the board: Flip crashes on a footprint that isn't
+            fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
     return old
 
 
+def style_text(t, text, x, y, size, angle, style):
+    t.SetText(text)
+    back = style in (BACK, BACK_CENTRE)
+    t.SetLayer(pcbnew.B_SilkS if back else pcbnew.F_SilkS)
+    t.SetPosition(vec(x, y))
+    t.SetTextAngleDegrees(angle)
+    t.SetTextSize(pcbnew.VECTOR2I(mm(size), mm(size)))
+    t.SetMirrored(back)
+    t.SetIsKnockout(style == LABEL)
+    t.SetBold(style == LABEL)
+    t.SetTextThickness(mm(0.2 if style == LABEL else 0.1 if style == BACK else size * 0.15))
+    t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
+    t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
+    if style == BACK:
+        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
+        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
+
+
 def silkscreen(board):
-    for text, x, y, size, angle in SILK:
+    for text, *rest in SILK:
         t = pcbnew.PCB_TEXT(board)
-        t.SetText(text)
-        t.SetPosition(vec(x, y))
-        t.SetTextAngleDegrees(angle)
-        t.SetLayer(pcbnew.F_SilkS)
-        t.SetTextSize(pcbnew.VECTOR2I(mm(size), mm(size)))
-        t.SetTextThickness(mm(size * 0.15))
+        style_text(t, text, *rest)
         board.Add(t)
 
 
@@ -517,18 +547,13 @@ def redo_silkscreen(path):
     found by its text and moved (KiCad 10's Python bindings crash after removing items); new ones are added."""
     board = pcbnew.LoadBoard(str(path))
     texts = {d.GetText(): d for d in board.GetDrawings()
-             if d.GetClass() == "PCB_TEXT" and d.GetLayer() == pcbnew.F_SilkS}
-    for text, x, y, size, angle in SILK:
+             if d.GetClass() == "PCB_TEXT" and d.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS)}
+    for text, *rest in SILK:
         t = texts.get(text)
         if t is None:
             t = pcbnew.PCB_TEXT(board)
-            t.SetText(text)
-            t.SetLayer(pcbnew.F_SilkS)
             board.Add(t)
-        t.SetPosition(vec(x, y))
-        t.SetTextAngleDegrees(angle)
-        t.SetTextSize(pcbnew.VECTOR2I(mm(size), mm(size)))
-        t.SetTextThickness(mm(size * 0.15))
+        style_text(t, text, *rest)
     old_logos = place_logo(board)
     for fp in board.GetFootprints():
         fp.Reference().SetVisible(fp.GetReference() not in REF_HIDDEN)
