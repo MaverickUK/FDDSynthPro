@@ -69,7 +69,7 @@ The prototype proves one thing: an RP2350B can act as a 3.5-inch PC floppy drive
 
 ## How a floppy interface differs from IDE
 
-| | HDDSynthPro (IDE) | FDDSynthPro (floppy) |
+| | HDDSynthPro (IDE) | FDD Synth Duo (floppy) |
 |---|---|---|
 | Signals | 16 data lines, register file, strobes | 10 single-bit inputs, 5 single-bit outputs |
 | Timing | Tens of nanoseconds (IORDY within 35 ns) | Microseconds: flux transitions every 2, 3 or 4 µs (HD); steps at least ~3 ms apart |

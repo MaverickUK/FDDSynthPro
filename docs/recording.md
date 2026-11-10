@@ -64,7 +64,7 @@ scripts/cut_seek.py memo.m4a --seeks 145.5:153.5 --steps 126.5:134.5 --step-ms 5
 It loops 40 whole steps from the middle of the median seek in `--seeks`, starting on a step, and writes the pack's `seek.wav` at the level that keeps it against the pack's `step.wav` as the recording had it against the single steps in `--steps`. If the pack no longer fits the sample pool, it shortens the spin-down, as the cutter does.
 
 - **Finding the windows:** FDDBench's `FDDBENCH.LOG` timestamps each scenario. Line it up with the recording by a distinctive one: a sequential read clicks every 0.6 s, three revolutions a cylinder, and Full stroke is ten buzzes 0.8 s apart.
-- **The step period:** from FDDSynthPro's log of the same PC, a 79-step seek's `STEP` span over 78 (394,079 µs on the Evesham); or from the recording, where the buzz's peaks repeat.
+- **The step period:** from FDD Synth Duo's log of the same PC, a 79-step seek's `STEP` span over 78 (394,079 µs on the Evesham); or from the recording, where the buzz's peaks repeat.
 - **The drive's speed** comes free: a sequential read's clicks are three revolutions apart by the phone's clock, which is independent of the PC (the Evesham's drive: 0.6016 s, 299.2 RPM).
 
 `host/tests/test_cut_seek.py` runs it on a simulated recording.

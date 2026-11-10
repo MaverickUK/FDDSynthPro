@@ -73,7 +73,7 @@ A PC drives floppy pin 2 (density select), so the carrier only reads it. Shugart
 4. Run the solder-bridge test (`x` then `Y`, floppy cable unplugged): it covers GPIO 23.
 5. Set `pin02=chg` in `/FDDSYNTH.CFG` ([config.md](config.md)), with `interface=shugart` or `interface=amiga`.
 
-An Amiga needs this for more than swaps: on the A1200 (6 November 2026), Lotus Turbo Challenge II ran in an emulated A1200 from FDDSynthPro's own tracks, but on the real one the system clicked at DF0 as if it were empty once past the title; Golden Axe clicked waiting for a change.
+An Amiga needs this for more than swaps: on the A1200 (6 November 2026), Lotus Turbo Challenge II ran in an emulated A1200 from FDD Synth Duo's own tracks, but on the real one the system clicked at DF0 as if it were empty once past the title; Golden Axe clicked waiting for a change.
 
 Pin 2 then works both ways: the SN7407 releases it unless the disk has changed, and the drive still reads it on GPIO 12. With `interface=ibmpc` the firmware never drives it, whatever `pin02` says. Without the rework, GPIO 23 goes nowhere, so the setting does nothing.
 

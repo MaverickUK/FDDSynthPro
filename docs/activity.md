@@ -1,6 +1,6 @@
 # Sound events
 
-The original FDD Synth listens to the floppy cable and works out what the drive is doing from the select, motor, step and direction lines. FDDSynthPro *is* the drive, so it knows rather than guesses:
+The original FDD Synth listens to the floppy cable and works out what the drive is doing from the select, motor, step and direction lines. FDD Synth Duo *is* the drive, so it knows rather than guesses:
 - when the motor starts and stops;
 - every step, and the cylinder it took the head to;
 - when the head knocks against an end stop instead of moving;

@@ -1,4 +1,4 @@
-"""Turns media/FDDSynthPro.png into the board's silkscreen logo: FDDSynthProRevC.pretty/FDDSynthPro_Logo.kicad_mod.
+"""Turns media/FDDSynthDuo.png into the board's silkscreen logo: FDDSynthProRevC.pretty/FDDSynthDuo_Logo.kicad_mod.
 
 Run with KiCad 10's own Python (it has Pillow), or any Python with Pillow:
     <KiCad python> hardware/revc/tools/make_logo.py [--png preview.png]
@@ -7,8 +7,9 @@ The logo is cropped to its ink, scaled to LONG_MM across on a PX_MM grid, and th
 silkscreen (white on the board where the logo is dark). Silkscreen prints nothing under about
 0.15 mm, so the art is simplified for it, as make_splash.py simplifies it for the OLED:
 - the floppy's shutter, a grey gradient, is filled solid (the threshold is light enough to take it);
-- "PRO" is drawn in thin vertical bars: they're closed into solid letters, cleaned of the slivers left
-  across their counters, and the fading bars beside it are left out;
+- "DUO" is drawn in thin vertical bars: they're closed into solid letters, cleaned of the slivers left
+  across their counters, and the fading bars beside it are left out (as "PRO" was, in the old logo);
+- the floppy's grey shadow, under its outline, is left out, so DUO doesn't merge with the outline;
 - every stroke is thickened by a pixel each side, so the thinnest arc and "Synth" print.
 It also makes the easter egg on the back, DontCopyThatFloppy.kicad_mod, from media/dont-copy-that-floppy.png:
 clean black-on-white art, so only cropped, scaled to SIGN_MM across and thresholded. Its black prints as
@@ -23,17 +24,18 @@ from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 
 HW = Path(__file__).resolve().parent.parent
-SRC = HW.parent.parent / "media" / "FDDSynthPro.png"
-NAME = "FDDSynthPro_Logo"
+SRC = HW.parent.parent / "media" / "FDDSynthDuo.png"
+NAME = "FDDSynthDuo_Logo"
 OUT = HW / "FDDSynthProRevC.pretty" / f"{NAME}.kicad_mod"
 LONG_MM, PX_MM = 11.6, 0.04   # 290 x 211 pixels and a 2-pixel margin: 11.8 x 8.6 mm
 THRESHOLD = 240               # luminance at or under this is ink (takes the shutter's gradient)
-PRO_THRESHOLD = 150           # in "PRO": its own bars, not the fading ones
-PRO_FROM = 0.79               # "PRO" is the rows below this fraction of the height...
-PRO_TO_X = 0.55               # ...and left of this fraction of the width
-PRO_GAP = 3                   # pixels between its bars, and breaks in them, closed
+WORD_THRESHOLD = 150          # in "DUO": its own bars, not the fading ones
+WORD_FROM = 0.775             # "DUO" is the rows below this fraction of the height (from just under the
+                              # floppy's outline, so its grey shadow, light enough for THRESHOLD, is left out)...
+WORD_TO_X = 0.52              # ...and left of this fraction of the width
+WORD_GAP = 3                  # pixels between its bars, and breaks in them, closed
 MARGIN = 2                    # pixels round the crop
-PRO_OPEN = 5                  # the opening that cleans up PRO, in pixels
+WORD_OPEN = 5                 # the opening that cleans up DUO, in pixels
 SIGN_SRC = HW.parent.parent / "media" / "dont-copy-that-floppy.png"
 SIGN_NAME = "DontCopyThatFloppy"
 SIGN_MM, SIGN_PX_MM = 26.0, 0.025   # its narrowest gaps, between letters, come out about 0.25 mm
@@ -46,35 +48,35 @@ def bitmap(src=SRC):
     white.alpha_composite(rgba)
     grey = white.convert("L")
     # Cropped to the dark ink: the frame's faint anti-aliased edge outside it would print as a dotted line.
-    grey = grey.crop(grey.point(lambda v: 255 if v <= PRO_THRESHOLD else 0).getbbox())
+    grey = grey.crop(grey.point(lambda v: 255 if v <= WORD_THRESHOLD else 0).getbbox())
     scale = LONG_MM / PX_MM / grey.width
     grey = grey.resize((round(grey.width * scale), round(grey.height * scale)), Image.LANCZOS)
     w, h = grey.size
     px = grey.load()
-    pro_y = int(h * PRO_FROM)
-    ink = [[(px[x, y] <= PRO_THRESHOLD and x < w * PRO_TO_X) if y >= pro_y else px[x, y] <= THRESHOLD
+    word_y = int(h * WORD_FROM)
+    ink = [[(px[x, y] <= WORD_THRESHOLD and x < w * WORD_TO_X) if y >= word_y else px[x, y] <= THRESHOLD
             for x in range(w)] for y in range(h)]
     def close(cells):
-        """Fills runs of up to PRO_GAP empty cells between ink, along one row or column."""
+        """Fills runs of up to WORD_GAP empty cells between ink, along one row or column."""
         last = None
         for i, (y, x) in enumerate(cells):
             if ink[y][x]:
-                if last is not None and 0 < i - last - 1 <= PRO_GAP:
+                if last is not None and 0 < i - last - 1 <= WORD_GAP:
                     for k in range(last + 1, i):
                         ink[cells[k][0]][cells[k][1]] = True
                 last = i
 
-    for y in range(pro_y, h):  # the gaps between PRO's bars...
+    for y in range(word_y, h):  # the gaps between DUO's bars...
         close([(y, x) for x in range(w)])
     for x in range(w):         # ...and the breaks in them, which line up across each letter
-        close([(y, x) for y in range(pro_y, h)])
+        close([(y, x) for y in range(word_y, h)])
     img = Image.new("L", (w, h), 0)
     img.putdata([255 if v else 0 for row in ink for v in row])
-    # PRO: an opening (shrink, then grow back) drops what's thinner than its strokes: slivers across the
+    # DUO: an opening (shrink, then grow back) drops what's thinner than its strokes: slivers across the
     # counters and single pixels under the bars. Its letters' strokes are 9 or more pixels.
-    pro = img.crop((0, pro_y, w, h))
-    pro = pro.filter(ImageFilter.MinFilter(PRO_OPEN)).filter(ImageFilter.MaxFilter(PRO_OPEN))
-    img.paste(pro, (0, pro_y))
+    word = img.crop((0, word_y, w, h))
+    word = word.filter(ImageFilter.MinFilter(WORD_OPEN)).filter(ImageFilter.MaxFilter(WORD_OPEN))
+    img.paste(word, (0, word_y))
     # A margin first, so the strokes on the crop's edge (the floppy's frame) thicken outwards too.
     framed = Image.new("L", (w + 2 * MARGIN, h + 2 * MARGIN), 0)
     framed.paste(img, (MARGIN, MARGIN))
@@ -117,7 +119,7 @@ def rectangles(ink):
     return done
 
 
-def footprint(ink, name=NAME, px_mm=PX_MM, what="The FDD Synth Pro logo", src="media/FDDSynthPro.png", ref="LOGO1"):
+def footprint(ink, name=NAME, px_mm=PX_MM, what="The FDD Synth Duo logo", src="media/FDDSynthDuo.png", ref="LOGO1"):
     h, w = len(ink), len(ink[0])
     ox, oy = w * px_mm / 2, h * px_mm / 2
     key = "logo" if name == NAME else name  # the logo's uuids as before

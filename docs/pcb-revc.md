@@ -110,7 +110,7 @@ All heights are from the bottom of the bay.
   - J14, the spare GPIO header (not fitted), between the PSRAM and J7;
   - the power parts by the power header;
   - the panel headers and the buttons along the top edge;
-  - the logo in silkscreen, between the speaker and the flash (`tools/make_logo.py` makes it from `media/FDDSynthPro.png`, simplified to print: 11.8 × 8.6 mm, 1.5 mm clear of the speaker's square).
+  - the logo in silkscreen, between the speaker and the flash (`tools/make_logo.py` makes it from `media/FDDSynthDuo.png`, simplified to print: 11.8 × 8.7 mm, 1.5 mm clear of the speaker's square).
   - the header labels in the HDD Synth MK5's style: bold, knocked out of a filled box, in plain names ("Rotary encoder", "Boot sel", "Floppy power"). "+5V" stays by J8's pin 1, to show which way round the plug goes.
 - **On the back:**
   - the MK5's credit, "Nostalgia by Peter Bridger", beside the speaker grille, where the MK5 has it on the same outline;

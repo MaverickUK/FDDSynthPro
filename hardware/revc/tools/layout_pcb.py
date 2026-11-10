@@ -232,7 +232,7 @@ REF_HIDDEN = ([f"C{n}" for n in range(1, 37)] + [f"R{n}" for n in range(1, 63)]
 # BACK_CENTRE, the same centred.
 PLAIN, LABEL, BACK, BACK_CENTRE = "plain", "label", "back", "back-centre"
 SILK = [  # text, x, y, size, rotation (board coordinates), style
-    ("FDDSynthPro rev C", 66.0, 52.4, 1.2, 0, PLAIN),
+    ("FDD Synth Duo rev C", 66.0, 52.4, 1.2, 0, PLAIN),
     ("10k", 83.6, 10.6, 0.8, 0, PLAIN), ("1k", 81.2, 8.8, 0.8, 0, PLAIN),
     ("Floppy", 84.0, 46.4, 1.0, 90, LABEL),         # beside pins 26-30: no pull-ups on that stretch
     ("PC/Amiga", 75.0, 47.0, 1.0, 90, LABEL),
@@ -255,7 +255,7 @@ SILK = [  # text, x, y, size, rotation (board coordinates), style
 ]
 # The logo (tools/make_logo.py, a board-only footprint) between the speaker and the flash, turned to read
 # along the board: x, y, rotation. 1.5 mm clear of the speaker's square (x 41.26), 0.3 mm of the PSRAM_CS via.
-LOGO = ("FDDSynthPro_Logo", 47.1, 41.25, 90)
+LOGO = ("FDDSynthDuo_Logo", 47.1, 41.25, 90)
 # The easter egg, flipped onto the back: under the PSRAM and the power parts, the one patch there clear of
 # through-hole pads (J12's, the speaker's, H4 and J8's), 26 x 12.8 mm.
 SIGN = ("DontCopyThatFloppy", 68.0, 60.6, 0)
@@ -505,7 +505,7 @@ def place_logo(board):
     copies already on the board, for the caller to remove last (KiCad 10's bindings misbehave after a Remove)."""
     old = []
     for ref, (name, x, y, r), back in (("LOGO1", LOGO, False), ("LOGO2", SIGN, True)):
-        old += [f for f in board.GetFootprints() if f.GetFPID().GetLibItemName() == name]
+        old += [f for f in board.GetFootprints() if f.GetReference() == ref]  # by reference: the name may change
         fp = load_footprint(f"{LIB}:{name}")
         fp.SetReference(ref)
         fp.Reference().SetVisible(False)

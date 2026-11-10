@@ -1,4 +1,4 @@
-// FDDSynthPro rev C: a 3D-printable sled that fits the board in a 3.5-inch drive bay.
+// FDD Synth Duo rev C: a 3D-printable sled that fits the board in a 3.5-inch drive bay.
 // docs/pcb-revc.md explains the layout; every dimension below is a parameter.
 //
 // Axes: X across the bay (0 at the left, seen from the front), Y front to back (0 at the

@@ -23,7 +23,7 @@ Copies of all of them are in `~/fdd-images`, to check against afterwards and to 
    ~/.platformio-venv/bin/pio device monitor -p /dev/cu.usbmodem11101 | tee host/runs/realhw-$(date +%Y%m%d-%H%M).log
    ```
 3. **Power order:** the BB48R on USB first, then the computer. Off: the computer first, then unplug the BB48R. Its inputs are only 5 V tolerant while it's powered.
-   - **If the computer won't start** (a blank screen, most times) with the boards on USB and their cables in: they may be powering it a little through the cable while it's off. FDDSynthPro's pull-ups (1 kΩ to 3.3 V with J7 closed, about 3 mA a line) feed the PC's floppy outputs through their protection diodes, and HDDSynthPro's pins can do the same on the IDE cable; a PC held at a volt or two when it's switched on may not reset properly. Seen on the Evesham, 6 November 2026 (suspected, not proven). To tell, switch on with the boards' cables out: if it starts every time, plug them back one at a time. A real drive in FDDSynthPro's place is powered by the PC, so it can't do this.
+   - **If the computer won't start** (a blank screen, most times) with the boards on USB and their cables in: they may be powering it a little through the cable while it's off. FDD Synth Duo's pull-ups (1 kΩ to 3.3 V with J7 closed, about 3 mA a line) feed the PC's floppy outputs through their protection diodes, and HDDSynthPro's pins can do the same on the IDE cable; a PC held at a volt or two when it's switched on may not reset properly. Seen on the Evesham, 6 November 2026 (suspected, not proven). To tell, switch on with the boards' cables out: if it starts every time, plug them back one at a time. A real drive in FDD Synth Duo's place is powered by the PC, so it can't do this.
 4. **At the end of each session**, type `s` and keep the line. `write_faults`, `capture_overruns`, `write_bad_crc` and `audio_underruns` should all be 0; `decode_kbps` well above 370.
 5. **Then check the log:** `scripts/check_log.py host/runs/realhw-....log` lists anything that needs a look (the board restarting on its own, lost writes, steps past either end of the disk, non-zero fault counters) and summarises the session: the lines the computer selected with, its step rate, its writes and disk changes.
 
@@ -56,7 +56,7 @@ Copies of all of them are in `~/fdd-images`, to check against afterwards and to 
 
 ### Results: the Evesham, 6 November 2026 (0.23.7 to 0.23.9)
 
-The Evesham booted DOS from HDDSynthPro (C:) with FDDSynthPro as A:, past the twist, J7 closed.
+The Evesham booted DOS from HDDSynthPro (C:) with FDD Synth Duo as A:, past the twist, J7 closed.
 
 | # | Result |
 |---|---|
@@ -72,7 +72,7 @@ The Evesham booted DOS from HDDSynthPro (C:) with FDDSynthPro as A:, past the tw
 
 The log checker's only complaints were the flash to 0.23.8 (a restart it wasn't told about) and both selects read low while the Evesham was off.
 
-**With a real drive on the Evesham** (the afternoon; FDDBench 0.3.2, its log from C:, a Voice Memo): every scenario took the same time as on FDDSynthPro to within about a second, and the benchmark gave 296.6 RPM (202.3 ms), 1.50 rev a track, 29.6 KB/s, track-to-track 33.2 ms, full stroke 436.4 ms, average access 267.0 ms, 0 / 0. By the phone's clock the drive turns at 299.2 RPM (a sequential read's cylinders 0.6016 s apart, three revolutions each). The memo's seeks became `samples/RealDrive/seek.wav` ([recording.md](recording.md)). The Evesham's date had reset to 2000-01-01 by then: its CMOS battery may be low.
+**With a real drive on the Evesham** (the afternoon; FDDBench 0.3.2, its log from C:, a Voice Memo): every scenario took the same time as on FDD Synth Duo to within about a second, and the benchmark gave 296.6 RPM (202.3 ms), 1.50 rev a track, 29.6 KB/s, track-to-track 33.2 ms, full stroke 436.4 ms, average access 267.0 ms, 0 / 0. By the phone's clock the drive turns at 299.2 RPM (a sequential read's cylinders 0.6016 s apart, three revolutions each). The memo's seeks became `samples/RealDrive/seek.wav` ([recording.md](recording.md)). The Evesham's date had reset to 2000-01-01 by then: its CMOS battery may be low.
 
 Next on this PC: FDDBench 0.4.1 on both drives (copy it to C: first), for the timer check; FORMAT on 0.23.10, which should verify every track first time.
 

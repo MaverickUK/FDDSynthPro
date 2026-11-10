@@ -1,4 +1,4 @@
-# FDDSynthPro rev C board
+# FDD Synth Duo rev C board
 
 The integrated board: the RP2350B with its flash and PSRAM, the microSD socket, the floppy interface, the MAX98357A amp, and power from the floppy power connector or USB-C, on rev B's outline (the HDD Synth MK5's). The design and the reasons for it are in [docs/pcb-revc.md](../../docs/pcb-revc.md); the sled that fits it in a 3.5-inch bay is [hardware/mount/fddsynthpro_bay.scad](../mount/fddsynthpro_bay.scad).
 
@@ -18,7 +18,7 @@ Status: **not reviewed, not ordered.** The schematic passes ERC with 0 violation
 | `tools/gen_schematic.py` | Generates the schematic, with each part's LCSC number |
 | `tools/layout_pcb.py` | Places the parts, Raspberry Pi's regulator copper and the planes |
 | `tools/autoroute.py` | Routes with Freerouting, then pours ground on the outer layers |
-| `tools/make_logo.py` | Makes the silkscreen logo and the easter egg on the back (board-only footprints) from `media/FDDSynthPro.png` and `media/dont-copy-that-floppy.png` |
+| `tools/make_logo.py` | Makes the silkscreen logo and the easter egg on the back (board-only footprints) from `media/FDDSynthDuo.png` and `media/dont-copy-that-floppy.png` |
 | `tools/add_parts.py` | Adds parts the schematic has gained to the routed board, or moves parts on it (`--move`), so only their nets get routed |
 
 The generators follow HDDSynthPro's (`../../HDDSynthPro/hardware/tools`). They bootstrap the design: once the files are edited in KiCad, those edits are the source, and rerunning a generator overwrites them.

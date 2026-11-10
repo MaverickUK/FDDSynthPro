@@ -1,4 +1,4 @@
-# FDDSynthPro carrier board
+# FDD Synth Duo carrier board
 
 A KiCad 10 project for the board the Olimex RP2350-PICO2-BB48R plugs onto: the SN7407, the floppy header, the input pull-ups, and headers for the front panel and the amp. It's the circuit in [docs/wiring.md](../docs/wiring.md), with the pin map in [src/config.h](../src/config.h).
 

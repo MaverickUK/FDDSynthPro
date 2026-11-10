@@ -1,6 +1,6 @@
-# FDD Synth Pro
+# FDD Synth Duo
 
-<img src="media/FDDSynthPro.png" alt="FDD Synth Pro logo" width="300" align="left">
+<img src="media/FDDSynthDuo.png" alt="FDD Synth Duo logo" width="300" align="left">
 
 An RP2350 that pretends to be a 3.5-inch floppy drive, GoTek style, as the base for a future FDD Synth that *is* the drive rather than one that listens to it. Being the drive, it knows exactly when the motor spins and how the head moves, so the sounds can follow every step.
 
