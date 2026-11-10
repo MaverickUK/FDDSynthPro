@@ -19,7 +19,7 @@ STATS = ("STATS events=10 dropped=0 steps=8 ring=0 core1=5 interface=ibmpc cable
          "decode_kbps=1650 finish_us_max=4100 audio_underruns=1 audio_gap_us_max=27000 act_dropped=0 oled_aborts=0")
 
 CLEAN = [
-    "READY FDDSynthPro 0.23.6 slice5",
+    "READY FDDSynthDuo 0.23.6 slice5",
     "SIG 1000000 DRVSB=ON MOTEB=ON",
     "ACT 1000100 MOTOR_ON",
     "SIG 1200000 DIR=ON",
@@ -30,7 +30,7 @@ CLEAN = [
     "SIG 1310000 WGATE=OFF",
     "# saved: ! restarts the drive with it",
     "# restarting",
-    "READY FDDSynthPro 0.23.6 slice5",
+    "READY FDDSynthDuo 0.23.6 slice5",
     "SIG 50000 DRVSB=OFF MOTEB=OFF",
     STATS.format(overruns=0),
 ]

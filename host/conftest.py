@@ -55,7 +55,7 @@ def drive(session_stamp):
     RUNS.mkdir(parents=True, exist_ok=True)
     log = DriveLog(raw_log_path=RUNS / f"{session_stamp}-serial.log")
     log.open()
-    # "READY FDDSynthPro <version> slice<N> [direct]". The drive answers once
+    # "READY FDDSynthDuo <version> slice<N> [direct]". The drive answers once
     # its disk is in PSRAM: 0.6 s for a 1.44 MB image, about 6 s for a 4 MB HFE.
     log.ready = log.command("h", "READY", timeout=20)
     yield log

@@ -45,7 +45,7 @@ def make_disk(tmp: Path, kb: int) -> tuple[Path, dict[str, bytes]]:
     mtools("mformat", "-i", str(img), "-C", "-f", str(kb), "-v", "FDDSYNTH", "::")
     files = {
         "AUTOEXEC.BAT": b"@ECHO OFF\r\nPROMPT $P$G\r\nPATH A:\\\r\n",
-        "README.TXT": b"FDD Synth Pro test disk.\r\n" * 40,
+        "README.TXT": b"FDD Synth Duo test disk.\r\n" * 40,
         "A.BIN": rng.randbytes(30000),
         "GAME.EXE": rng.randbytes(20000),
     }
@@ -98,7 +98,7 @@ def check(tmp: Path, img: Path, files: dict[str, bytes], new_name: str, new_data
 
 def test_dos_session_1440(tmp_path):
     img, files = make_disk(tmp_path, 1440)
-    check(tmp_path, img, files, "NEW.TXT", b"Written by the FDD Synth Pro virtual PC.\r\n")
+    check(tmp_path, img, files, "NEW.TXT", b"Written by the FDD Synth Duo virtual PC.\r\n")
 
 
 def test_dos_session_720(tmp_path):

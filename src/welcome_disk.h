@@ -1,6 +1,6 @@
 // The welcome disk: what the drive serves when it starts with no microSD
 // card, or with no image on it it can use. A 1.44 MB DOS floppy, volume
-// FDDSYNTHPRO, holding README.TXT (from welcome/README.TXT, embedded at
+// FDDSYNTHDUO, holding README.TXT (from welcome/README.TXT, embedded at
 // build time by scripts/embed_welcome.py), so any computer that reads it
 // shows how to set the drive up. As HDDSynthPro's welcome disk, on FAT12.
 //
@@ -44,7 +44,7 @@ constexpr uint32_t CLUSTERS = SECTORS - DATA_START;                   // 2847
 static_assert(CLUSTERS < 4085, "a FAT12 volume by its cluster count");
 static_assert(FAT_SECTORS * SECTOR_BYTES * 2 / 3 >= CLUSTERS + 2, "the FAT has an entry for every cluster");
 
-constexpr const char* VOLUME_LABEL = "FDDSYNTHPRO";  // 11 characters, the most FAT allows
+constexpr const char* VOLUME_LABEL = "FDDSYNTHDUO";  // 11 characters, the most FAT allows
 constexpr uint32_t VOLUME_ID = 0x46445350;            // "FDSP"
 
 // Sector `lba` of the disk holding `files` (one after another from cluster

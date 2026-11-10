@@ -9,7 +9,7 @@ from fddproto import trace
 pytestmark = pytest.mark.sim
 
 SEEK = [
-    "READY FDDSynthPro 0.1.0 slice0",
+    "READY FDDSynthDuo 0.1.0 slice0",
     "SIG 1000 DRVSB=ON MOTEB=ON SIDE1=OFF",
     "STEP 1500 OUT x80 237000",
     "SIG 240000 DIR=ON",
@@ -28,7 +28,7 @@ def test_parse_lines():
     assert t.steps[1].delta == 2
     assert t.dropped == 3
     assert t.marks == [250000]
-    assert t.other == ["READY FDDSynthPro 0.1.0 slice0"]
+    assert t.other == ["READY FDDSynthDuo 0.1.0 slice0"]
 
 
 def test_derived_values():

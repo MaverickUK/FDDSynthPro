@@ -67,7 +67,7 @@ def make_disk(tmp: Path) -> Path:
     rng = random.Random(9)
     files = {
         "AUTOEXEC.BAT": b"@ECHO OFF\r\nPROMPT $P$G\r\n",
-        "README.TXT": b"FDD Synth Pro showreel disk.\r\n" * 60,
+        "README.TXT": b"FDD Synth Duo showreel disk.\r\n" * 60,
         "FILLER": rng.randbytes(700 * 1024),
         "LEVEL9.DAT": rng.randbytes(40 * 1024),
         "GAME.EXE": rng.randbytes(180 * 1024),
@@ -265,8 +265,8 @@ def main() -> int:
                 t = f + sub / PER_FRAME
                 img = Image.new("RGB", (W, H), BG)
                 d = ImageDraw.Draw(img)
-                d.text((64, 40), "FDD Synth Pro", font=TITLE_FONT, fill=TEXT)
-                d.text((64 + d.textlength("FDD Synth Pro  ", font=TITLE_FONT), 40), "a virtual PC, the front panel and the FDD Synth, all running the firmware's own code",
+                d.text((64, 40), "FDD Synth Duo", font=TITLE_FONT, fill=TEXT)
+                d.text((64 + d.textlength("FDD Synth Duo  ", font=TITLE_FONT), 40), "a virtual PC, the front panel and the FDD Synth, all running the firmware's own code",
                        font=TITLE_FONT, fill=DIM)
                 ox, oy = oled_box
                 d.rounded_rectangle([ox - 18, oy - 18, ox + OLED_W * SCALE + 18, oy + OLED_H * SCALE + 18], 14,

@@ -47,7 +47,7 @@ def test_a_sound_fat12_floppy(image):
 
 def test_label_and_files(image):
     listing = mtools("mdir", "-i", str(image), "::")
-    assert "FDDSYNTHPRO" in listing
+    assert "FDDSYNTHDUO" in listing
     assert re.search(r"README\s+TXT", listing), listing
     assert re.search(r"FDDSYNTH\s+CFG", listing), listing
 

@@ -1177,7 +1177,7 @@ static bool printLine(const char* line, size_t n) {
 
 static void printReady() {
     // "direct": the outputs are wired straight to the header (config.h).
-    Serial.printf("READY FDDSynthPro %s slice%d%s\n", FIRMWARE_VERSION, FIRMWARE_SLICE,
+    Serial.printf("READY FDDSynthDuo %s slice%d%s\n", FIRMWARE_VERSION, FIRMWARE_SLICE,
                   cfg::OUTPUTS_OPEN_DRAIN ? " direct" : "");
 }
 

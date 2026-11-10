@@ -31,7 +31,7 @@ constexpr uint32_t BOOT_CODE_AT = 0x3E;
 constexpr uint32_t MESSAGE_AT = 0x5A;
 static_assert(BOOT_CODE_AT + sizeof BOOT_CODE == MESSAGE_AT, "the code's message address");
 static const char MESSAGE[] =
-    "\r\nThis is the FDD Synth Pro welcome disk, not a system disk.\r\n"
+    "\r\nThis is the FDD Synth Duo welcome disk, not a system disk.\r\n"
     "Read README.TXT on it from DOS or any computer, or put a disk image\r\n"
     "on the drive's microSD card. Press a key to try again.\r\n";
 static_assert(MESSAGE_AT + sizeof MESSAGE <= 510, "the message fits the boot sector");

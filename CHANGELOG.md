@@ -4,6 +4,13 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-11-10
+
+### Changed
+- **The welcome disk is FDD Synth Duo's:** its volume is `FDDSYNTHDUO` (it was `FDDSYNTHPRO`), README.TXT's banner says DUO, and the boot sector's message and the sample FDDSYNTH.CFG name FDD Synth Duo.
+- **The console's `READY` line says `READY FDDSynthDuo`.** Nothing reads the name: the host tools only look for `READY `. The USB device is still called FDDSynthPro, which is how `DriveLog` finds the board's port.
+- The virtual PC's test disk, the showreel's captions and the panel page say FDD Synth Duo.
+
 ## [0.24.1] - 2026-11-10
 
 ### Changed

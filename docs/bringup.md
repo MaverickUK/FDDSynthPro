@@ -18,7 +18,7 @@ The parts are in [parts.md](parts.md). You'll need: a multimeter with a continui
 ## 2. First power: BB48 only, floppy cable unplugged
 
 - [ ] Plug the BB48 into the Mac and flash the listen build: `pio run -t upload`.
-- [ ] Open the console: `pio device monitor`. Type `h`; it should answer `READY FDDSynthPro 0.1.0 slice0`.
+- [ ] Open the console: `pio device monitor`. Type `h`; it should answer `READY FDDSynthDuo 0.1.0 slice0`.
 - [ ] **Solder-bridge test.** Type `x`, then `Y`. With the cable unplugged, every pin should read high on its pull-up, and pulling each one low should move no other pin.
   - `SHORTTEST OK 15 pins`: no solder bridges.
   - `SHORT GPIO17 (DIR) GPIO18 (STEP)`: those two are bridged. Fix it, then run the test again.

@@ -39,7 +39,7 @@ TEST(test_welcome_boot_sector) {
     CHECK_EQ(rd16(&b[0x16]), 9);
     CHECK_EQ(rd16(&b[0x18]), 18);
     CHECK_EQ(rd16(&b[0x1A]), 2);
-    CHECK(std::memcmp(&b[0x2B], "FDDSYNTHPRO", 11) == 0);
+    CHECK(std::memcmp(&b[0x2B], "FDDSYNTHDUO", 11) == 0);
     CHECK(std::memcmp(&b[0x36], "FAT12   ", 8) == 0);
     CHECK(b[510] == 0x55 && b[511] == 0xAA);
     // The code a PC runs if it boots this disk prints the message after it.
