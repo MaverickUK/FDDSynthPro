@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-11-10
+
+### Changed
+- **The project is now FDD Synth Duo** (it was FDD Synth Pro): the OLED shows the new logo at power-on (`media/FDDSynthDuo.png`). `scripts/make_splash.py` now crops the logo to its dark ink, so the new logo's grey shadow and the faint bars beside DUO don't shrink it and break DUO's bars up. The console's `READY` line, the welcome disk and the file names still say FDDSynthPro.
+
 ## [0.24.0] - 2026-11-06
 
 ### Fixed

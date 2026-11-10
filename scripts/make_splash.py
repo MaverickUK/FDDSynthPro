@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turns media/FDDSynthPro.png into src/splash_logo.h: the logo the OLED
+"""Turns media/FDDSynthDuo.png into src/splash_logo.h: the logo the OLED
 shows for a second at power-on (ui::Screen::Splash), 128 x 64, one bit a
 pixel.
 
@@ -15,10 +15,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image
 
 REPO = Path(__file__).resolve().parent.parent
-SRC = REPO / "media" / "FDDSynthPro.png"
+SRC = REPO / "media" / "FDDSynthDuo.png"
 OUT = REPO / "src" / "splash_logo.h"
 W, H = 128, 64
 THRESHOLD = 150  # luminance at or under this is ink
@@ -29,7 +29,9 @@ def bitmap(src: Path = SRC) -> Image.Image:
     white = Image.new("RGBA", rgba.size, "white")
     white.alpha_composite(rgba)
     grey = white.convert("L")
-    grey = grey.crop(ImageOps.invert(grey).getbbox())
+    # Cropped to the dark ink: the floppy's grey shadow and the faint bars beside DUO would otherwise
+    # widen the crop and shrink the logo, and DUO's bars break up at the smaller size.
+    grey = grey.crop(grey.point(lambda v: 255 if v <= THRESHOLD else 0).getbbox())
     scale = min(W / grey.width, H / grey.height)
     grey = grey.resize((max(1, round(grey.width * scale)), max(1, round(grey.height * scale))), Image.LANCZOS)
     ink = grey.point(lambda v: 255 if v <= THRESHOLD else 0).convert("1")  # lit where the logo is dark
@@ -51,7 +53,7 @@ def header(screen: Image.Image) -> str:
     return (
         "// The logo the OLED shows at power-on: 128 x 64, a row of 16 bytes per\n"
         "// line, the leftmost pixel in the top bit, 1 = lit. Generated from\n"
-        "// media/FDDSynthPro.png by scripts/make_splash.py: run that, don't edit this.\n"
+        "// media/FDDSynthDuo.png by scripts/make_splash.py: run that, don't edit this.\n"
         "#pragma once\n\n#include <cstdint>\n\nnamespace splash {\n\n"
         f"constexpr int WIDTH = {W}, HEIGHT = {H};\n"
         f"constexpr uint8_t LOGO[{H}][{W // 8}] = {{\n" + "\n".join(rows) + "\n};\n\n}  // namespace splash\n"

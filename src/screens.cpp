@@ -308,7 +308,7 @@ void stats(Canvas& c, const ui::Status& s) {
     }
 }
 
-// The logo at power-on (src/splash_logo.h, from media/FDDSynthPro.png).
+// The logo at power-on (src/splash_logo.h, from media/FDDSynthDuo.png).
 static void splashScreen(Canvas& c) {
     for (int y = 0; y < splash::HEIGHT; ++y)
         for (int x = 0; x < splash::WIDTH; ++x)
