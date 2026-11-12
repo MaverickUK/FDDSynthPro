@@ -13,6 +13,8 @@ kicad-cli sch export netlist --format kicadsexpr -o /tmp/fddsynthpro_carrier.net
 kicad-cli pcb drc --refill-zones --save-board --schematic-parity --severity-all --format report \
     -o /tmp/fddsynthpro_drc.rpt fddsynthpro_carrier.kicad_pcb
 grep -E "^\*\* Found" /tmp/fddsynthpro_drc.rpt
+# No solder mask strip too thin for a fab to make in black (check_mask_webs.py says why).
+"$KICAD_PYTHON" check_mask_webs.py fddsynthpro_carrier.kicad_pcb 2> >(grep -v "stdpbase\|traits" >&2)
 
 # Fabrication files: Gerbers and drill files, zipped, for JLCPCB and the like.
 rm -rf fab && mkdir -p fab

@@ -18,5 +18,7 @@ else
 fi
 # Expect 0 unconnected, 0 parity issues, and 7 warnings: J1, J8 and J9's outlines overhang the edge.
 "$KICAD_CLI" pcb drc --refill-zones --save-board --schematic-parity fddsynthpro_revc.kicad_pcb
+# No solder mask strip too thin for a fab to make in black (../check_mask_webs.py says why).
+"$KICAD_PYTHON" ../check_mask_webs.py fddsynthpro_revc.kicad_pcb
 "$KICAD_CLI" pcb render --side top --width 2000 --height 1400 --quality basic --zoom 1.3 -o revc-top.png fddsynthpro_revc.kicad_pcb
 "$KICAD_CLI" pcb render --side bottom --width 2000 --height 1400 --quality basic --zoom 1.3 -o revc-bottom.png fddsynthpro_revc.kicad_pcb
