@@ -409,7 +409,7 @@
 			)
 		)
 	)
-	(footprint "Package_TO_SOT_SMD:SOT-583-8"
+	(footprint "FDDSynthProRevC:SOT-583-8_OneMaskOpening"
 		(layer "F.Cu")
 		(uuid "0a4e6605-1cb7-4075-9630-6fe021fa2555")
 		(at 172 110)
@@ -479,8 +479,30 @@
 			)
 		)
 		(path "/98a68a3d-10c4-5af9-a121-7ead222abe20/cdc6d15f-e0c8-5eb3-b020-d51ce253323a")
-		(attr smd)
+		(attr smd allow_soldermask_bridges)
 		(duplicate_pad_numbers_are_jumpers no)
+		(fp_rect
+			(start -1.075 -0.9)
+			(end -0.405 0.9)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "853ce49c-f5b5-4733-bff6-94e4f4ed5c5d")
+		)
+		(fp_rect
+			(start 0.405 -0.9)
+			(end 1.075 0.9)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "2d4b2a87-3ebd-41dd-b1eb-2380f3156d93")
+		)
 		(fp_line
 			(start 0.65 -1.16)
 			(end -0.4 -1.16)
@@ -5415,7 +5437,7 @@
 		)
 		(embedded_fonts no)
 	)
-	(footprint "Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12"
+	(footprint "FDDSynthProRevC:USB_C_Receptacle_HRO_TYPE-C-31-M-12_OneMaskOpening"
 		(layer "F.Cu")
 		(uuid "34e9f525-022d-40a4-bc94-abcdd18e5dce")
 		(at 127 116.26)
@@ -5506,8 +5528,41 @@
 			)
 		)
 		(path "/98a68a3d-10c4-5af9-a121-7ead222abe20/3dfb107a-d2f4-5657-a0b7-3a6af08036dd")
-		(attr smd)
+		(attr smd allow_soldermask_bridges)
 		(duplicate_pad_numbers_are_jumpers no)
+		(fp_rect
+			(start -3.55 -4.77)
+			(end -2.15 -3.32)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "ef5b6c4b-e00d-43ab-90b7-7861a355cf28")
+		)
+		(fp_rect
+			(start -1.9 -4.77)
+			(end 1.9 -3.32)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "07850025-55cc-41cc-9bb8-1547d182132a")
+		)
+		(fp_rect
+			(start 2.15 -4.77)
+			(end 3.55 -3.32)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "1dbf801e-3fc8-43a7-8ebd-7cfab58a33bb")
+		)
 		(fp_line
 			(start -4.7 -1.9)
 			(end -4.7 0.1)
@@ -13551,7 +13606,7 @@
 			)
 		)
 	)
-	(footprint "Package_DFN_QFN:QFN-80-1EP_10x10mm_P0.4mm_EP3.4x3.4mm_ThermalVias"
+	(footprint "FDDSynthProRevC:QFN-80-1EP_10x10mm_P0.4mm_EP3.4x3.4mm_ThermalVias_OneMaskOpening"
 		(layer "F.Cu")
 		(uuid "92ce637a-ce6b-481c-836a-7c616db39006")
 		(at 152 72 180)
@@ -13638,8 +13693,52 @@
 			)
 		)
 		(path "/53e5da60-8596-50bb-8988-af9a2259849c/694b284f-6f9c-56b4-ae94-d744e1f4501e")
-		(attr smd)
+		(attr smd allow_soldermask_bridges)
 		(duplicate_pad_numbers_are_jumpers no)
+		(fp_rect
+			(start 4.55 -3.9)
+			(end 5.35 3.9)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "7d5ad6af-a9db-4912-8cd8-82703b960d72")
+		)
+		(fp_rect
+			(start -3.9 4.55)
+			(end 3.9 5.35)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "a855f4f8-7c1b-4227-a45c-d4ff082c1c50")
+		)
+		(fp_rect
+			(start -3.9 -5.35)
+			(end 3.9 -4.55)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "2a6c5129-2b8b-4fe7-90cc-b424906b4aae")
+		)
+		(fp_rect
+			(start -5.35 -3.9)
+			(end -4.55 3.9)
+			(stroke
+				(width 0)
+				(type solid)
+			)
+			(fill yes)
+			(layer "F.Mask")
+			(uuid "db2d3cdf-5670-4b9b-8535-6ab2b1e03b1c")
+		)
 		(fp_line
 			(start 5.11 5.11)
 			(end 4.16 5.11)

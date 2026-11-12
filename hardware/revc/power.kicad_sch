@@ -1698,7 +1698,7 @@
 					)
 				)
 			)
-			(property "Footprint" "Package_TO_SOT_SMD:SOT-583-8"
+			(property "Footprint" "FDDSynthProRevC:SOT-583-8_OneMaskOpening"
 				(at 0 -15.24 0)
 				(effects
 					(font
@@ -3907,7 +3907,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12"
+		(property "Footprint" "FDDSynthProRevC:USB_C_Receptacle_HRO_TYPE-C-31-M-12_OneMaskOpening"
 			(at 54.61 160.02 0)
 			(effects
 				(font
@@ -4940,7 +4940,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_TO_SOT_SMD:SOT-583-8"
+		(property "Footprint" "FDDSynthProRevC:SOT-583-8_OneMaskOpening"
 			(at 213.36 114.3 0)
 			(effects
 				(font

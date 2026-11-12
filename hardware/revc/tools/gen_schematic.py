@@ -40,6 +40,15 @@ REV = "C"
 STUB = 2.54
 POWER_NETS = {"GND": "power:GND", "+3V3": "power:+3V3", "+5V": "power:+5V"}
 BERG_FP = "TE_171825-4_1x04_P2.50mm_Vertical"
+# KiCad's footprints whose pads are too close for a strip of black solder mask between them
+# (PCBWay's minimum is 0.22 mm; these have 0.2 mm, as the IDE Synth Bay's order showed on
+# 11 Nov 2026): write_footprints() copies each with one mask opening per such row of pads.
+MASK_WEB_MIN = 0.22
+ONE_OPENING = "_OneMaskOpening"
+QFN80_FP = f"{LIB}:QFN-80-1EP_10x10mm_P0.4mm_EP3.4x3.4mm_ThermalVias{ONE_OPENING}"
+USBC_FP = f"{LIB}:USB_C_Receptacle_HRO_TYPE-C-31-M-12{ONE_OPENING}"
+SOT583_FP = f"{LIB}:SOT-583-8{ONE_OPENING}"
+ONE_OPENING_FROM = {QFN80_FP: "Package_DFN_QFN", USBC_FP: "Connector_USB", SOT583_FP: "Package_TO_SOT_SMD"}
 LCSC_FIELD = "LCSC Part Number"  # as rev B and the HDD Synth: the Fabrication Toolkit reads it
 
 
@@ -180,7 +189,7 @@ def sn7407_symbol():
 def lm66200_symbol():
     """TI LM66200: dual ideal diode, the higher input wins (SLVSG04, pin table 5-1)."""
     return box_symbol("LM66200", "U", "LM66200", "Dual 2.5 A ideal diode (power mux), 1.6-5.5 V",
-                      "Package_TO_SOT_SMD:SOT-583-8",
+                      SOT583_FP,
                       left=[("3", "VIN1", "power_in"), ("6", "VIN2", "power_in"), ("4", "~{ON}", "input")],
                       right=[("2", "VOUT", "power_out"), ("7", "VOUT", "passive", True), ("8", "ST", "output")],
                       bottom=[("1", "GND", "power_in"), ("5", "GND", "passive", True)])
@@ -375,10 +384,10 @@ class Sheet:
 # found by fitting JLCPCB's own footprints onto KiCad's on 2026-10-27). Check new parts in JLCPCB's
 # placement preview before paying.
 FT_FIELDS = {
-    "QFN-80-1EP_10x10mm_P0.4mm_EP3.4x3.4mm_ThermalVias": [("FT Rotation Offset", "-90")],
+    QFN80_FP.split(":")[1]: [("FT Rotation Offset", "-90")],
     "SOT-23-6": [("FT Rotation Offset", "90")],
     "SOT-223-3_TabPin2": [("FT Position Offset", "-0.18,0")],
-    "USB_C_Receptacle_HRO_TYPE-C-31-M-12": [("FT Position Offset", "0,0.111")],
+    USBC_FP.split(":")[1]: [("FT Position Offset", "0,0.111")],
     "microSD_TF-PUSH": [("FT Position Offset", "0,0.15")],
     "L_Abracon_AOTA-B201610S3R3": [("FT Rotation Offset", "180")],  # JLCPCB marks the dot at the other end
 }
@@ -497,7 +506,7 @@ def power_sheet(sh):
            "A5": "CC1", "B5": "CC2", "A6": "USB_DP", "B6": "USB_DP", "A7": "USB_DM", "B7": "USB_DM",
            "A8": None, "B8": None}
     sh.part("Connector:USB_C_Receptacle_USB2.0_16P", "J9", "USB-C", 50.8, 160.02, usb,
-            "Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12", fields=[("MPN", "HRO TYPE-C-31-M-12")])
+            USBC_FP, fields=[("MPN", "HRO TYPE-C-31-M-12")])
     sh.r("R27", "5.1k", 101.6, 147.32, "CC1", "GND", R0603)
     sh.r("R28", "5.1k", 116.84, 147.32, "CC2", "GND", R0603)
     sh.note("CC pull-downs: without them a\nC-to-C cable gives no power.", 96.52, 160.02)
@@ -509,7 +518,7 @@ def power_sheet(sh):
 
     sh.part(f"{LIB}:LM66200", "U6", "LM66200DRLR", 213.36, 99.06,
             {"3": "5V_FDD", "6": "VBUS_USB", "4": "GND", "2": "+5V", "7": "+5V", "8": None, "1": "GND", "5": "GND"},
-            "Package_TO_SOT_SMD:SOT-583-8")
+            SOT583_FP)
     sh.c("C2", "1uF", 180.34, 73.66, "5V_FDD", "GND")
     sh.c("C3", "1uF", 195.58, 73.66, "VBUS_USB", "GND")
     sh.c("C4", "10uF", 246.38, 73.66, "+5V", "GND", C0805)
@@ -558,7 +567,7 @@ def mcu_sheet(sh):
             name, num = first(p, "name")[1], first(p, "number")[1]
             pins[num] = GPIO.get(int(name[4:].split("/")[0])) if name.startswith("GPIO") else power[name]
     sh.part("MCU_RaspberryPi:RP2350B", "U1", "RP2350B", 205.74, 152.4, pins,
-            "Package_DFN_QFN:QFN-80-1EP_10x10mm_P0.4mm_EP3.4x3.4mm_ThermalVias")
+            QFN80_FP)
 
     sh.note("Core regulator, as Raspberry Pi require: this inductor (polarity dot), and their layout.", 30.48, 45.72)
     sh.part("Device:L", "L1", "3.3uH", 40.64, 66.04, {"1": "+1V1", "2": "VREG_LX"},
@@ -841,6 +850,68 @@ def write_footprints():
     for old in d.glob("TE_171826-4*.kicad_mod"):
         old.unlink()
     (d / f"{BERG_FP}.kicad_mod").write_text(dump(fp) + "\n", encoding="utf8")
+    for fpid in ONE_OPENING_FROM:
+        one_mask_opening(fpid)
+
+
+def _mask_box(pad):
+    """A pad's outline (x0, y0, x1, y1) on the mask: its copper, as the board adds no margin."""
+    at, size = first(pad, "at"), first(pad, "size")
+    x, y, w, h = float(at[1]), float(at[2]), float(size[1]), float(size[2])
+    if len(at) > 3 and round(float(at[3])) % 180 == 90:
+        w, h = h, w
+    return [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
+
+
+def one_mask_opening(fpid):
+    """KiCad's footprint with one solder mask opening per row of pads too close for a strip.
+
+    Between pads closer than MASK_WEB_MIN a fab can't make the strip of mask (the "bridge") in
+    black, and asks what to do. Here each such row gets one opening, an F.Mask rectangle over the
+    row, so the Gerbers never ask for a strip that thin, whatever the colour. The footprint allows
+    mask bridges (KiCad's attribute), so DRC doesn't flag pads of different nets sharing an
+    opening. The copper and the paste are KiCad's, unchanged.
+    """
+    name = fpid.split(":")[1]
+    base = name[:-len(ONE_OPENING)]
+    src = parse((KICAD_SHARE / "footprints" / f"{ONE_OPENING_FROM[fpid]}.pretty" / f"{base}.kicad_mod")
+                .read_text(encoding="utf8"))
+    pads = [p for p in find(src, "pad") if p[2] == "smd" and "F.Mask" in first(p, "layers")[1:]]
+    boxes = [_mask_box(p) for p in pads]
+    group = list(range(len(boxes)))  # pads whose strip would be too thin (or that overlap) share a row
+
+    def root(i):
+        while group[i] != i:
+            i = group[i]
+        return i
+
+    for i, a in enumerate(boxes):
+        for j in range(i + 1, len(boxes)):
+            b = boxes[j]
+            dx, dy = max(b[0] - a[2], a[0] - b[2], 0), max(b[1] - a[3], a[1] - b[3], 0)
+            if (dx * dx + dy * dy) ** 0.5 < MASK_WEB_MIN:
+                group[root(j)] = root(i)
+    rows = {}
+    for i, b in enumerate(boxes):
+        r = rows.setdefault(root(i), [b[0], b[1], b[2], b[3], 0])
+        r[:4] = [min(r[0], b[0]), min(r[1], b[1]), max(r[2], b[2]), max(r[3], b[3])]
+        r[4] += 1
+    rows = sorted((r for r in rows.values() if r[4] > 1), key=lambda r: (round(r[1], 3), round(r[0], 3)))
+
+    fp = [S("footprint"), name]
+    for item in src[2:]:
+        if isinstance(item, list) and item and item[0] == "descr":
+            item = [S("descr"), item[1] + f". One solder mask opening per row of pads closer than {MASK_WEB_MIN} mm"
+                    " (no mask strips between them)"]
+        elif isinstance(item, list) and item and item[0] == "attr":
+            item = item + [S("allow_soldermask_bridges")]
+        fp.append(item)
+        if isinstance(item, list) and item and item[0] == "attr":
+            for k, (x0, y0, x1, y1, _) in enumerate(rows):
+                fp.append([S("fp_rect"), [S("start"), round(x0, 4), round(y0, 4)], [S("end"), round(x1, 4), round(y1, 4)],
+                           [S("stroke"), [S("width"), 0], [S("type"), S("solid")]], [S("fill"), S("yes")],
+                           [S("layer"), "F.Mask"], [S("uuid"), uid("fp", name, "mask", str(k))]])
+    (HW / f"{LIB}.pretty" / f"{name}.kicad_mod").write_text(dump(fp) + "\n", encoding="utf8")
 
 
 def write_project(project):

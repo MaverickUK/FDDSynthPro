@@ -58,4 +58,5 @@ Every part carries its LCSC number in a `LCSC Part Number` field (the Fabricatio
 - **L1** (Raspberry Pi's 3.3 µH inductor) was out of stock.
 - **The 16 MB flash** was down to 20.
 - **J12,** the HDD Synth-style speaker terminal, is marked DNP (not fitted).
+- **Solder mask:** the RP2350B (U1), USB-C (J9) and LM66200 (U6) footprints are copies of KiCad's (`gen_schematic.py`'s `one_mask_opening()`) with one mask opening per row of fine-pitch pads. Their pads are 0.2 mm apart, and PCBWay can't make a strip of black mask under 0.22 mm (it asked about the IDE Synth Bay's QFN-80, 11 Nov 2026). The narrowest strip left is 0.25 mm, so black mask needs no special request.
 - **JLCPCB's placement preview:** check the rotations, above all the QFN-80, the inductor's polarity dot, the SOT-583, the TQFN-16 and the right-angle J1.
