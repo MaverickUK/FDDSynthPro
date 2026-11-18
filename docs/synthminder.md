@@ -16,7 +16,7 @@ The mailbox is **cylinder 82, head 0**: past the last cylinder of an 80-track di
 - With the head at cylinder 82, the drive never reports write-protect, so SynthMinder can write whatever disk is in. Everywhere else, a protected disk stays protected.
 - Cylinders between the disk's end and 82 behave as before: blank, and writes there dropped.
 - **Which disks have one:** IBM MFM, 80 tracks or fewer, single-stepped, at least 9 sectors of 512 bytes numbered from 1. That covers 720 KB, 1.2 MB, 1.44 MB and 1.68 MB DMF disks and the welcome disk. Flux images (HFE), Amiga disks, FM and 40-track disks have none.
-- **With no disk in**, at cylinder 82 the drive spins, streams the mailbox's track (as the last disk's format) and takes writes as if a disk were in, and doesn't report the disk change there. On every other cylinder it's empty, so DOS never sees a disk arrive. Not while a swap is under way. A BIOS that checks the change line before it seeks may report the drive not ready: SynthMinder then seeks to 82 itself (INT 13h, AH=0Ch) and tries again.
+- **With no disk in**, at cylinder 82 the drive spins, streams the mailbox's track (as the last disk's format) and takes writes as if a disk were in, and doesn't report the disk change there. On every other cylinder it's empty, so DOS never sees a disk arrive. Not while a swap is under way. **Through the BIOS this isn't enough** (the Evesham, 18 Nov 2026): it recalibrates before every read on a drive whose disk it hasn't recognised, and reads at cylinder 0, where an empty drive has nothing, so it reports the drive not ready even with the head sent to 82 first. Until SynthMinder does the exchange with the floppy controller and DMA itself, the drive needs a disk in to be found. (From 0.25.0-dev.4 a step clears DISK CHANGE with the drive empty too, which a BIOS that seeks without recalibrating would need.)
 
 ## Finding the drive
 
@@ -85,5 +85,5 @@ A request that isn't a sentence, or not version 1: `$FDK,1,REQUEST,ERR,invalid`.
 ## To settle on a PC
 
 - **BIOSes that check the cylinder.** Most pass a cylinder past the disk's end straight to the controller; some may check it against their drive table and refuse. SynthMinder would then need to program the controller itself (ports 3F0h-3F7h, DMA channel 2).
-- **An empty drive, on a real BIOS:** whether it checks the change line before or after it seeks (see above).
+- **An empty drive:** the Evesham's BIOS won't read it (see above). SynthMinder's exchange through the controller and DMA, without the BIOS, would lift that.
 - **The seek's sound.** The trip back from 82 is silent (a run of steps starting there makes no sound). The trip out is heard: until it ends, it's like any other seek.
