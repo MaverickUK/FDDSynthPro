@@ -395,10 +395,20 @@ TEST(test_mailbox_with_no_disk_in) {
     CHECK(!r.pc.diskChanged());
     CHECK(contains(r.exchange(1, "FDQ,1,STATUS"), line("FDV,1,firmware,9.9.9")));
     CHECK(!r.m.d.diskPresent());
-    // Back on the disk's cylinders it's empty again, its change still to be seen.
+    // Back on the disk's cylinders it's empty again: no disk to read. The
+    // steps cleared DISK CHANGE, as a BIOS needs before it seeks (the Evesham's
+    // steps to cylinder 1 and back, and gives up if the line stays on).
     CHECK(r.pc.seekTo(0));
-    CHECK(r.pc.diskChanged());
+    CHECK(!r.pc.diskChanged());
+    CHECK(r.pc.readSectors(0, 0, 1, 1, buf.data()) != Status::Ok);
     CHECK_EQ(r.m.source.writes, 0u);
+    // A disk going in sets it again, so DOS sees the new disk.
+    r.m.insert(r.m.source);
+    r.pc.run(10000);
+    CHECK(r.pc.diskChanged());
+    r.m.eject();
+    r.pc.run(10000);
+    CHECK(r.pc.diskChanged());  // and taking it out
     // Not while a swap fills the cache: then it's empty at 82 too.
     r.m.d.setMailboxWhenEmpty(false);
     CHECK(r.pc.seekTo(mailbox::CYLINDER));

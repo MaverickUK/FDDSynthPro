@@ -4,6 +4,14 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.25.0-dev.4] - 2026-11-18
+
+### Fixed
+- **SynthMinder couldn't find the Duo with its drive empty, on the Evesham:** the BIOS steps to cylinder 1 and back to clear DISK CHANGE before it seeks, and with the line still on (no disk to clear it) reports the drive not ready, so the head never reached the mailbox. With the mailbox on, a step now clears the line with the drive empty too; the drive still has no index anywhere but at cylinder 82, so DOS still finds no disk there, and a disk going in sets the line again (`insertDisk`), so DOS sees it.
+
+### Tested
+- **On the Evesham (18 Nov 2026), with a disk in A:,** SynthMinder found the Duo through cylinder 82 and listed the images on its card: the first exchanges on a real PC and BIOS.
+
 ## [0.25.0-dev.3] - 2026-11-18
 
 ### Added
