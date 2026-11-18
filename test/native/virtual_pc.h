@@ -127,8 +127,10 @@ public:
         return access(cyl, head, first, count, out, nullptr);
     }
     // INT 13h, function 3.
+    // The controller checks write-protect as the write starts, after the
+    // seek: a drive may report it on one cylinder and not another (the
+    // mailbox's, mailbox.h).
     Status writeSectors(uint8_t cyl, uint8_t head, uint8_t first, uint8_t count, const uint8_t* data) {
-        if (cable().wpt) return Status::WriteProtected;
         return access(cyl, head, first, count, nullptr, data);
     }
 
@@ -199,6 +201,7 @@ private:
                 recalibrate();
             }
             if (!seekTo(cyl)) continue;
+            if (data && cable().wpt) return Status::WriteProtected;
             set(cfg::PIN_SIDE1, head == 1);
             bool all = true;
             for (uint8_t i = 0; i < count && all; ++i) {

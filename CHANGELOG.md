@@ -4,6 +4,21 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.25.0-dev.1] - 2026-11-18
+
+### Added
+- **SynthMinder can talk to the drive** (the DOS program that sets up the IDE Synth Bay and the HDD Synth; [docs/synthminder.md](docs/synthminder.md)). The floppy cable carries no commands, so the two exchange sectors at **cylinder 82**, past the end of an 80-track disk: SynthMinder writes a request to sector 1 through the BIOS (INT 13h), and reads the reply from sectors 5-9 of the same track. `MailboxSource` (`src/mailbox.*`) sits between each drive's disk and its loader and writer, serves that cylinder itself and never passes it to the image. The requests are `$FDQ`/`$FDC` sentences in the HDD Synth's format (`src/sentence.h`), answered by `src/duo_commands.*`: the drive's status, the images on the card (in pages), the sample packs, the settings; a disk into A: or B:, an eject, the pack, the volume, and a setting into FDDSYNTH.CFG for the next power-on. A swap of the drive the request came through waits until the head leaves cylinder 82 (or 1.5 s), so the PC can read the reply first; a pack and the settings file wait until the drive is idle, as the front panel's do.
+- With the head at cylinder 82, a PC drive never reports write-protect (`drive::Config::mailbox_cylinder`), so SynthMinder can write its request whatever disk is in; the disk itself stays protected.
+- Console `s` shows `mailbox0=on:<answered>/<repeats>/<stray>` (and `mailbox1`): `off` for a disk that has no mailbox.
+- `test_mailbox.cpp`: the sentences, the sector format, the answers against a pretend drive, and a virtual PC exchanging requests at cylinder 82 through the BIOS's reads and writes. With the board's write costs, the reply is there on the first revolution, at 500 and 250 kbit/s.
+
+### Changed
+- The virtual PC's controller checks write-protect when a write starts, after the seek, as a uPD765 does (it checked before seeking).
+
+### Limits
+- The mailbox needs a PC disk in the drive: IBM MFM, 80 tracks or fewer, single-stepped, with at least 9 sectors of 512 bytes (720 KB, 1.2 MB, 1.44 MB, DMF). Flux images, Amiga disks, FM and 40-track disks have none, and nor does an empty drive.
+- Not yet tried on a PC.
+
 ## [0.24.2] - 2026-11-10
 
 ### Changed

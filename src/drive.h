@@ -37,6 +37,10 @@ struct Config {
     bus::Interface interface = bus::Interface::IbmPc;  // Amiga: the motor is latched at select
     uint8_t last_cylinder = head::DEFAULT_LAST_CYLINDER;
     uint8_t start_cylinder = 0;  // where the head is at power-on
+    // SynthMinder's mailbox (mailbox.h): with the head there, the drive
+    // never reports write-protect, so the PC can always write its request.
+    // 0: none (not a PC, or the tests' default).
+    uint8_t mailbox_cylinder = 0;
     rotation::Config spindle;
 };
 
@@ -131,7 +135,9 @@ public:
     bool selected() const { return selected_; }
     bool diskPresent() const { return disk_present_; }
     bool diskChanged() const { return disk_changed_; }
-    bool writeProtected() const { return write_protected_; }
+    // As the host sees it: never at the mailbox's cylinder.
+    bool writeProtected() const { return write_protected_ && !atMailbox(); }
+    bool atMailbox() const { return cfg_.mailbox_cylinder && head_.cylinder() == cfg_.mailbox_cylinder; }
     uint8_t side() const { return side_; }
     const head::Head& head() const { return head_; }
     rotation::Spindle& spindle() { return spindle_; }

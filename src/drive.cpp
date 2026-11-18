@@ -55,7 +55,7 @@ Outputs Drive::outputsSelected(uint32_t now_us) {
     Outputs o;
     o.index = disk_present_ && spindle_.index(now_us);
     o.trk00 = head_.atTrack0();
-    o.wpt = !disk_present_ || write_protected_;
+    o.wpt = !disk_present_ || writeProtected();
     o.dskchg = disk_changed_;
     if (cfg_.interface == bus::Interface::Amiga)
         o.ready = spindle_.motorOn() ? spindle_.atSpeed(now_us) : true;  // at speed; or the ID: all ones

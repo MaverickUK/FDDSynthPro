@@ -18,6 +18,7 @@
 #include "drive.h"
 #include "gen_disk.h"
 #include "image_cache.h"
+#include "mailbox.h"
 #include "rdata_stream.h"
 #include "track_source.h"
 #include "virtual_hosts.h"
@@ -119,7 +120,7 @@ public:
         };
 
         Unit(const ibm::Format& fmt, const drive::Config& dc, uint16_t* scratch, uint8_t* store, size_t store_len,
-             mfm::Field* fields, size_t max_fields, const uint32_t* now)
+             mfm::Field* fields, size_t max_fields, const uint32_t* now, unsigned index = 0)
             : slots(ibm::MAX_TRACK_WORDS),
               data0(ibm::MAX_TRACK_DATA),
               data1(ibm::MAX_TRACK_DATA),
@@ -128,8 +129,10 @@ public:
               source(fmt),
               cache(cache_ram.data(), cache_ram.size()),
               slot(cache),
-              loader(slot, slots.data(), scratch, data0.data(), data1.data()),
-              writer(slot, loader, store, store_len, fields, max_fields) {
+              mailbox(slot, index),
+              loader(mailbox, slots.data(), scratch, data0.data(), data1.data()),
+              writer(mailbox, loader, store, store_len, fields, max_fields) {
+            mailbox.setLoader(&loader);
             position.u = this;
             position.now = now;
             loader.setStreamPosition(&position);
@@ -142,6 +145,7 @@ public:
         MemorySource source;  // the disk in the drive at power-on: the card's image
         ImageCache cache;     // the inserted image, in memory; writes go through to the card
         DiskSlot slot;        // the cache, always
+        mailbox::MailboxSource mailbox;  // the slot, and SynthMinder's cylinder 82: the loader and writer use it
         CylinderLoader loader;
         BurstWriter writer;
         Position position;
@@ -365,8 +369,9 @@ private:
             c.lines = bus::lines(bus, i);
             c.interface = bus.interface;
             c.start_cylinder = start_cylinder;
+            if (bus.interface == bus::Interface::IbmPc) c.mailbox_cylinder = mailbox::CYLINDER;  // as the firmware
             units.push_back(std::make_unique<Unit>(*formats[i], c, scratch_.data(), store_.data(), store_.size(),
-                                                   fields_.data(), fields_.size(), &now_));
+                                                   fields_.data(), fields_.size(), &now_, i));
         }
         return units;
     }

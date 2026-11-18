@@ -14,7 +14,8 @@ OUT := .pio/native-tests
 SRC := src/fdd_signals.cpp src/trace_format.cpp src/short_test.cpp src/head.cpp src/rotation.cpp \
        src/drive.cpp src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp src/activity.cpp \
        src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp src/synth.cpp src/wav.cpp src/ui.cpp \
-       src/screens.cpp src/canvas.cpp src/settings.cpp src/image_cache.cpp src/bus.cpp src/img_cfg.cpp src/amiga_track.cpp src/welcome_disk.cpp src/hfe.cpp
+       src/screens.cpp src/canvas.cpp src/settings.cpp src/image_cache.cpp src/bus.cpp src/img_cfg.cpp src/amiga_track.cpp src/welcome_disk.cpp src/hfe.cpp \
+       src/mailbox.cpp src/duo_commands.cpp
 TESTS := $(wildcard test/native/*.cpp)
 
 comma := ,
@@ -32,7 +33,7 @@ welcome_image_SRC := test/tools/welcome_image.cpp src/welcome_disk.cpp
 render_events_SRC := test/tools/render_events.cpp src/synth.cpp src/wav.cpp
 dos_session_SRC := test/tools/dos_session.cpp src/hfe.cpp src/welcome_disk.cpp src/amiga_track.cpp src/bus.cpp src/fdd_signals.cpp src/head.cpp src/rotation.cpp src/drive.cpp \
                    src/ibm_track.cpp src/rdata_stream.cpp src/cylinder_loader.cpp src/activity.cpp \
-                   src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp src/image_cache.cpp
+                   src/mfm_decode.cpp src/track_write.cpp src/write_burst.cpp src/image_cache.cpp src/mailbox.cpp
 showreel_SRC := $(subst test/tools/dos_session.cpp,test/tools/showreel.cpp,$(dos_session_SRC)) \
                 src/synth.cpp src/wav.cpp src/ui.cpp src/screens.cpp src/canvas.cpp
 
