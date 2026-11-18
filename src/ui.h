@@ -6,7 +6,8 @@
 // action button.
 //   Turn          volume (the overlay stays OLED_OVERLAY_MS after the last
 //                 turn); on the disk list, move the selection
-//   Press         open the disk list; on the list, insert the selected disk.
+//   Press         open the disk list; on the list, insert the selected disk,
+//                 or take the disk out (the list's first row, <Eject disk>).
 //                 On the sounds screen, the pack list instead: press to load
 //   Action        next screen: home, head trace, sounds, stats; on the disk
 //                 list, back. With two drives, a home screen each (A, then B)
@@ -81,6 +82,8 @@ public:
     static constexpr uint32_t OVERLAY_MS = 4000;  // volume
     static constexpr uint32_t LIST_MS = 15000;    // the disk and pack lists close if left alone
     static constexpr uint32_t SPLASH_MS = 1000;   // the logo at power-on
+    // The disk list's first row, <Eject disk>: selection() then, not an image.
+    static constexpr size_t EJECT = static_cast<size_t>(-1);
 
     // The logo (Screen::Splash) until SPLASH_MS after `now_ms`, then Home.
     // The firmware shows it at power-on; a turn or press skips it.

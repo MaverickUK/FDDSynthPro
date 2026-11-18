@@ -14,14 +14,21 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
     if (screen_ == Screen::Disks) {
         size_t n = imageCount(s);
         switch (in) {
+            // <Eject disk> comes first, before the images, round and round.
             case Input::TurnUp:
-                if (n) selection_ = s.images->prev(selection_);
+                if (n) selection_ = selection_ == EJECT ? n - 1 : selection_ == 0 ? EJECT : selection_ - 1;
                 return;
             case Input::TurnDown:
-                if (n) selection_ = s.images->next(selection_);
+                if (n) selection_ = selection_ == EJECT ? 0 : selection_ + 1 == n ? EJECT : selection_ + 1;
                 return;
             case Input::Press:
-                if (n && selection_ != s.image) {
+                if (selection_ == EJECT) {
+                    if (s.disk_in) {  // out it comes, as with a long action
+                        eject_toggle_ = true;
+                        eject_drive_ = drive_;
+                    }
+                    screen_ = base_;
+                } else if (n && (selection_ != s.image || !s.disk_in)) {  // any disk, into an empty drive
                     swap_to_ = selection_;
                     swap_drive_ = drive_;
                     swap_pending_ = true;
@@ -84,7 +91,7 @@ void Model::input(Input in, const Status& s, uint32_t now_ms) {
                 return;
             }
             if (!imageCount(s)) return;  // the generated disk: nothing to choose
-            selection_ = s.image;
+            selection_ = s.disk_in ? s.image : EJECT;
             screen_ = Screen::Disks;
             return;
         case Input::Action: {

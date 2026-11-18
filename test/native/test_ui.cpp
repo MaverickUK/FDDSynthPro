@@ -182,7 +182,11 @@ TEST(test_screen_disks) {
     c.clear();
     screens::disks(c, k.s, 3);
     preview(c, "disks");
-    CHECK(lit(c, 0, 37, 127, 45) > 300);  // the selected row (the fourth) is lit
+    CHECK(lit(c, 0, 46, 127, 54) > 300);  // the selected row (the fifth: <Eject disk> is first) is lit
+    c.clear();
+    screens::disks(c, k.s, ui::Model::EJECT);
+    preview(c, "disks_eject");
+    CHECK(lit(c, 0, 10, 127, 18) > 300);  // <Eject disk>, the first row, lit
 }
 
 TEST(test_screen_swap) {
@@ -324,13 +328,45 @@ TEST(test_ui_choose_and_insert_a_disk) {
     CHECK(m.screen() == ui::Screen::Home);
 }
 
+TEST(test_ui_eject_from_the_disk_list) {
+    Card k;
+    ui::Model m;
+    m.input(ui::Input::Press, k.s, 0);
+    m.input(ui::Input::TurnUp, k.s, 0);
+    m.input(ui::Input::TurnUp, k.s, 0);
+    CHECK(m.selection() == ui::Model::EJECT);
+    m.input(ui::Input::Press, k.s, 0);
+    CHECK(m.screen() == ui::Screen::Home);
+    uint8_t drive = 9;
+    CHECK(m.takeEjectToggle(drive));  // out it comes
+    CHECK_EQ(drive, 0u);
+    size_t to;
+    CHECK(!m.takeSwap(to));
+    // With the drive empty the list starts on <Eject disk>, which does nothing...
+    k.s.disk_in = false;
+    m.input(ui::Input::Press, k.s, 0);
+    CHECK(m.selection() == ui::Model::EJECT);
+    m.input(ui::Input::Press, k.s, 0);
+    CHECK(!m.takeEjectToggle(drive));  // not a toggle: that would put the disk back
+    // ...and any image goes in, the one that came out too.
+    m.input(ui::Input::Press, k.s, 0);
+    m.input(ui::Input::TurnDown, k.s, 0);
+    m.input(ui::Input::TurnDown, k.s, 0);
+    CHECK_EQ(m.selection(), k.s.image);
+    m.input(ui::Input::Press, k.s, 0);
+    CHECK(m.takeSwap(to));
+    CHECK_EQ(to, k.s.image);
+}
+
 TEST(test_ui_disk_list_wraps_and_cancels) {
     Card k;
     ui::Model m;
     m.input(ui::Input::Press, k.s, 0);
     m.input(ui::Input::TurnUp, k.s, 0);
     m.input(ui::Input::TurnUp, k.s, 0);
-    CHECK_EQ(m.selection(), 4u);  // round from the first to the last
+    CHECK(m.selection() == ui::Model::EJECT);  // up past the first: <Eject disk>
+    m.input(ui::Input::TurnUp, k.s, 0);
+    CHECK_EQ(m.selection(), 4u);  // and round to the last
     m.input(ui::Input::Action, k.s, 0);
     CHECK(m.screen() == ui::Screen::Home);
     size_t to;
@@ -672,6 +708,7 @@ void runUiTests() {
     RUN(test_ui_splash_then_home);
     RUN(test_ui_volume_overlay);
     RUN(test_ui_choose_and_insert_a_disk);
+    RUN(test_ui_eject_from_the_disk_list);
     RUN(test_ui_disk_list_wraps_and_cancels);
     RUN(test_ui_action_cycles_screens);
     RUN(test_ui_two_drives);

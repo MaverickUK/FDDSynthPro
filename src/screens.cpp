@@ -202,8 +202,19 @@ static void chooser(Canvas& c, const char* heading, size_t n, size_t selection, 
 }
 
 void disks(Canvas& c, const ui::Status& s, size_t selection) {
-    chooser(c, "Disks", s.images ? s.images->count() : 0, selection, s.image,
-            [&](size_t i, char (&name)[16], const char*& right) {
+    // Row 0 is <Eject disk>, then the images: image i on row i + 1.
+    size_t n = s.images ? s.images->count() : 0;
+    size_t row = selection == ui::Model::EJECT ? 0 : selection + 1;
+    size_t current = s.disk_in ? s.image + 1 : 0;
+    chooser(c, "Disks", n ? n + 1 : 0, row, current,
+            [&](size_t r, char (&name)[16], const char*& right) {
+                if (r == 0) {
+                    std::strncpy(name, "<Eject disk>", 15);
+                    name[15] = 0;
+                    right = "";
+                    return;
+                }
+                size_t i = r - 1;
                 std::strncpy(name, s.images->name(i), 15);
                 name[15] = 0;
                 if (char* dot = std::strrchr(name, '.')) *dot = 0;  // the extension says nothing here

@@ -4,6 +4,11 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.25.0-dev.3] - 2026-11-18
+
+### Added
+- **`<Eject disk>` first in the front panel's disk list:** press on it to take the disk out, as a long action does, so the drive can be left empty from the list. With the drive empty the list opens on it (`>` marks it), and any image goes in, the one that came out too (`ui::Model::EJECT`).
+
 ## [0.25.0-dev.2] - 2026-11-18
 
 ### Added
