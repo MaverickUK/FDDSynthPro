@@ -264,6 +264,8 @@ TEST(test_duo_changes) {
     CHECK_STR(ask(d, "FDC,1,PACK,2"), line("FDK,1,PACK,ERR,range"));
     CHECK_STR(ask(d, "FDC,1,SET,drive,a"), line("FDK,1,SET,OK,"));
     CHECK_STR(d.last_set, "drive=a");
+    CHECK_STR(ask(d, "FDC,1,SET,drive,a,b"), line("FDK,1,SET,OK,"));
+    CHECK_STR(d.last_set, "drive=a,b");  // the comma's fields joined again
     CHECK_STR(ask(d, "FDC,1,SET,volume,5"), line("FDK,1,SET,ERR,key"));
     CHECK_STR(ask(d, "FDQ,1,SETTINGS"), line("FDS,1,drive,a_b,a"));  // a comma can't be in a value
     CHECK_STR(ask(d, "FDQ,1,PACKS"), line("FDP,1,0,2,Recorded") + line("FDP,1,1,2,Placeholder"));

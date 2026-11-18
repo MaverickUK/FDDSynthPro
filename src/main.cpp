@@ -1290,8 +1290,9 @@ public:
     }
 
 private:
-    static constexpr size_t COUNT = 5;
-    static constexpr const char* KEYS[COUNT] = {"drive", "device0", "device1", "interface", "cable"};
+    // Only these: `interface` or `cable` set wrong from the PC would lose it the drive at the next power-on.
+    static constexpr size_t COUNT = 3;
+    static constexpr const char* KEYS[COUNT] = {"drive", "device0", "device1"};
     mutable char next_[COUNT][settings::NAME];
     mutable char now_[COUNT][settings::NAME];
 

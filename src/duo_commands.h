@@ -14,7 +14,8 @@
 //   FDC,1,EJECT,<A|B>
 //   FDC,1,PACK,<index>
 //   FDC,1,VOL,<0-100>
-//   FDC,1,SET,<key>,<value>    into FDDSYNTH.CFG, from the next power-on
+//   FDC,1,SET,<key>,<value>    into FDDSYNTH.CFG, from the next power-on (a
+//                              value may hold commas: `drive`'s `a,b`)
 // Each change answers $FDK,1,<what>,OK, or $FDK,1,<what>,ERR,<reason>.
 // A request that isn't a sentence: $FDK,1,REQUEST,ERR,invalid; one it
 // doesn't know: $FDK,1,<its first word>,ERR,unknown. Values never hold `,`,

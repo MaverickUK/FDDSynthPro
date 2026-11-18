@@ -178,7 +178,13 @@ void change(Duo& duo, unsigned drive, const sentence::Parsed& p, Reply& r) {
     }
     if (p.is(2, "SET")) {
         if (p.count < 5) return ack(r, what.text, "value");
-        return ack(r, what.text, duo.set(Field(p, 3).text, Field(p, 4).text));
+        // A value with commas in (`drive` = `a,b`) arrives as several fields: joined again.
+        char value[72] = "";
+        for (size_t i = 4; i < p.count; ++i) {
+            if (i > 4) std::strncat(value, ",", sizeof value - std::strlen(value) - 1);
+            std::strncat(value, Field(p, i).text, sizeof value - std::strlen(value) - 1);
+        }
+        return ack(r, what.text, duo.set(Field(p, 3).text, value));
     }
     ack(r, what.text, "unknown");
 }

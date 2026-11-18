@@ -58,12 +58,12 @@ Each is a sentence in the HDD Synth's format: `$BODY*CS`, with CS the XOR of BOD
 | `FDQ,1,STATUS` | one `$FDV,1,<key>,<value>` per value (below) |
 | `FDQ,1,FILES[,<from>]` | `$FDF,1,<index>,<count>,<name>,<KB>,<kind>` for each image on the card, from `<from>` (0 if left out), as many as fit; SynthMinder asks again from the next. Kind: `I` a sector image, `H` a flux image (HFE), `A` an Amiga disk. From past the end: `$FDF,1,<count>,<count>,-,0,-` |
 | `FDQ,1,PACKS` | `$FDP,1,<index>,<count>,<name>` for each sample pack |
-| `FDQ,1,SETTINGS` | `$FDS,1,<key>,<next>,<now>` for each setting SET changes: `drive`, `device0`, `device1`, `interface`, `cable`. `<next>` is FDDSYNTH.CFG's (from the next power-on), `<now>` what the drive runs with; `-` for none |
+| `FDQ,1,SETTINGS` | `$FDS,1,<key>,<next>,<now>` for each setting SET changes: `drive`, `device0`, `device1` (not `interface` or `cable`: set wrong from the PC, they would lose it the drive). `<next>` is FDDSYNTH.CFG's (from the next power-on), `<now>` what the drive runs with; `-` for none |
 | `FDC,1,INSERT,<A\|B>,<name>` | `$FDK,1,INSERT,OK,`: the disk goes into that drive, as from the front panel (any case) |
 | `FDC,1,EJECT,<A\|B>` | `$FDK,1,EJECT,OK,` |
 | `FDC,1,PACK,<index>` | `$FDK,1,PACK,OK,`: loaded once the drive is idle |
 | `FDC,1,VOL,<0-100>` | `$FDK,1,VOL,OK,` |
-| `FDC,1,SET,<key>,<value>` | `$FDK,1,SET,OK,`: into FDDSYNTH.CFG once the drive is idle, from the next power-on. `-` clears `device0` or `device1` (the drive then starts with the last disk in) |
+| `FDC,1,SET,<key>,<value>` | `$FDK,1,SET,OK,`: into FDDSYNTH.CFG once the drive is idle, from the next power-on. The value may hold commas (`drive`'s `a,b`): the fields after the key are joined again. `-` clears `device0` or `device1` (the drive then starts with the last disk in) |
 
 STATUS's keys: `firmware`, `drives` (`A`, `AB`), `mailbox` (the drive the request came through), `volume`, `pack` and `pack_index`, then for each drive by its letter (`a_`, `b_`): `disk` (the image, `welcome`, `generated`, or `-` for none), and with a disk in, `kb`, `format` (e.g. `1440 KB MFM 300 rpm`), `cylinder`, `motor` and `protect` (`on`/`off`).
 
