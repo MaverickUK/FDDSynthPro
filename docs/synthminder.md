@@ -17,6 +17,10 @@ The mailbox is **cylinder 82, head 0**: past the last cylinder of an 80-track di
 - Cylinders between the disk's end and 82 behave as before: blank, and writes there dropped.
 - **Which disks have one:** IBM MFM, 80 tracks or fewer, single-stepped, at least 9 sectors of 512 bytes numbered from 1. That covers 720 KB, 1.2 MB, 1.44 MB and 1.68 MB DMF disks and the welcome disk. Flux images (HFE), Amiga disks, FM and 40-track disks have none, and nor does an empty drive.
 
+## Finding the drive
+
+Before its first request SynthMinder only **reads**: sectors 5-9 of cylinder 82 hold `$FDK,1,HELLO,OK,` with sequence 0 from power-on. A real drive's disk has no track 82, so the read fails (sector not found), and SynthMinder never writes to a drive that isn't a Duo.
+
 ## An exchange
 
 1. SynthMinder writes the request to **sector 1** (INT 13h, AH=03h; CH=82, CL=1, DH=0).

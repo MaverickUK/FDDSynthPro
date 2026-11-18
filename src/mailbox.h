@@ -12,6 +12,9 @@
 //   3. SynthMinder reads sectors 5-9. If they still carry the last sequence
 //      number, the drive hadn't answered yet: it reads them again on the
 //      next revolution.
+// Before its first request SynthMinder only reads: sectors 5-9 hold a hello
+// from power-on, so a real drive (no track 82: sector not found) is never
+// written to.
 //
 // Sector 5 is four sector slots after sector 1, at least 44 ms at 300 rpm:
 // time for the write's decode and the head's re-encode (about 4 and 3 ms on
@@ -86,7 +89,10 @@ protected:
 
 class MailboxSource : public TrackSource {
 public:
-    MailboxSource(TrackSource& disk, unsigned drive) : disk_(disk), drive_(drive) {}
+    // From the start, the reply sectors hold `$FDK,1,HELLO,OK,` with
+    // sequence 0, so SynthMinder can find the drive by reading alone: it
+    // never writes to a drive that isn't one.
+    MailboxSource(TrackSource& disk, unsigned drive);
 
     void setHandler(Handler* handler) { handler_ = handler; }
     // The loader that reads this source: a reply goes into its track data
@@ -128,7 +134,7 @@ private:
     uint8_t request_[SECTOR] = {};
     uint8_t reply_[REPLY_SECTORS * SECTOR] = {};
     char text_[REPLY_TEXT_MAX] = {};
-    bool answered_ = false;
+    bool answered_ = false;  // a request has been answered (the hello isn't one)
     uint16_t last_seq_ = 0;
     uint32_t exchanges_ = 0, repeats_ = 0, rejected_ = 0;
 };

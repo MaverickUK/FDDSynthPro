@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "cylinder_loader.h"
+#include "sentence.h"
 
 namespace mailbox {
 
@@ -61,6 +62,15 @@ uint32_t buildReply(uint16_t seq, const char* text, uint32_t len, uint8_t* out) 
     return placed;
 }
 
+static const char HELLO[] = "$FDK,1,HELLO,OK,*";
+
+MailboxSource::MailboxSource(TrackSource& disk, unsigned drive) : disk_(disk), drive_(drive) {
+    char line[32];
+    size_t body = sizeof HELLO - 3;  // without `$` and `*`
+    size_t n = sentence::make(HELLO + 1, body, line, sizeof line);
+    buildReply(0, line, uint32_t(n), reply_);
+}
+
 const ibm::Format& MailboxSource::format() const {
     const ibm::Format& disk = disk_.format();
     if (!eligible(disk)) return disk;
@@ -74,7 +84,7 @@ void MailboxSource::fillTrack(uint8_t head, uint8_t* out) const {
     std::memset(out, 0, t.dataBytes());
     if (head != HEAD) return;
     std::memcpy(out + REQUEST * SECTOR, request_, SECTOR);
-    if (answered_) std::memcpy(out + FIRST_REPLY * SECTOR, reply_, sizeof reply_);
+    std::memcpy(out + FIRST_REPLY * SECTOR, reply_, sizeof reply_);
 }
 
 bool MailboxSource::readTrack(uint8_t cylinder, uint8_t head, uint8_t* out) {

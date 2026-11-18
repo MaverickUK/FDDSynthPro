@@ -317,6 +317,18 @@ struct Rig {
     duo::MailboxHandler handler;
 };
 
+TEST(test_mailbox_says_hello_before_any_request) {
+    // SynthMinder finds the drive by reading alone.
+    Rig r;
+    std::vector<uint8_t> reply(mailbox::REPLY_SECTORS * mailbox::SECTOR);
+    CHECK(r.pc.readSectors(mailbox::CYLINDER, 0, 5, 5, reply.data()) == Status::Ok);
+    int seq;
+    CHECK_STR(replyText(reply.data(), seq), line("FDK,1,HELLO,OK,"));
+    CHECK_EQ(seq, 0);
+    // Elsewhere past the disk's end there's nothing, as on a real drive's disk.
+    CHECK(r.pc.readSectors(80, 0, 5, 1, reply.data()) == Status::SectorNotFound);
+}
+
 TEST(test_mailbox_pc_exchange) {
     Rig r;
     std::vector<uint8_t> before(512), after(512);
@@ -391,6 +403,7 @@ void runMailboxTests() {
     RUN(test_duo_files_in_pages);
     RUN(test_duo_changes);
     RUN(test_duo_refuses_what_it_doesnt_know);
+    RUN(test_mailbox_says_hello_before_any_request);
     RUN(test_mailbox_pc_exchange);
     RUN(test_mailbox_reply_on_the_first_revolution);
     RUN(test_mailbox_on_a_write_protected_disk);
