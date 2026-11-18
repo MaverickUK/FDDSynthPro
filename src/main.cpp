@@ -585,6 +585,7 @@ static settings::Settings g_settings;  // as on the card
 static settings::Settings g_latest;    // as now
 static settings::SaveTimer g_save;
 static settings::Settings g_running;   // as at power-on: what the drive runs with
+static activity::Tracker g_activity;  // the sound events (serviceActivity)
 static bool g_card = false;
 
 // A drive's name for the panel and the console: "A", "B", "DS0"...
@@ -1014,7 +1015,6 @@ static bool loading() {
 
 // The sounds: drive events in, ACT lines out. A line that can't be printed
 // yet waits, and the tracker's queue holds the rest.
-static activity::Tracker g_activity;
 static uint32_t g_activity_checked_us = 0;
 
 static bool printLine(const char* line, size_t n);
