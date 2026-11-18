@@ -382,6 +382,30 @@ TEST(test_mailbox_runs_a_request_once) {
     CHECK_EQ(r.duo.inserts, 2u);
 }
 
+TEST(test_mailbox_with_no_disk_in) {
+    Rig r;
+    r.m.eject();
+    r.pc.run(10000);
+    // On the disk's cylinders the drive is empty: no index, DISK CHANGE.
+    std::vector<uint8_t> buf(512);
+    CHECK(r.pc.diskChanged());
+    CHECK(r.pc.readSectors(0, 0, 1, 1, buf.data()) != Status::Ok);
+    // At cylinder 82 the mailbox still answers, and DOS's disk change stays unseen there.
+    CHECK(r.pc.seekTo(mailbox::CYLINDER));
+    CHECK(!r.pc.diskChanged());
+    CHECK(contains(r.exchange(1, "FDQ,1,STATUS"), line("FDV,1,firmware,9.9.9")));
+    CHECK(!r.m.d.diskPresent());
+    // Back on the disk's cylinders it's empty again, its change still to be seen.
+    CHECK(r.pc.seekTo(0));
+    CHECK(r.pc.diskChanged());
+    CHECK_EQ(r.m.source.writes, 0u);
+    // Not while a swap fills the cache: then it's empty at 82 too.
+    r.m.d.setMailboxWhenEmpty(false);
+    CHECK(r.pc.seekTo(mailbox::CYLINDER));
+    std::vector<uint8_t> reply(mailbox::REPLY_SECTORS * mailbox::SECTOR);
+    CHECK(r.pc.readSectors(mailbox::CYLINDER, 0, 5, 5, reply.data()) != Status::Ok);
+}
+
 TEST(test_mailbox_ignores_stray_writes) {
     Rig r;
     std::vector<uint8_t> junk(512, 0xE5);  // a disk tool writing every cylinder
@@ -411,4 +435,5 @@ void runMailboxTests() {
     RUN(test_mailbox_on_a_write_protected_disk);
     RUN(test_mailbox_runs_a_request_once);
     RUN(test_mailbox_ignores_stray_writes);
+    RUN(test_mailbox_with_no_disk_in);
 }

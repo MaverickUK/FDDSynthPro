@@ -53,14 +53,14 @@ Outputs Drive::outputs(uint32_t now_us) {
 
 Outputs Drive::outputsSelected(uint32_t now_us) {
     Outputs o;
-    o.index = disk_present_ && spindle_.index(now_us);
+    o.index = mediaPresent() && spindle_.index(now_us);
     o.trk00 = head_.atTrack0();
-    o.wpt = !disk_present_ || writeProtected();
-    o.dskchg = disk_changed_;
+    o.wpt = !mediaPresent() || writeProtected();
+    o.dskchg = disk_changed_ && !mailboxStandIn();
     if (cfg_.interface == bus::Interface::Amiga)
         o.ready = spindle_.motorOn() ? spindle_.atSpeed(now_us) : true;  // at speed; or the ID: all ones
     else
-        o.ready = disk_present_ && spindle_.atSpeed(now_us);
+        o.ready = mediaPresent() && spindle_.atSpeed(now_us);
     return o;
 }
 

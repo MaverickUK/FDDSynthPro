@@ -1,6 +1,6 @@
 # SynthMinder and the drive: the mailbox at cylinder 82
 
-**Status: built in 0.25.0-dev.1, host-tested (`test/native/test_mailbox.cpp`); not yet tried on a PC.**
+**Status: built in 0.25.0-dev.1 (an empty drive and the quiet trip back in dev.2), host-tested (`test/native/test_mailbox.cpp`); not yet tried on a PC.**
 
 [SynthMinder](https://github.com/MaverickUK/SynthMinder) is a DOS program that shows and changes how the IDE Synth Bay and the HDD Synth are set up. This page is the reference for how it talks to the FDD Synth Duo.
 
@@ -15,7 +15,8 @@ The mailbox is **cylinder 82, head 0**: past the last cylinder of an 80-track di
 - The track is laid out as the disk's own tracks, at the disk's data rate: the rate the BIOS has set the controller to for the disk in.
 - With the head at cylinder 82, the drive never reports write-protect, so SynthMinder can write whatever disk is in. Everywhere else, a protected disk stays protected.
 - Cylinders between the disk's end and 82 behave as before: blank, and writes there dropped.
-- **Which disks have one:** IBM MFM, 80 tracks or fewer, single-stepped, at least 9 sectors of 512 bytes numbered from 1. That covers 720 KB, 1.2 MB, 1.44 MB and 1.68 MB DMF disks and the welcome disk. Flux images (HFE), Amiga disks, FM and 40-track disks have none, and nor does an empty drive.
+- **Which disks have one:** IBM MFM, 80 tracks or fewer, single-stepped, at least 9 sectors of 512 bytes numbered from 1. That covers 720 KB, 1.2 MB, 1.44 MB and 1.68 MB DMF disks and the welcome disk. Flux images (HFE), Amiga disks, FM and 40-track disks have none.
+- **With no disk in**, at cylinder 82 the drive spins, streams the mailbox's track (as the last disk's format) and takes writes as if a disk were in, and doesn't report the disk change there. On every other cylinder it's empty, so DOS never sees a disk arrive. Not while a swap is under way. A BIOS that checks the change line before it seeks may report the drive not ready: SynthMinder then seeks to 82 itself (INT 13h, AH=0Ch) and tries again.
 
 ## Finding the drive
 
@@ -84,5 +85,5 @@ A request that isn't a sentence, or not version 1: `$FDK,1,REQUEST,ERR,invalid`.
 ## To settle on a PC
 
 - **BIOSes that check the cylinder.** Most pass a cylinder past the disk's end straight to the controller; some may check it against their drive table and refuse. SynthMinder would then need to program the controller itself (ports 3F0h-3F7h, DMA channel 2).
-- **An empty drive.** With no disk there's no index pulse, so the controller times out before it reads. The drive could keep the mailbox working by spinning a mailbox-only disk while empty, without telling DOS a disk has arrived.
-- **The seek's sound.** The synth plays the head's trip out to 82 and back as a seek. That's authentic, but it happens on every exchange.
+- **An empty drive, on a real BIOS:** whether it checks the change line before or after it seeks (see above).
+- **The seek's sound.** The trip back from 82 is silent (a run of steps starting there makes no sound). The trip out is heard: until it ends, it's like any other seek.

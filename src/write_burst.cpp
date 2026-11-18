@@ -12,7 +12,7 @@ WriteGate::Action WriteGate::onSample(uint32_t now_us, uint32_t pins, drive::Dri
         capturing_ = false;
         return Action::Stop;
     }
-    if (capturing_ || missed_ || !d.diskPresent() || d.writeProtected()) return Action::None;
+    if (capturing_ || missed_ || !d.mediaPresent() || d.writeProtected()) return Action::None;
     if (!buffer_free) {
         missed_ = true;
         return Action::Missed;

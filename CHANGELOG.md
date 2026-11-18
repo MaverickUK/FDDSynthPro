@@ -4,6 +4,12 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.25.0-dev.2] - 2026-11-18
+
+### Added
+- **The mailbox works with no disk in.** At cylinder 82 an empty drive spins, streams the mailbox's track and takes SynthMinder's writes as if a disk were in, and doesn't report the disk change there (`Drive::mailboxStandIn`, `mediaPresent`). On every other cylinder it's empty as before, so DOS never sees a disk arrive. It doesn't do this while a swap fills the cache: core 1 turns it off then (`setMailboxWhenEmpty`). So SynthMinder can still talk to the Duo after ejecting the disk in the drive it talks through.
+- **The trip back from the mailbox is silent:** a run of steps that starts at cylinder 82 makes no sound (`activity::Config::quiet_cylinder`), so SynthMinder's exchanges cost one seek's sound, the trip out, which can't be told from any other seek until it ends.
+
 ## [0.25.0-dev.1] - 2026-11-18
 
 ### Added
@@ -17,7 +23,7 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 - The virtual PC's controller checks write-protect when a write starts, after the seek, as a uPD765 does (it checked before seeking).
 
 ### Limits
-- The mailbox needs a PC disk in the drive: IBM MFM, 80 tracks or fewer, single-stepped, with at least 9 sectors of 512 bytes (720 KB, 1.2 MB, 1.44 MB, DMF). Flux images, Amiga disks, FM and 40-track disks have none, and nor does an empty drive.
+- The mailbox needs a PC disk in the drive, or none: IBM MFM, 80 tracks or fewer, single-stepped, with at least 9 sectors of 512 bytes (720 KB, 1.2 MB, 1.44 MB, DMF). Flux images, Amiga disks, FM and 40-track disks have none.
 - Not yet tried on a PC.
 
 ## [0.24.2] - 2026-11-10

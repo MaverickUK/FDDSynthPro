@@ -359,6 +359,7 @@ void loop1() {
             if (request) s.disk_in.store(drives[i]->diskPresent(), std::memory_order_relaxed);
 
             int swap = s.swap.load(std::memory_order_acquire);
+            drives[i]->setMailboxWhenEmpty(swap == SWAP_NONE);  // not while the cache refills
             if (swap == SWAP_EJECT && !(i == active && write_gate.capturing())) {
                 drives[i]->ejectDisk();
                 s.disk_in.store(false, std::memory_order_relaxed);
@@ -708,6 +709,8 @@ static void chooseDisks() {
     g_interface = bus.interface;
     g_pin2_chng = bus.pin2_chng;
     g_running = g_settings;
+    // The trip back from SynthMinder's mailbox is silent (activity.h).
+    g_activity.setQuietCylinder(bus.interface == bus::Interface::IbmPc ? mailbox::CYLINDER : -1);
     for (unsigned i = 0; i < g_drive_count; ++i) {
         g_drive_config[i].lines = bus::lines(bus, i);
         g_drive_config[i].interface = bus.interface;
