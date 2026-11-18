@@ -111,6 +111,21 @@ void Tracker::onDriveEvent(const DriveEvent& e) {
     bool close = have_last_ && e.time_us - last_step_us_ <= cfg_.seek_gap_us;
     if (seeking_ && (!close || inwards != last_inwards_)) endSeek(last_step_us_);
 
+    // A new run: silent if it leaves the quiet cylinder (where it was before this step).
+    if (!(close && inwards == last_inwards_)) {
+        int from = inwards ? int(e.cylinder) - 1 : int(e.cylinder) + 1;
+        quiet_ = cfg_.quiet_cylinder >= 0 && from == cfg_.quiet_cylinder;
+    }
+    if (quiet_) {
+        if (seeking_) endSeek(last_step_us_);
+        ++quiet_steps_;
+        have_last_ = true;
+        last_step_us_ = e.time_us;
+        last_inwards_ = inwards;
+        cylinder_ = e.cylinder;
+        return;
+    }
+
     if (seeking_) {
         ++seek_steps_;
     } else if (close && inwards == last_inwards_) {

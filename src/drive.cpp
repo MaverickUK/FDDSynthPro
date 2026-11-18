@@ -31,7 +31,13 @@ StepEvent Drive::step(uint32_t pins) {
     e.stepped = true;
     e.outcome = head_.step(fdd::asserted(pins, cfg::PIN_DIR));
     e.cylinder = head_.cylinder();
-    if (disk_present_) disk_changed_ = false;
+    // A step clears DISK CHANGE with a disk in, as on a real drive; with the
+    // drive empty too, where the mailbox may answer (a PC's): a BIOS steps to
+    // clear the line before it seeks, and with the line still on it reports
+    // the drive not ready and never sends the head to the mailbox (the
+    // Evesham's, 18 Nov 2026). Empty, the drive still has no index anywhere
+    // but there, so DOS still finds no disk; one going in sets the line again.
+    if (disk_present_ || (cfg_.mailbox_cylinder && mailbox_when_empty_)) disk_changed_ = false;
     return e;
 }
 
@@ -53,19 +59,20 @@ Outputs Drive::outputs(uint32_t now_us) {
 
 Outputs Drive::outputsSelected(uint32_t now_us) {
     Outputs o;
-    o.index = disk_present_ && spindle_.index(now_us);
+    o.index = mediaPresent() && spindle_.index(now_us);
     o.trk00 = head_.atTrack0();
-    o.wpt = !disk_present_ || write_protected_;
-    o.dskchg = disk_changed_;
+    o.wpt = !mediaPresent() || writeProtected();
+    o.dskchg = disk_changed_ && !mailboxStandIn();
     if (cfg_.interface == bus::Interface::Amiga)
         o.ready = spindle_.motorOn() ? spindle_.atSpeed(now_us) : true;  // at speed; or the ID: all ones
     else
-        o.ready = disk_present_ && spindle_.atSpeed(now_us);
+        o.ready = mediaPresent() && spindle_.atSpeed(now_us);
     return o;
 }
 
 void Drive::insertDisk(bool write_protected) {
     disk_present_ = true;
+    disk_changed_ = true;  // a step cleared it while the drive was empty (step): DOS must see the new disk
     write_protected_ = write_protected;
 }
 

@@ -4,6 +4,41 @@ All notable changes to this firmware. The format follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.25.0-dev.4] - 2026-11-18
+
+### Fixed
+- **SynthMinder couldn't find the Duo with its drive empty, on the Evesham:** the BIOS steps to cylinder 1 and back to clear DISK CHANGE before it seeks, and with the line still on (no disk to clear it) reports the drive not ready, so the head never reached the mailbox. With the mailbox on, a step now clears the line with the drive empty too; the drive still has no index anywhere but at cylinder 82, so DOS still finds no disk there, and a disk going in sets the line again (`insertDisk`), so DOS sees it.
+
+### Tested
+- **On the Evesham (18 Nov 2026), with a disk in A:,** SynthMinder found the Duo through cylinder 82 and listed the images on its card: the first exchanges on a real PC and BIOS.
+
+## [0.25.0-dev.3] - 2026-11-18
+
+### Added
+- **`<Eject disk>` first in the front panel's disk list:** press on it to take the disk out, as a long action does, so the drive can be left empty from the list. With the drive empty the list opens on it (`>` marks it), and any image goes in, the one that came out too (`ui::Model::EJECT`).
+
+## [0.25.0-dev.2] - 2026-11-18
+
+### Added
+- **The mailbox works with no disk in.** At cylinder 82 an empty drive spins, streams the mailbox's track and takes SynthMinder's writes as if a disk were in, and doesn't report the disk change there (`Drive::mailboxStandIn`, `mediaPresent`). On every other cylinder it's empty as before, so DOS never sees a disk arrive. It doesn't do this while a swap fills the cache: core 1 turns it off then (`setMailboxWhenEmpty`). So SynthMinder can still talk to the Duo after ejecting the disk in the drive it talks through.
+- **The trip back from the mailbox is silent:** a run of steps that starts at cylinder 82 makes no sound (`activity::Config::quiet_cylinder`), so SynthMinder's exchanges cost one seek's sound, the trip out, which can't be told from any other seek until it ends.
+
+## [0.25.0-dev.1] - 2026-11-18
+
+### Added
+- **SynthMinder can talk to the drive** (the DOS program that sets up the IDE Synth Bay and the HDD Synth; [docs/synthminder.md](docs/synthminder.md)). The floppy cable carries no commands, so the two exchange sectors at **cylinder 82**, past the end of an 80-track disk: SynthMinder writes a request to sector 1 through the BIOS (INT 13h), and reads the reply from sectors 5-9 of the same track. `MailboxSource` (`src/mailbox.*`) sits between each drive's disk and its loader and writer, serves that cylinder itself and never passes it to the image. The requests are `$FDQ`/`$FDC` sentences in the HDD Synth's format (`src/sentence.h`), answered by `src/duo_commands.*`: the drive's status, the images on the card (in pages), the sample packs, the settings; a disk into A: or B:, an eject, the pack, the volume, and a setting into FDDSYNTH.CFG for the next power-on. A swap of the drive the request came through waits until the head leaves cylinder 82 (or 1.5 s), so the PC can read the reply first; a pack and the settings file wait until the drive is idle, as the front panel's do.
+- From power-on the reply sectors hold `$FDK,1,HELLO,OK,` (sequence 0), so SynthMinder finds the drive by reading alone and never writes to a real drive.
+- With the head at cylinder 82, a PC drive never reports write-protect (`drive::Config::mailbox_cylinder`), so SynthMinder can write its request whatever disk is in; the disk itself stays protected.
+- Console `s` shows `mailbox0=on:<answered>/<repeats>/<stray>` (and `mailbox1`): `off` for a disk that has no mailbox.
+- `test_mailbox.cpp`: the sentences, the sector format, the answers against a pretend drive, and a virtual PC exchanging requests at cylinder 82 through the BIOS's reads and writes. With the board's write costs, the reply is there on the first revolution, at 500 and 250 kbit/s.
+
+### Changed
+- The virtual PC's controller checks write-protect when a write starts, after the seek, as a uPD765 does (it checked before seeking).
+
+### Limits
+- The mailbox needs a PC disk in the drive, or none: IBM MFM, 80 tracks or fewer, single-stepped, with at least 9 sectors of 512 bytes (720 KB, 1.2 MB, 1.44 MB, DMF). Flux images, Amiga disks, FM and 40-track disks have none.
+- Not yet tried on a PC.
+
 ## [0.24.2] - 2026-11-10
 
 ### Changed

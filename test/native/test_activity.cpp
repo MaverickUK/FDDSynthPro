@@ -90,6 +90,32 @@ TEST(test_tracker_reversal_ends_a_seek) {
     CHECK_STR(ev[3], "ACT 9000 STEP OUT 2");
 }
 
+TEST(test_tracker_trip_back_from_the_mailbox_is_silent) {
+    activity::Config c;
+    c.quiet_cylinder = 82;
+    activity::Tracker tr(c);
+    uint32_t t = 1000;
+    // Out to SynthMinder's mailbox: a seek like any other, heard.
+    for (uint8_t cyl = 1; cyl <= 82; ++cyl, t += 3000) tr.onDriveEvent(stepAt(t, head::Step::In, cyl));
+    tr.update(t + 30000);
+    auto out = lines(drain(tr));
+    CHECK_EQ(out.size(), 3u);
+    CHECK_STR(out.back(), "ACT " + std::to_string(t - 3000) + " SEEK_END 82 82");
+    // ...and back to the disk: silent, all of it.
+    t += 200000;
+    for (int cyl = 81; cyl >= 0; --cyl, t += 3000) tr.onDriveEvent(stepAt(t, head::Step::Out, uint8_t(cyl)));
+    tr.update(t + 30000);
+    CHECK(drain(tr).empty());
+    CHECK_EQ(tr.quietSteps(), 82u);
+    // The next step, from cylinder 0, is heard again.
+    tr.onDriveEvent(stepAt(t + 100000, head::Step::In, 1));
+    CHECK_EQ(drain(tr).size(), 1u);
+    // Without a quiet cylinder, the trip back is heard as before.
+    activity::Tracker plain;
+    for (int cyl = 81; cyl >= 70; --cyl) plain.onDriveEvent(stepAt(uint32_t(5000 + (81 - cyl) * 3000), head::Step::Out, uint8_t(cyl)));
+    CHECK(!drain(plain).empty());
+}
+
 TEST(test_tracker_bumps) {
     activity::Tracker tr;
     tr.onDriveEvent(stepAt(0, head::Step::Out, 1));
@@ -351,6 +377,7 @@ void runActivityTests() {
     RUN(test_tracker_reversal_ends_a_seek);
     RUN(test_tracker_bumps);
     RUN(test_tracker_motor_and_disk);
+    RUN(test_tracker_trip_back_from_the_mailbox_is_silent);
     RUN(test_tracker_queue_keeps_the_newest);
     RUN(test_format_truncates);
     RUN(test_observer_reports_changes_only);

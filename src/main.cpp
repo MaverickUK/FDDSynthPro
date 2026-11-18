@@ -62,6 +62,8 @@
 #include "welcome_text.h"
 #include "wdata_pio.h"
 #include "write_burst.h"
+#include "duo_commands.h"
+#include "mailbox.h"
 #endif
 
 static SpscRing<TraceEvent, cfg::TRACE_RING_EVENTS> g_trace;
@@ -357,6 +359,7 @@ void loop1() {
             if (request) s.disk_in.store(drives[i]->diskPresent(), std::memory_order_relaxed);
 
             int swap = s.swap.load(std::memory_order_acquire);
+            drives[i]->setMailboxWhenEmpty(swap == SWAP_NONE);  // not while the cache refills
             if (swap == SWAP_EJECT && !(i == active && write_gate.capturing())) {
                 drives[i]->ejectDisk();
                 s.disk_in.store(false, std::memory_order_relaxed);
@@ -463,12 +466,16 @@ void loop1() {
 // (gen_disk.h), which console `g` swaps in for the rig's slice 2 test.
 enum class Builtin : uint8_t { None, Welcome, Generated };
 
+// What answers SynthMinder's requests (duo_commands.h), below.
+static mailbox::Handler& mailboxHandler();
+
 // Core 0's share of each drive: its disk (the card's image, or a built-in
 // one, in PSRAM), the loader that keeps its cylinder buffer filled with the
 // cylinder under its head, its writer, and its swaps.
 struct DriveState {
     ImageCache* cache = nullptr;  // in PSRAM: the slot holds this
     DiskSlot* slot = nullptr;     // the disk in the drive
+    mailbox::MailboxSource* mailbox = nullptr;  // the slot, and SynthMinder's cylinder 82: the loader and writer use it
     CylinderLoader* loader = nullptr;
     BurstWriter* writer = nullptr;
     bool from_card = false;             // serving an image from the card
@@ -577,6 +584,8 @@ static void loadPack(size_t index) {
 static settings::Settings g_settings;  // as on the card
 static settings::Settings g_latest;    // as now
 static settings::SaveTimer g_save;
+static settings::Settings g_running;   // as at power-on: what the drive runs with
+static activity::Tracker g_activity;  // the sound events (serviceActivity)
 static bool g_card = false;
 
 // A drive's name for the panel and the console: "A", "B", "DS0"...
@@ -659,9 +668,12 @@ static void chooseDisk(unsigned i) {
     while (fillStep(s)) {}
     reportFill(s, started);
     s.slot = new DiskSlot(*s.cache);
-    s.loader = new CylinderLoader(*s.slot, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
+    s.mailbox = new mailbox::MailboxSource(*s.slot, i);
+    s.loader = new CylinderLoader(*s.mailbox, g_cylinder_slots[i], g_track_scratch, g_track_data[i][0], g_track_data[i][1]);
     s.loader->setStreamPosition(&g_dma_position);
-    s.writer = new BurstWriter(*s.slot, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
+    s.mailbox->setLoader(s.loader);
+    s.mailbox->setHandler(&mailboxHandler());
+    s.writer = new BurstWriter(*s.mailbox, *s.loader, g_write_store, sizeof g_write_store, g_write_fields, WRITE_FIELDS);
     s.writer->between_writes = audio::service;  // a track's card writes outlast the audio queue
     while (s.loader->service() != CylinderLoader::Step::Idle) audio::service();  // cylinder 0, before the host can ask
     g_loaders[i] = s.loader;
@@ -697,9 +709,14 @@ static void chooseDisks() {
     }
     g_interface = bus.interface;
     g_pin2_chng = bus.pin2_chng;
+    g_running = g_settings;
+    // The trip back from SynthMinder's mailbox is silent (activity.h).
+    g_activity.setQuietCylinder(bus.interface == bus::Interface::IbmPc ? mailbox::CYLINDER : -1);
     for (unsigned i = 0; i < g_drive_count; ++i) {
         g_drive_config[i].lines = bus::lines(bus, i);
         g_drive_config[i].interface = bus.interface;
+        // SynthMinder's mailbox: a PC's (mailbox.h).
+        g_drive_config[i].mailbox_cylinder = bus.interface == bus::Interface::IbmPc ? mailbox::CYLINDER : 0;
         chooseDisk(i);
     }
     static CaptureStream stream(g_capture_ring, cfg::CAPTURE_RING_BYTES, *g_drv[0].writer);
@@ -998,7 +1015,6 @@ static bool loading() {
 
 // The sounds: drive events in, ACT lines out. A line that can't be printed
 // yet waits, and the tracker's queue holds the rest.
-static activity::Tracker g_activity;
 static uint32_t g_activity_checked_us = 0;
 
 static bool printLine(const char* line, size_t n);
@@ -1159,6 +1175,166 @@ static void serviceSettings() {
     else
         Serial.println("# couldn't save the settings to the card");
 }
+
+// ---- SynthMinder's mailbox ----------------------------------------------------------
+//
+// The drive as SynthMinder sees it (duo_commands.h), over core 0's state.
+// Requests arrive in the middle of a write burst's finish (mailbox.h), with
+// the host still using the drive, so nothing here waits or touches the card:
+// a swap of the drive the request came through waits until the head leaves
+// the mailbox (the PC reads the reply first), a pack loads and the settings
+// file is written once the drive is idle, as the front panel's are.
+
+// A swap or eject of the drive the request came through, waiting.
+struct MailboxSwap {
+    bool waiting = false;
+    bool eject = false;
+    unsigned drive = 0;
+    size_t image = 0;
+    uint32_t asked_ms = 0;
+};
+static MailboxSwap g_mailbox_swap;
+// The longest it waits for the head to leave: SynthMinder steps away at once.
+constexpr uint32_t MAILBOX_SWAP_WAIT_MS = 1500;
+// A SET's new file, written once the drive is idle.
+static settings::Settings g_mailbox_settings;
+static bool g_mailbox_settings_due = false;
+
+// A setting's value in FDDSYNTH.CFG's words: `key=` in settings::format's text.
+static void settingText(const settings::Settings& s, const char* key, char* out, size_t cap) {
+    static char text[settings::FILE_MAX];  // off core 0's stack
+    size_t n = settings::format(s, text, sizeof text);
+    out[0] = 0;
+    size_t k = std::strlen(key);
+    for (size_t at = 0; at < n;) {
+        size_t end = at;
+        while (end < n && text[end] != '\n') ++end;
+        if (end - at > k && std::memcmp(text + at, key, k) == 0 && text[at + k] == '=') {
+            size_t v = end - at - k - 1;
+            if (v >= cap) v = cap - 1;
+            std::memcpy(out, text + at + k + 1, v);
+            out[v] = 0;
+            return;
+        }
+        at = end + 1;
+    }
+}
+
+class FirmwareDuo final : public duo::Duo {
+public:
+    const char* firmware() const override { return FIRMWARE_VERSION; }
+    unsigned drives() const override { return g_drive_count; }
+    void driveInfo(unsigned i, duo::DriveInfo& out) const override {
+        out = duo::DriveInfo{};
+        const DriveState& s = g_drv[i];
+        const DriveShared& sh = g_shared[i];
+        out.letter = driveName(i)[0];
+        out.disk_in = sh.disk_in.load() && !s.no_disk;
+        out.disk = s.builtin == Builtin::Welcome     ? "welcome"
+                   : s.builtin == Builtin::Generated ? "generated"
+                                                     : sd_image::name(i);
+        const ibm::Format& fmt = s.slot->format();
+        duo::describe(fmt, out.format, sizeof out.format);
+        out.kb = s.from_card ? sd_image::images().size(s.image_index) / 1024 : fmt.imageBytes() / 1024;
+        out.cylinder = sh.cylinder.load();
+        out.motor = g_activity.motorOn() && sh.selected.load();
+        out.write_protected = sh.write_protected.load();
+    }
+    int volume() const override { return panel::model().volume(); }
+    size_t packCount() const override { return g_card ? sd_image::packs().count() : 0; }
+    size_t packIndex() const override { return g_pack_request >= 0 ? size_t(g_pack_request) : g_pack_index; }
+    const char* packName(size_t i) const override { return sd_image::packs().name(i); }
+    size_t imageCount() const override { return g_card ? sd_image::images().count() : 0; }
+    const char* imageName(size_t i) const override { return sd_image::images().name(i); }
+    uint32_t imageKB(size_t i) const override { return sd_image::images().size(i) / 1024; }
+
+    size_t settingCount() const override { return COUNT; }
+    duo::Setting setting(size_t i) const override {
+        const settings::Settings& next = g_mailbox_settings_due ? g_mailbox_settings : g_latest;
+        settingText(next, KEYS[i], next_[i], sizeof next_[i]);
+        settingText(g_running, KEYS[i], now_[i], sizeof now_[i]);
+        return {KEYS[i], next_[i], now_[i]};
+    }
+
+    const char* insert(unsigned drive, size_t image, unsigned asked_on) override {
+        if (busy(drive)) return "busy";
+        if (drive == asked_on) return wait(drive, false, image);
+        startSwap(drive, image);
+        return nullptr;
+    }
+    const char* eject(unsigned drive, unsigned asked_on) override {
+        if (busy(drive)) return "busy";
+        if (!g_shared[drive].disk_in.load()) return "empty";
+        if (drive == asked_on) return wait(drive, true, 0);
+        g_shared[drive].disk_request.store(-1);
+        return nullptr;
+    }
+    const char* setPack(size_t index) override {
+        g_pack_request = int(index);  // servicePack loads it once the drive is idle
+        return nullptr;
+    }
+    const char* setVolume(int volume) override {
+        panel::model().setVolume(volume);  // servicePanel gives the mixer it; serviceSettings saves it
+        return nullptr;
+    }
+    const char* set(const char* key, const char* value) override {
+        if (!g_card) return "card";
+        bool allowed = false;
+        for (size_t i = 0; i < COUNT; ++i) allowed = allowed || std::strcmp(key, KEYS[i]) == 0;
+        if (!allowed) return "key";
+        // `-` clears a start disk: back to the last one in.
+        char line[settings::NAME + 32];
+        int n = std::snprintf(line, sizeof line, "%s=%s", key, std::strcmp(value, "-") == 0 ? "" : value);
+        settings::Settings next = g_mailbox_settings_due ? g_mailbox_settings : g_latest;
+        if (n <= 0 || size_t(n) >= sizeof line || !settings::set(next, line, size_t(n))) return "value";
+        g_mailbox_settings = next;
+        g_mailbox_settings_due = true;
+        return nullptr;
+    }
+
+private:
+    // Only these: `interface` or `cable` set wrong from the PC would lose it the drive at the next power-on.
+    static constexpr size_t COUNT = 3;
+    static constexpr const char* KEYS[COUNT] = {"drive", "device0", "device1"};
+    mutable char next_[COUNT][settings::NAME];
+    mutable char now_[COUNT][settings::NAME];
+
+    static bool busy(unsigned drive) {
+        return g_shared[drive].swap.load() != SWAP_NONE || (g_mailbox_swap.waiting && g_mailbox_swap.drive == drive);
+    }
+    static const char* wait(unsigned drive, bool eject, size_t image) {
+        g_mailbox_swap = MailboxSwap{true, eject, drive, image, millis()};
+        return nullptr;
+    }
+};
+
+static FirmwareDuo g_duo;
+static duo::MailboxHandler g_mailbox_handler(g_duo);
+static mailbox::Handler& mailboxHandler() { return g_mailbox_handler; }
+
+static void serviceMailbox() {
+    MailboxSwap& w = g_mailbox_swap;
+    if (w.waiting) {
+        bool left = g_shared[w.drive].cylinder.load() != mailbox::CYLINDER;
+        if (left || millis() - w.asked_ms > MAILBOX_SWAP_WAIT_MS) {
+            w.waiting = false;
+            if (w.eject)
+                g_shared[w.drive].disk_request.store(-1);
+            else
+                startSwap(w.drive, w.image);
+        }
+    }
+    if (g_mailbox_settings_due && driveIdle()) {
+        g_mailbox_settings_due = false;
+        static char text[settings::FILE_MAX];  // off core 0's stack
+        if (sd_image::writeSettings(text, settings::format(g_mailbox_settings, text, sizeof text))) {
+            g_settings = g_latest = g_mailbox_settings;
+            Serial.println("# SynthMinder changed the settings: they apply from the next power-on");
+        } else {
+            Serial.println("# couldn't save SynthMinder's settings to the card");
+        }
+    }
+}
 #endif
 
 // ---- Core 0 ---------------------------------------------------------------------
@@ -1223,6 +1399,12 @@ static void printStats() {
                   (unsigned long)g_write_unplaced, (unsigned long)g_bursts_dropped.load(),
                   (unsigned long)g_capture->overruns(), (unsigned long)g_write_faults, (unsigned long)g_write_us_max);
     Serial.printf(" finish_us_mean=%lu", (unsigned long)(g_finishes ? g_finish_us_sum / g_finishes : 0));
+    // SynthMinder's mailbox, per drive: requests answered, repeats, stray writes (mailbox.h).
+    for (unsigned i = 0; i < g_drive_count; ++i) {
+        const mailbox::MailboxSource& mb = *g_drv[i].mailbox;
+        Serial.printf(" mailbox%u=%s:%lu/%lu/%lu", i, mb.active() ? "on" : "off", (unsigned long)mb.exchanges(),
+                      (unsigned long)mb.repeats(), (unsigned long)mb.rejected());
+    }
     Serial.printf(" decode_kbps=%lu decode_bytes=%llu finish_us_max=%lu burst_gap_us_max=%lu",
                   (unsigned long)(g_decode_us_sum ? g_decode_bytes * 1000 / g_decode_us_sum : 0),
                   (unsigned long long)g_decode_bytes, (unsigned long)g_finish_us_max,
@@ -1534,6 +1716,7 @@ void loop() {
     audio::service();
     servicePack();      // only when the drive is idle
     serviceSettings();  // likewise
+    serviceMailbox();
 #endif
     handleConsole();
 

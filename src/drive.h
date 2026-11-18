@@ -37,6 +37,10 @@ struct Config {
     bus::Interface interface = bus::Interface::IbmPc;  // Amiga: the motor is latched at select
     uint8_t last_cylinder = head::DEFAULT_LAST_CYLINDER;
     uint8_t start_cylinder = 0;  // where the head is at power-on
+    // SynthMinder's mailbox (mailbox.h): with the head there, the drive
+    // never reports write-protect, so the PC can always write its request.
+    // 0: none (not a PC, or the tests' default).
+    uint8_t mailbox_cylinder = 0;
     rotation::Config spindle;
 };
 
@@ -111,7 +115,7 @@ public:
     // head (`ready_cylinder`, from the loader; stale IDs would look like a
     // seek error).
     bool streams(uint32_t now_us, int ready_cylinder) const {
-        return selected_ && disk_present_ && spindle_.atSpeed(now_us) && ready_cylinder == head_.cylinder();
+        return selected_ && mediaPresent() && spindle_.atSpeed(now_us) && ready_cylinder == head_.cylinder();
     }
 
     // The disk's speed and how far the head can go (ibm::Format): the inner
@@ -131,7 +135,18 @@ public:
     bool selected() const { return selected_; }
     bool diskPresent() const { return disk_present_; }
     bool diskChanged() const { return disk_changed_; }
-    bool writeProtected() const { return write_protected_; }
+    // As the host sees it: never at the mailbox's cylinder.
+    bool writeProtected() const { return write_protected_ && !atMailbox(); }
+    bool atMailbox() const { return cfg_.mailbox_cylinder && head_.cylinder() == cfg_.mailbox_cylinder; }
+    // With no disk in, the mailbox still answers: at its cylinder the drive
+    // spins, streams and takes writes as if a disk were in, and doesn't
+    // report the disk change. Anywhere else it's empty, so the host (DOS)
+    // never sees a disk arrive. Not while a swap fills the cache (core 1
+    // clears it then), when the loader's format is changing under it.
+    void setMailboxWhenEmpty(bool allowed) { mailbox_when_empty_ = allowed; }
+    bool mailboxStandIn() const { return !disk_present_ && mailbox_when_empty_ && atMailbox(); }
+    // A disk to read and write: the one in, or the mailbox's stand-in.
+    bool mediaPresent() const { return disk_present_ || mailboxStandIn(); }
     uint8_t side() const { return side_; }
     const head::Head& head() const { return head_; }
     rotation::Spindle& spindle() { return spindle_; }
@@ -150,6 +165,7 @@ private:
     bool disk_present_ = false;
     bool write_protected_ = true;
     bool disk_changed_ = true;  // a PC drive reports a change from power-on
+    bool mailbox_when_empty_ = true;
 };
 
 }  // namespace drive

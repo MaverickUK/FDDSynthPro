@@ -264,6 +264,7 @@ void runAmigaTests();
 void runWelcomeDiskTests();
 void runFmTests();
 void runHfeTests();
+void runMailboxTests();
 
 int main() {
     RUN(test_pin_layout);
@@ -299,6 +300,7 @@ int main() {
     runWelcomeDiskTests();
     runFmTests();
     runHfeTests();
+    runMailboxTests();
     std::printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

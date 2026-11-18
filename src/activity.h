@@ -82,6 +82,11 @@ struct Config {
     // every 10 ms, the Feather host every 26 ms (clicks, as on a real drive
     // stepping that slowly).
     uint32_t seek_gap_us = 20000;
+    // A run of steps that starts here is silent: SynthMinder's mailbox
+    // (mailbox.h), so the head's trip back from it to the disk makes no
+    // sound. The trip out can't be told from any other seek until it
+    // ends, so it sounds. -1: none.
+    int quiet_cylinder = -1;
 };
 
 enum class Sound : uint8_t { MotorOn, MotorOff, Step, SeekStart, SeekEnd, Bump, Insert, Eject };
@@ -99,6 +104,7 @@ const char* soundName(Sound s);
 class Tracker {
 public:
     explicit Tracker(Config c = {}) : cfg_(c) {}
+    void setQuietCylinder(int cylinder) { cfg_.quiet_cylinder = cylinder; }
 
     void onDriveEvent(const DriveEvent& e);
     // Ends a seek once no step has come for seek_gap_us. Call often (core 0
@@ -114,6 +120,7 @@ public:
     uint32_t seeks() const { return seeks_; }
     uint32_t bumps() const { return bumps_; }
     uint32_t dropped() const { return dropped_; }
+    uint32_t quietSteps() const { return quiet_steps_; }  // steps not heard: a run from the quiet cylinder
 
 private:
     void emit(const Event& e);
@@ -127,7 +134,8 @@ private:
     bool last_inwards_ = false;
     uint8_t cylinder_ = 0;
     uint16_t seek_steps_ = 0;
-    uint32_t clicks_ = 0, seeks_ = 0, bumps_ = 0, dropped_ = 0;
+    bool quiet_ = false;  // in a run that started at quiet_cylinder
+    uint32_t clicks_ = 0, seeks_ = 0, bumps_ = 0, dropped_ = 0, quiet_steps_ = 0;
 
     static constexpr size_t QUEUE = 32;
     Event queue_[QUEUE];
