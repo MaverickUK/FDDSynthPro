@@ -1,5 +1,8 @@
 # FDD Synth Duo
 
+[![Build and test](https://github.com/MaverickUK/FDDSynthPro/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/MaverickUK/FDDSynthPro/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/MaverickUK/FDDSynthPro?include_prereleases&sort=semver)](https://github.com/MaverickUK/FDDSynthPro/releases)
+
 <img src="media/FDDSynthDuo.png" alt="FDD Synth Duo logo" width="300" align="left">
 
 An RP2350 that pretends to be a 3.5-inch floppy drive, GoTek style, as the base for a future FDD Synth that *is* the drive rather than one that listens to it. Being the drive, it knows exactly when the motor spins and how the head moves, so the sounds can follow every step.
